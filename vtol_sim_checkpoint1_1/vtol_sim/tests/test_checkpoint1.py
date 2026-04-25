@@ -162,8 +162,9 @@ def test_dynamics_acceleration_clip():
     print(f"  수평 가속도 크기: {a_total_horiz:.3f} m/s² (한계 {a_max:.3f})")
     print(f"  클립 이벤트 발생 횟수: {n_clip}/200 steps")
     print(f"  a_max_used 일관성: {a_max_used_history[0]:.3f} (params 일치 {a_max:.3f})")
+    print(f"  전체 구간 최대 a_total_actual: {max(a_total_history):.3f} m/s²")
 
-    assert a_total_horiz <= a_max * 1.05, f"가속도 한계 초과: {a_total_horiz}"
+    assert max(a_total_history) <= a_max * 1.05, f"가속도 한계 초과 (과도구간 포함): {max(a_total_history):.3f}"
     assert abs(state.phi) < np.deg2rad(20.0), f"뱅크각 클립 안됨: {np.rad2deg(state.phi)}"
     # 60° 명령 → 응답 후 정상선회 도달 시 클립 발생해야 (대부분 step에서 클립)
     assert n_clip > 100, f"클립 이벤트 기록 안됨: {n_clip}/200"
@@ -191,16 +192,22 @@ def test_dynamics_no_clip():
     dt = 0.01
 
     n_clip = 0
+    a_total_cmd_history = []
+    a_total_actual_history = []
     for _ in range(200):
         state = dyn.step(state, u, wind, dt)
         if state.clip_event:
             n_clip += 1
+        a_total_cmd_history.append(state.a_total_cmd)
+        a_total_actual_history.append(state.a_total_actual)
     print(f"  클립 이벤트 발생: {n_clip}/200 (기대 0)")
     print(f"  최종 a_total_actual = {state.a_total_actual:.3f}, "
           f"a_total_cmd = {state.a_total_cmd:.3f}")
     assert n_clip == 0, "클립이 발생하면 안 되는 케이스에서 발생함"
-    # 클립 미발생 시 a_total_cmd == a_total_actual
-    assert abs(state.a_total_cmd - state.a_total_actual) < 1e-9
+    # 클립 미발생 시 전체 구간에서 a_total_cmd == a_total_actual
+    assert all(abs(cmd - act) < 1e-9
+               for cmd, act in zip(a_total_cmd_history, a_total_actual_history)), \
+        "클립 미발생 구간에서 cmd/actual 불일치 발생"
     print("  ✓ 통과")
 
 
@@ -425,21 +432,27 @@ def test_acceleration_recording_consistency():
     # 60° 뱅크 — 클립 발생
     u = ControlInput(bank_cmd=np.deg2rad(60.0), pitch_cmd=0.0, thrust_cmd=0.0)
 
-    # 충분히 정착할 시간
+    # 충분히 정착할 시간 — 전체 구간 기록
+    history = []
     for _ in range(200):
         state = dyn.step(state, u, np.zeros(3), 0.01)
+        history.append(state)
 
-    # 클립 시 a_total_actual <= a_max_used
     print(f"  a_total_cmd  = {state.a_total_cmd:.3f}")
     print(f"  a_total_actual = {state.a_total_actual:.3f}")
     print(f"  a_max_used   = {state.a_max_used:.3f}")
     print(f"  clip_factor  = {state.clip_factor:.4f}")
-    assert state.a_total_actual <= state.a_max_used + 1e-6
-    # 클립 발생 시: a_total_actual ≈ clip_factor * a_total_cmd
-    if state.clip_event:
-        expected_actual = state.clip_factor * state.a_total_cmd
-        assert abs(state.a_total_actual - expected_actual) < 1e-3, \
-            f"클립 일관성 위반: actual={state.a_total_actual}, expected={expected_actual}"
+
+    # 전체 구간에서 a_total_actual <= a_max_used
+    for i, s in enumerate(history):
+        assert s.a_total_actual <= s.a_max_used + 1e-6, \
+            f"step {i}: a_total_actual({s.a_total_actual:.3f}) > a_max_used({s.a_max_used:.3f})"
+    # 클립 발생 스텝 전체에서 a_total_actual ≈ clip_factor * a_total_cmd
+    for i, s in enumerate(history):
+        if s.clip_event:
+            expected_actual = s.clip_factor * s.a_total_cmd
+            assert abs(s.a_total_actual - expected_actual) < 1e-3, \
+                f"step {i} 클립 일관성 위반: actual={s.a_total_actual:.3f}, expected={expected_actual:.3f}"
     print("  ✓ 통과")
 
 
