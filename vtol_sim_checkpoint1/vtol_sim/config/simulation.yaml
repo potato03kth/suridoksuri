@@ -1,0 +1,41 @@
+# =============================================================================
+# 시뮬레이션 공통 설정
+# =============================================================================
+dt_physics: 0.01             # s, 동역학 적분 스텝
+duration_max: 600.0          # s, 시뮬레이션 최대 시간 (안전 종료)
+
+# 시간 스케일 (주기)
+gps_period: 0.1              # s (10 Hz)
+control_period: 0.05         # s (20 Hz, 제어기는 동역학보다 느림)
+
+# 지연 (기본값)
+delay_sensing: 0.005         # s, 센서 → 제어기 (사실상 무시 가능)
+delay_comm_to_fcc: 0.02      # s, 제어계산컴퓨터 → 기체 제어 컴퓨터 (유선통신)
+delay_actuator: 0.0          # s, 별도 — 1차 지연(tau_phi)에 포함
+
+# 실연산시간 측정 (하이브리드)
+delay_mode: "hybrid"         # 'measured' | 'modeled' | 'hybrid'
+                             # measured: time.perf_counter() 사용
+                             # modeled: 사전 정의된 algorithm-specific 지연
+                             # hybrid: 둘 다 기록, 평가에는 measured 사용
+modeled_compute_time:        # 결정론적 모드 사용 시
+  nlgl: 0.0005               # s
+  mpc: 0.030                 # s
+  dubins: 0.001              # s (planning)
+  spline: 0.005              # s
+
+# 상태 추정 (α-β 필터)
+alpha_beta:
+  alpha: 0.7
+  beta: 0.3
+
+# WP 도달 판정
+waypoint_acceptance:
+  R_accept_factor: 1.0       # max(sigma_gps, R_accept_min) * factor
+  R_accept_min: 0.2          # m
+  R_accept_plane_factor: 2.0 # 통과평면 조건 시 수직 거리 한계 = R_accept * 이값
+
+# 기준점 (위/경도 기준 — flat-earth 변환용; 임의 값)
+ref_lat_deg: 35.1796         # 광주광역시 위도 (예시)
+ref_lon_deg: 126.8504        # 광주광역시 경도 (예시)
+ref_alt: 0.0
