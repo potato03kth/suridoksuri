@@ -35,6 +35,14 @@ class AircraftState:
     a_body: np.ndarray = field(default_factory=lambda: np.zeros(3))
     # [a_x: 전방, a_y: 우측, a_z: 하방] — body 좌표계 (NED 컨벤션)
 
+    # === 알고리즘 평가용 가속도 기록 ===
+    a_total_cmd: float = 0.0     # m/s², 클립 전 명령 총 가속도 크기
+    a_total_actual: float = 0.0  # m/s², 클립 후 실제 총 가속도 크기 (수평면)
+    a_max_used: float = 0.0      # m/s², 이 step에서 적용된 최대 가속도 한계
+                                 # (시나리오 override를 반영한 실제값)
+    clip_event: bool = False     # True면 이 step에서 가속도 클리핑 발생
+    clip_factor: float = 1.0     # 클립 시 적용된 스케일 (1.0 = 클립 없음)
+
     def copy(self) -> "AircraftState":
         return replace(
             self,

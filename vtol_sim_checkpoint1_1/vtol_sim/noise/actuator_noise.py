@@ -10,7 +10,7 @@
 from __future__ import annotations
 import numpy as np
 from .base_noise import BaseNoise
-from ..dynamics.base_dynamics import ControlInput
+from dynamics.base_dynamics import ControlInput
 
 
 class ActuatorNoise(BaseNoise):

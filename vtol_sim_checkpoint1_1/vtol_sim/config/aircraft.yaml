@@ -38,6 +38,7 @@ h_max: 300.0                 # m
 # 1차 지연 시정수
 tau_phi: 0.10                # s, 뱅크각 응답 지연
 tau_thrust: 0.10             # s, 추력 응답 지연
+tau_gamma: 0.30              # s, 비행경로각(γ) 응답 지연 (피치 명령 추적)
 
 # 천이 (HOVER ↔ CRUISE)
 h_transition: 100.0          # m, 천이 발생 고도

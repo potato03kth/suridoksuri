@@ -128,10 +128,10 @@ def test_dynamics_steady_turn():
 
 
 # ============================================================
-# Test 3: 동역학 — 가속도 제약 강제 확인
+# Test 3: 동역학 — 가속도 제약 강제 + 클립 이벤트 기록 확인
 # ============================================================
 def test_dynamics_acceleration_clip():
-    print("\n[Test 3] 가속도 제약 — 과도한 뱅크각 명령 시 자동 클립")
+    print("\n[Test 3] 가속도 제약 — 과도한 뱅크각 명령 시 자동 클립 + 이벤트 기록")
     params = load_aircraft_params()
     dyn = PointMass3DoF(params)
 
@@ -146,17 +146,61 @@ def test_dynamics_acceleration_clip():
     dt = 0.01
 
     # 충분히 응답할 시간 (tau_phi=0.1s)
+    n_clip = 0
+    a_total_history = []
+    a_max_used_history = []
     for _ in range(200):
         state = dyn.step(state, u, wind, dt)
+        if state.clip_event:
+            n_clip += 1
+        a_total_history.append(state.a_total_actual)
+        a_max_used_history.append(state.a_max_used)
 
-    a_total = np.linalg.norm([state.a_body[0], state.a_body[1]])  # 수평면 가속도 크기
+    a_total_horiz = np.linalg.norm([state.a_body[0], state.a_body[1]])
     a_max = params["a_max_g"] * 9.81
     print(f"  최종 phi: {np.rad2deg(state.phi):.2f}° (명령 60°)")
-    print(f"  수평 가속도 크기: {a_total:.3f} m/s² (한계 {a_max:.3f})")
-    # 가속도가 한계를 크게 초과하지 않아야
-    assert a_total <= a_max * 1.05, f"가속도 한계 초과: {a_total}"
-    # 뱅크각도 ~16.7°에서 정착해야
+    print(f"  수평 가속도 크기: {a_total_horiz:.3f} m/s² (한계 {a_max:.3f})")
+    print(f"  클립 이벤트 발생 횟수: {n_clip}/200 steps")
+    print(f"  a_max_used 일관성: {a_max_used_history[0]:.3f} (params 일치 {a_max:.3f})")
+
+    assert a_total_horiz <= a_max * 1.05, f"가속도 한계 초과: {a_total_horiz}"
     assert abs(state.phi) < np.deg2rad(20.0), f"뱅크각 클립 안됨: {np.rad2deg(state.phi)}"
+    # 60° 명령 → 응답 후 정상선회 도달 시 클립 발생해야 (대부분 step에서 클립)
+    assert n_clip > 100, f"클립 이벤트 기록 안됨: {n_clip}/200"
+    # a_max_used가 params와 일치해야 (의미론적 일관성)
+    assert abs(a_max_used_history[0] - a_max) < 1e-6, "a_max_used 불일치"
+    print("  ✓ 통과")
+
+
+# ============================================================
+# Test 3b: 클립 미발생 케이스 — 클립 이벤트가 False여야
+# ============================================================
+def test_dynamics_no_clip():
+    print("\n[Test 3b] 가속도 제약 미발생 — 클립 이벤트 False 확인")
+    params = load_aircraft_params()
+    dyn = PointMass3DoF(params)
+
+    state = AircraftState(
+        pos=np.array([0.0, 0.0, 100.0]),
+        v=18.0, chi=0.0, gamma=0.0, phi=0.0,
+        mode=MODE_CRUISE,
+    )
+    # 5° 뱅크 — a_n = g·tan(5°) = 0.086g, 한계 0.3g 충분히 이내
+    u = ControlInput(bank_cmd=np.deg2rad(5.0), pitch_cmd=0.0, thrust_cmd=0.0)
+    wind = np.zeros(3)
+    dt = 0.01
+
+    n_clip = 0
+    for _ in range(200):
+        state = dyn.step(state, u, wind, dt)
+        if state.clip_event:
+            n_clip += 1
+    print(f"  클립 이벤트 발생: {n_clip}/200 (기대 0)")
+    print(f"  최종 a_total_actual = {state.a_total_actual:.3f}, "
+          f"a_total_cmd = {state.a_total_cmd:.3f}")
+    assert n_clip == 0, "클립이 발생하면 안 되는 케이스에서 발생함"
+    # 클립 미발생 시 a_total_cmd == a_total_actual
+    assert abs(state.a_total_cmd - state.a_total_actual) < 1e-9
     print("  ✓ 통과")
 
 
@@ -297,6 +341,152 @@ def test_polyline_utils():
 
 
 # ============================================================
+# Test 9: 시나리오 override — a_max_g 변경 시 동역학에 반영
+# ============================================================
+def test_scenario_override():
+    print("\n[Test 9] 시나리오 override — a_max_g 변경 시 클립 한계도 변경")
+    from utils.config_loader import (
+        load_aircraft_params, merge_scenario_into_aircraft
+    )
+
+    aircraft = load_aircraft_params()
+    # 시나리오 3 모방: a_max_g를 0.15로 절반으로
+    scenario_constrained = {"a_max_g": 0.15, "v_cruise": 20.0}
+    merged = merge_scenario_into_aircraft(aircraft, scenario_constrained)
+
+    print(f"  원본 a_max_g: {aircraft['a_max_g']}, override: {scenario_constrained['a_max_g']}")
+    print(f"  merged: {merged['a_max_g']}")
+    assert merged["a_max_g"] == 0.15, "override 적용 안 됨"
+    assert aircraft["a_max_g"] == 0.3, "원본 dict가 변경됨 (deepcopy 실패)"
+
+    # 동역학에 적용
+    dyn = PointMass3DoF(merged)
+    print(f"  동역학 a_max: {dyn.a_max:.3f} m/s² (기대 {0.15 * 9.81:.3f})")
+    assert abs(dyn.a_max - 0.15 * 9.81) < 1e-6
+
+    # 동일한 큰 뱅크각 명령에 대해, 0.15g 한계가 더 자주 클립되어야
+    state = AircraftState(
+        pos=np.array([0.0, 0.0, 100.0]), v=18.0,
+        chi=0.0, gamma=0.0, phi=0.0, mode=MODE_CRUISE,
+    )
+    u = ControlInput(bank_cmd=np.deg2rad(20.0), pitch_cmd=0.0, thrust_cmd=0.0)
+    n_clip = 0
+    for _ in range(200):
+        state = dyn.step(state, u, np.zeros(3), 0.01)
+        if state.clip_event:
+            n_clip += 1
+    print(f"  20° 뱅크 명령 + 0.15g 한계 → 클립 {n_clip}/200")
+    # 0.15g 한계에서 phi_eff = arctan(0.15) ≈ 8.5°. 20° 명령은 클립되어야.
+    assert n_clip > 100, f"낮은 가속도 한계에서 클립 빈도 낮음: {n_clip}"
+    # 기록된 a_max_used가 새 한계와 일치
+    assert abs(state.a_max_used - 0.15 * 9.81) < 1e-6
+    print("  ✓ 통과")
+
+
+# ============================================================
+# Test 10: 가속도 한계 런타임 변경 (시나리오 4 모방)
+# ============================================================
+def test_acceleration_limit_runtime_change():
+    print("\n[Test 10] 가속도 한계 런타임 변경 — set_a_max_g()")
+    params = load_aircraft_params()
+    dyn = PointMass3DoF(params)
+    a_max_orig = dyn.a_max
+    print(f"  초기 a_max: {a_max_orig:.3f} m/s²")
+
+    # 절반으로
+    dyn.set_a_max_g(0.15)
+    print(f"  변경 후: {dyn.a_max:.3f} m/s² (기대 {0.15*9.81:.3f})")
+    assert abs(dyn.a_max - 0.15 * 9.81) < 1e-6
+    assert abs(dyn.a_max_g - 0.15) < 1e-9
+
+    # 다시 step 호출 시 새 한계가 a_max_used에 반영
+    state = AircraftState(
+        pos=np.zeros(3), v=18.0, chi=0.0, gamma=0.0,
+        phi=0.0, mode=MODE_CRUISE,
+    )
+    u = ControlInput(bank_cmd=0.0, pitch_cmd=0.0, thrust_cmd=0.0)
+    state = dyn.step(state, u, np.zeros(3), 0.01)
+    assert abs(state.a_max_used - 0.15 * 9.81) < 1e-6, "런타임 변경이 a_max_used에 반영 안 됨"
+    print(f"  step 후 state.a_max_used: {state.a_max_used:.3f}")
+    print("  ✓ 통과")
+
+
+# ============================================================
+# Test 11: 가속도 기록의 의미론적 일관성
+# ============================================================
+def test_acceleration_recording_consistency():
+    print("\n[Test 11] 가속도 기록 일관성 — a_total_cmd, a_total_actual, clip_factor")
+    params = load_aircraft_params()
+    dyn = PointMass3DoF(params)
+    state = AircraftState(
+        pos=np.zeros(3), v=18.0, chi=0.0, gamma=0.0,
+        phi=0.0, mode=MODE_CRUISE,
+    )
+    # 60° 뱅크 — 클립 발생
+    u = ControlInput(bank_cmd=np.deg2rad(60.0), pitch_cmd=0.0, thrust_cmd=0.0)
+
+    # 충분히 정착할 시간
+    for _ in range(200):
+        state = dyn.step(state, u, np.zeros(3), 0.01)
+
+    # 클립 시 a_total_actual <= a_max_used
+    print(f"  a_total_cmd  = {state.a_total_cmd:.3f}")
+    print(f"  a_total_actual = {state.a_total_actual:.3f}")
+    print(f"  a_max_used   = {state.a_max_used:.3f}")
+    print(f"  clip_factor  = {state.clip_factor:.4f}")
+    assert state.a_total_actual <= state.a_max_used + 1e-6
+    # 클립 발생 시: a_total_actual ≈ clip_factor * a_total_cmd
+    if state.clip_event:
+        expected_actual = state.clip_factor * state.a_total_cmd
+        assert abs(state.a_total_actual - expected_actual) < 1e-3, \
+            f"클립 일관성 위반: actual={state.a_total_actual}, expected={expected_actual}"
+    print("  ✓ 통과")
+
+
+# ============================================================
+# Test 12: SimLog + 가속도 통계 헬퍼
+# ============================================================
+def test_sim_log_and_metrics():
+    print("\n[Test 12] SimLog 기록 + compute_acceleration_metrics")
+    from utils.sim_log import SimLog, compute_acceleration_metrics
+
+    params = load_aircraft_params()
+    dyn = PointMass3DoF(params)
+    state = AircraftState(
+        pos=np.zeros(3), v=18.0, chi=0.0, gamma=0.0,
+        phi=0.0, mode=MODE_CRUISE,
+    )
+    # 5초간: 처음 2초는 5° 뱅크(클립 없음), 다음 3초는 60° 뱅크(클립 다수)
+    log = SimLog()
+    dt = 0.01
+    for i in range(500):
+        if i < 200:
+            u = ControlInput(bank_cmd=np.deg2rad(5.0))
+        else:
+            u = ControlInput(bank_cmd=np.deg2rad(60.0))
+        state = dyn.step(state, u, np.zeros(3), dt)
+        log.append_step(state, u, compute_time_ctrl=0.0001)
+
+    metrics = compute_acceleration_metrics(log)
+    print(f"  총 step: {len(log.t)}")
+    print(f"  max a_total_actual: {metrics['max_a_total_actual']:.3f} m/s² "
+          f"({metrics['max_a_total_actual_g']:.3f} g)")
+    print(f"  max a_total_cmd:    {metrics['max_a_total_cmd']:.3f} m/s² "
+          f"({metrics['max_a_total_cmd_g']:.3f} g)")
+    print(f"  n_clip_events: {metrics['n_clip_events']} "
+          f"({metrics['clip_time_ratio']*100:.1f}%)")
+    print(f"  mean_clip_factor: {metrics['mean_clip_factor']:.4f}")
+
+    # 기대: 200~500 구간에서 클립 다수 (정착 후 약 280~300 step)
+    assert metrics["n_clip_events"] > 200, "클립 이벤트가 너무 적음"
+    # max actual은 a_max에 한계됨
+    assert metrics["max_a_total_actual_g"] <= 0.31, "실제 가속도 한계 위반"
+    # max cmd는 한계 초과 (60° 뱅크 명령 시 약 1.7g 명령)
+    assert metrics["max_a_total_cmd_g"] > 1.0, "명령 가속도가 너무 작음"
+    print("  ✓ 통과")
+
+
+# ============================================================
 # Main
 # ============================================================
 if __name__ == "__main__":
@@ -308,11 +498,54 @@ if __name__ == "__main__":
         test_dynamics_straight_flight,
         test_dynamics_steady_turn,
         test_dynamics_acceleration_clip,
+        test_dynamics_no_clip,
         test_gps_noise_statistics,
         test_alpha_beta_filter,
         test_geodetic_roundtrip,
         test_delay_buffer,
         test_polyline_utils,
+        test_scenario_override,
+        test_acceleration_limit_runtime_change,
+        test_acceleration_recording_consistency,
+        test_sim_log_and_metrics,
+    ]
+
+    failed = []
+    for test in tests:
+        try:
+            test()
+        except AssertionError as e:
+            print(f"  ✗ 실패: {e}")
+            failed.append(test.__name__)
+        except Exception as e:
+            print(f"  ✗ 예외: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            failed.append(test.__name__)
+
+    print("\n" + "=" * 60)
+    if not failed:
+        print("✓ 모든 테스트 통과")
+    else:
+        print(f"✗ {len(failed)}개 실패: {failed}")
+        sys.exit(1)
+    print("=" * 60)
+    print("체크포인트 1 단위 테스트")
+    print("=" * 60)
+
+    tests = [
+        test_dynamics_straight_flight,
+        test_dynamics_steady_turn,
+        test_dynamics_acceleration_clip,
+        test_dynamics_no_clip,
+        test_gps_noise_statistics,
+        test_alpha_beta_filter,
+        test_geodetic_roundtrip,
+        test_delay_buffer,
+        test_polyline_utils,
+        test_scenario_override,
+        test_acceleration_limit_runtime_change,
+        test_acceleration_recording_consistency,
     ]
 
     failed = []

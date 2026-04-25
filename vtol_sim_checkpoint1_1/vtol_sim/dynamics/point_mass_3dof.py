@@ -37,13 +37,16 @@ class PointMass3DoF(BaseDynamics):
         Parameters
         ----------
         params : dict
-            aircraft.yaml에서 로드한 파라미터
+            aircraft.yaml에서 로드한 파라미터.
+            시나리오에서 a_max_g 등을 override한 경우, 이미 반영된 dict를 넘길 것.
         """
         self.g = float(params["gravity"])
         self.mass = float(params["mass"])
         self.v_min = float(params["v_stall"])
         self.v_max = float(params["v_max"])
-        self.a_max = float(params["a_max_g"]) * self.g
+        # 가속도 한계 — params['a_max_g']는 시나리오 override 후 값
+        self._a_max_g = float(params["a_max_g"])  # g 단위 보관 (런타임 변경 가능)
+        self.a_max = self._a_max_g * self.g       # m/s² (캐시)
         self.phi_max = np.deg2rad(float(params["phi_max_deg"]))
         self.gamma_max = np.deg2rad(float(params["gamma_max_deg"]))
         self.gamma_min = np.deg2rad(float(params["gamma_min_deg"]))
@@ -51,12 +54,26 @@ class PointMass3DoF(BaseDynamics):
         self.h_max = float(params["h_max"])
         self.tau_phi = float(params["tau_phi"])
         self.tau_thrust = float(params["tau_thrust"])
+        self.tau_gamma = float(params["tau_gamma"])  # γ 응답 시정수 (YAML화)
         # 추력 명령 → 가속도 매핑 — thrust_cmd ∈ [-1, 1]일 때 a_T = thrust_cmd * a_max
         # (-1 = 최대감속, +1 = 최대가속). 실제 항공기는 비대칭이지만 단순화.
         self.thrust_to_accel = self.a_max
 
         # 내부 상태 (1차 지연용)
         self._a_T_actual: float = 0.0  # 현재 접선 가속도
+
+    def set_a_max_g(self, a_max_g: float) -> None:
+        """
+        런타임에 가속도 한계 변경 (시나리오 4 동적 변경 등에 사용).
+        thrust_to_accel도 함께 갱신.
+        """
+        self._a_max_g = float(a_max_g)
+        self.a_max = self._a_max_g * self.g
+        self.thrust_to_accel = self.a_max
+
+    @property
+    def a_max_g(self) -> float:
+        return self._a_max_g
 
     def reset(self, initial_state: AircraftState) -> None:
         self._a_T_actual = 0.0
@@ -83,25 +100,34 @@ class PointMass3DoF(BaseDynamics):
 
         # ---- 가속도 제약 강제 (총 body-frame 가속도) ----
         # 구심가속도: a_n = g·tan(φ) (수평선회 가정)
-        # 총 가속도 크기: sqrt(a_T² + a_n²)
-        # 0.3g 초과 시 phi_cmd, a_T_cmd 비례 축소
+        # 총 명령 가속도 크기: sqrt(a_T² + a_n²)
+        # a_max 초과 시 a_T_cmd, phi_cmd 비례 축소 → 클리핑 이벤트 기록
         a_n_cmd = self.g * np.tan(phi_cmd)
-        a_total = np.sqrt(self._a_T_actual**2 + a_n_cmd**2)
-        if a_total > self.a_max:
-            scale = self.a_max / max(a_total, 1e-9)
-            self._a_T_actual *= scale
-            # 뱅크각 명령도 축소
-            a_n_cmd_scaled = a_n_cmd * scale
+        a_total_cmd = float(np.sqrt(self._a_T_actual**2 + a_n_cmd**2))
+
+        if a_total_cmd > self.a_max:
+            clip_factor = self.a_max / max(a_total_cmd, 1e-9)
+            self._a_T_actual *= clip_factor
+            a_n_cmd_scaled = a_n_cmd * clip_factor
             phi_cmd_eff = float(np.arctan(a_n_cmd_scaled / self.g))
+            clip_event = True
+            a_total_actual = self.a_max
         else:
+            clip_factor = 1.0
             phi_cmd_eff = phi_cmd
+            clip_event = False
+            a_total_actual = a_total_cmd
 
         # ---- RK4 적분 ----
         x0 = self._state_to_vec(state)
-        k1 = self._derivative(x0, phi_cmd_eff, gamma_cmd, self._a_T_actual, wind)
-        k2 = self._derivative(x0 + 0.5 * dt * k1, phi_cmd_eff, gamma_cmd, self._a_T_actual, wind)
-        k3 = self._derivative(x0 + 0.5 * dt * k2, phi_cmd_eff, gamma_cmd, self._a_T_actual, wind)
-        k4 = self._derivative(x0 + dt * k3, phi_cmd_eff, gamma_cmd, self._a_T_actual, wind)
+        k1 = self._derivative(x0, phi_cmd_eff, gamma_cmd,
+                              self._a_T_actual, wind)
+        k2 = self._derivative(x0 + 0.5 * dt * k1, phi_cmd_eff,
+                              gamma_cmd, self._a_T_actual, wind)
+        k3 = self._derivative(x0 + 0.5 * dt * k2, phi_cmd_eff,
+                              gamma_cmd, self._a_T_actual, wind)
+        k4 = self._derivative(x0 + dt * k3, phi_cmd_eff,
+                              gamma_cmd, self._a_T_actual, wind)
         x_new = x0 + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
 
         # ---- 제약 강제 (post-integration) ----
@@ -110,7 +136,7 @@ class PointMass3DoF(BaseDynamics):
         # ---- body-frame 가속도 계산 (측정용) ----
         a_body = self._compute_body_acceleration(x_new, self._a_T_actual)
 
-        # ---- 새 상태 구성 ----
+        # ---- 새 상태 구성 (가속도 기록 포함) ----
         new_state = AircraftState(
             pos=x_new[0:3].copy(),
             v=float(x_new[3]),
@@ -120,6 +146,12 @@ class PointMass3DoF(BaseDynamics):
             mode=state.mode,
             t=state.t + dt,
             a_body=a_body,
+            # === 가속도 기록 ===
+            a_total_cmd=a_total_cmd,
+            a_total_actual=a_total_actual,
+            a_max_used=self.a_max,
+            clip_event=clip_event,
+            clip_factor=clip_factor,
         )
         return new_state
 
@@ -149,10 +181,8 @@ class PointMass3DoF(BaseDynamics):
         dv = a_T - self.g * np.sin(gamma)
         dchi = self.g * np.tan(phi) / (v_safe * cos_gamma_safe)
 
-        # γ 1차 지연 (피치 명령 추적)
-        # 더 단순하게: dγ/dt = (γ_cmd - γ) / τ_γ 형태로
-        tau_gamma = 0.3  # s, 피치 응답 시정수
-        dgamma = (gamma_cmd - gamma) / tau_gamma
+        # γ 1차 지연 (피치 명령 추적) — 시정수는 aircraft.yaml에서 로드
+        dgamma = (gamma_cmd - gamma) / self.tau_gamma
 
         # φ 1차 지연
         dphi = (phi_cmd - phi) / self.tau_phi
