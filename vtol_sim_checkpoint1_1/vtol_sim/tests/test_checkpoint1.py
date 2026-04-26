@@ -38,11 +38,7 @@ def test_dynamics_straight_flight():
     dyn = PointMass3DoF(params)
     state = AircraftState(
         pos=np.array([0.0, 0.0, 100.0]),
-        v=18.0,
-        chi=0.0,         # 정북향
-        gamma=0.0,
-        phi=0.0,
-        mode=MODE_CRUISE,
+        v=18.0, chi=0.0, gamma=0.0, phi=0.0, mode=MODE_CRUISE,
     )
     u = ControlInput(bank_cmd=0.0, pitch_cmd=0.0, thrust_cmd=0.0)
     for _ in range(100):
