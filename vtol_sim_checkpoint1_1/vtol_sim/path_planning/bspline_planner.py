@@ -191,12 +191,8 @@ class BSplinePlanner(BasePlanner):
     # 공개 인터페이스
     # ------------------------------------------------------------------
 
-    def plan(
-        self,
-        waypoints_ned: np.ndarray,
-        aircraft_params: dict,
-        initial_state: dict | None = None,
-    ) -> Path:
+    def plan(self, waypoints_ned: np.ndarray, aircraft_params: dict, initial_state: dict | None = None,
+             ) -> Path:
         t0 = time.perf_counter()
 
         v_cruise = float(aircraft_params["v_cruise"])
@@ -236,7 +232,8 @@ class BSplinePlanner(BasePlanner):
         speed_dense = np.linalg.norm(dp_dense, axis=1)
         s_dense = np.zeros(n_dense)
         dt_d = np.diff(t_dense)
-        s_dense[1:] = np.cumsum(0.5 * (speed_dense[:-1] + speed_dense[1:]) * dt_d)
+        s_dense[1:] = np.cumsum(
+            0.5 * (speed_dense[:-1] + speed_dense[1:]) * dt_d)
         total_arc = float(s_dense[-1])
 
         # ── 5. 균등 호 길이 샘플링 ────────────────────────────────────
@@ -246,14 +243,14 @@ class BSplinePlanner(BasePlanner):
 
         # ── 6. 경로점 물리량 계산 ─────────────────────────────────────
         pos = spl(t_unif)       # (n_pts, 3)
-        d1  = spl(t_unif, 1)   # 1차 도함수
-        d2  = spl(t_unif, 2)   # 2차 도함수
+        d1 = spl(t_unif, 1)   # 1차 도함수
+        d2 = spl(t_unif, 2)   # 2차 도함수
 
-        dN,  dE,  dh  = d1[:, 0], d1[:, 1], d1[:, 2]
-        d2N, d2E       = d2[:, 0], d2[:, 1]
+        dN,  dE,  dh = d1[:, 0], d1[:, 1], d1[:, 2]
+        d2N, d2E = d2[:, 0], d2[:, 1]
         horiz = np.sqrt(dN ** 2 + dE ** 2 + 1e-14)
 
-        chi   = np.arctan2(dE, dN)
+        chi = np.arctan2(dE, dN)
         kappa = (dN * d2E - dE * d2N) / horiz ** 3   # > 0 → 우선회
         gamma = np.arctan2(dh, horiz)
 

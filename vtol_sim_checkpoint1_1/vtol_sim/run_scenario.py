@@ -47,7 +47,7 @@ def build_planner(name: str):
     if name == "bspline":
         return BSplinePlanner(ds=1.0, d_straight=30.0, spline_degree=5)
     if name == "bspline2":
-        return BSpline2Planner(ds=1.0, straight_lead=50, spline_degree=3, max_refine_iter=10)
+        return BSpline2Planner(ds=1.0, straight_lead=50, spline_degree=3, max_refine_iter=5)
     raise ValueError(f"Unknown planner: {name}")
 
 
