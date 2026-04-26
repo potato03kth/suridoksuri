@@ -28,8 +28,10 @@ from utils.config_loader import (
     load_aircraft_params,
 )
 from path_planning.dubins_planner import DubinsPlanner
+from path_planning.spline_planner import SplinePlanner
 from path_planning.waypoint_generator import waypoints_from_config
 from path_following.nlgl_controller import NLGLController
+from path_following.mpc_controller import MPCController
 from path_following.inner_loop import InnerLoopPI
 from simulator import Simulator
 from metrics import compute_metrics, print_metrics
@@ -39,21 +41,39 @@ from visualization import plot_simulation_results
 def build_planner(name: str):
     if name == "dubins":
         return DubinsPlanner(ds=2.0, R_factor=1.05, use_energy_climb=True)
+    if name == "spline":
+        return SplinePlanner(ds=2.0, bc_type="clamped")
     raise ValueError(f"Unknown planner: {name}")
 
 
 def build_controller(name: str, aircraft_params: dict):
+    v = aircraft_params["v_cruise"]
+    g = aircraft_params["gravity"]
+    a_max = aircraft_params["a_max_g"] * g
+    R_min_op = (v ** 2) / a_max
+    phi_max = np.deg2rad(aircraft_params["phi_max_deg"])
+
     if name == "nlgl":
-        # L1: 약 2~3 × R_min(운용)
-        v = aircraft_params["v_cruise"]
-        a_max = aircraft_params["a_max_g"] * 9.81
-        R_min_op = (v ** 2) / a_max
         L1 = 2.0 * R_min_op
         return NLGLController(
             L1=L1,
-            phi_max_rad=np.deg2rad(aircraft_params["phi_max_deg"]),
+            phi_max_rad=phi_max,
             inner_loop=InnerLoopPI(),
-            gravity=aircraft_params["gravity"],
+            gravity=g,
+        )
+    if name == "mpc":
+        return MPCController(
+            N_p=20,
+            q_ey=1.0,
+            q_echi=0.5,
+            q_phi=0.05,
+            q_term_factor=5.0,
+            r_phi=2.0,
+            phi_max_rad=np.deg2rad(45.0),  # 대형 오차 복원 허용 (구조한계 69.7° 미만)
+            tau_phi=aircraft_params["tau_phi"],
+            gravity=g,
+            inner_loop=InnerLoopPI(),
+            look_ahead_m=2.0 * R_min_op,
         )
     raise ValueError(f"Unknown controller: {name}")
 
@@ -61,8 +81,10 @@ def build_controller(name: str, aircraft_params: dict):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("scenario", help="scenario name (e.g., 'basic')")
-    parser.add_argument("--planner", default="dubins")
-    parser.add_argument("--controller", default="nlgl")
+    parser.add_argument("--planner", default="dubins",
+                        choices=["dubins", "spline"])
+    parser.add_argument("--controller", default="nlgl",
+                        choices=["nlgl", "mpc"])
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--no-plot", action="store_true")
     parser.add_argument("--output-dir", default="results")
@@ -84,9 +106,10 @@ def main():
     # Planner / Controller
     planner = build_planner(args.planner)
     controller = build_controller(args.controller, aircraft)
-    L1_used = controller.L1
     print(f"\nUsing planner: {args.planner}")
-    print(f"Using controller: {args.controller} (L1={L1_used:.1f}m)")
+    ctrl_info = f"L1={controller.L1:.1f}m" if hasattr(controller, "L1") \
+        else f"N_p={controller.N_p}"
+    print(f"Using controller: {args.controller} ({ctrl_info})")
 
     seed = args.seed if args.seed is not None \
         else scenario["monte_carlo"]["seed_base"]
