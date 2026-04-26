@@ -98,25 +98,23 @@ class PointMass3DoF(BaseDynamics):
         alpha_T = min(1.0, alpha_T)
         self._a_T_actual = (1 - alpha_T) * self._a_T_actual + alpha_T * a_T_cmd
 
-        # ---- 가속도 제약 강제 (총 body-frame 가속도) ----
-        # 구심가속도: a_n = g·tan(φ) (수평선회 가정)
-        # 총 명령 가속도 크기: sqrt(a_T² + a_n²)
-        # a_max 초과 시 a_T_cmd, phi_cmd 비례 축소 → 클리핑 이벤트 기록
-        a_n_cmd = self.g * np.tan(phi_cmd)
+        # ---- 가속도 한계 검사 (위반 기록, 클립 없음) ----
+        # 정책: 동역학은 알고리즘의 명령을 "친절하게" 수정하지 않는다.
+        # 알고리즘이 a_max를 초과하는 명령을 내리면 그대로 적용하여 무리한
+        # 기동을 발생시키고, 그 결과 발생하는 violation을 raw 데이터로 기록한다.
+        # 이는 알고리즘의 품질을 평가하기 위함 — 좋은 알고리즘은 처음부터
+        # 한계를 넘는 명령을 내지 않아야 한다.
+        # (구조적 자세 한계 phi_max는 위에서 이미 saturation 처리됨 — 물리적
+        # 으로 불가능한 자세는 어쩔 수 없이 막아야 함)
+        a_n_cmd = self.g * np.tan(phi_cmd)  # phi_cmd는 phi_max로 이미 clip됨
         a_total_cmd = float(np.sqrt(self._a_T_actual**2 + a_n_cmd**2))
 
-        if a_total_cmd > self.a_max:
-            clip_factor = self.a_max / max(a_total_cmd, 1e-9)
-            self._a_T_actual *= clip_factor
-            a_n_cmd_scaled = a_n_cmd * clip_factor
-            phi_cmd_eff = float(np.arctan(a_n_cmd_scaled / self.g))
-            clip_event = True
-            a_total_actual = self.a_max
-        else:
-            clip_factor = 1.0
-            phi_cmd_eff = phi_cmd
-            clip_event = False
-            a_total_actual = a_total_cmd
+        accel_violation = a_total_cmd > self.a_max
+        accel_violation_amount = max(0.0, a_total_cmd - self.a_max)
+        # phi_cmd_eff = phi_cmd: 명령을 그대로 적용 (클립 없음!)
+        phi_cmd_eff = phi_cmd
+        # a_total_actual은 명령과 동일 (이 시점에서는 — 적분 후 미세 차이 가능)
+        a_total_actual = a_total_cmd
 
         # ---- RK4 적분 ----
         x0 = self._state_to_vec(state)
@@ -131,12 +129,14 @@ class PointMass3DoF(BaseDynamics):
         x_new = x0 + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
 
         # ---- 제약 강제 (post-integration) ----
+        # 여기서 강제되는 것: 속도(v_min/v_max), 자세(phi_max, gamma_max/min), 고도
+        # 가속도는 강제되지 않음 (위에서 위반 기록만)
         x_new = self._enforce_constraints(x_new)
 
         # ---- body-frame 가속도 계산 (측정용) ----
         a_body = self._compute_body_acceleration(x_new, self._a_T_actual)
 
-        # ---- 새 상태 구성 (가속도 기록 포함) ----
+        # ---- 새 상태 구성 (가속도/위반 기록 포함) ----
         new_state = AircraftState(
             pos=x_new[0:3].copy(),
             v=float(x_new[3]),
@@ -150,8 +150,8 @@ class PointMass3DoF(BaseDynamics):
             a_total_cmd=a_total_cmd,
             a_total_actual=a_total_actual,
             a_max_used=self.a_max,
-            clip_event=clip_event,
-            clip_factor=clip_factor,
+            accel_violation=accel_violation,
+            accel_violation_amount=accel_violation_amount,
         )
         return new_state
 
