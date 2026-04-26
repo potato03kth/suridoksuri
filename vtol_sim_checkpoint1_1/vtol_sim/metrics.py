@@ -211,12 +211,13 @@ class MetricsResult:
     # planner가 생성한 경로를 "이상적으로" 따랐을 때 필요한 가속도/뱅크각
     path_max_a_required_g: float = 0.0     # 경로가 요구하는 최대 구심가속도 (g)
     path_rms_a_required_g: float = 0.0     # RMS
-    path_max_phi_required_deg: float = 0.0 # 경로가 요구하는 최대 뱅크각 (deg)
+    path_max_phi_required_deg: float = 0.0  # 경로가 요구하는 최대 뱅크각 (deg)
     path_rms_phi_required_deg: float = 0.0
 
     # === 경로 feasibility (제안 A) ===
     # 경로 자체가 한계를 넘는 비율 — planner의 잘못
-    path_feasibility_ratio: float = 1.0    # a_required <= a_max인 점 비율 (1.0=완전 가능)
+    # a_required <= a_max인 점 비율 (1.0=완전 가능)
+    path_feasibility_ratio: float = 1.0
     path_max_excess_g: float = 0.0         # 경로가 요구하는 가속도가 한계 초과한 양
 
     # === 추종 가속도 효율 (사용자 제안 3) ===
@@ -443,11 +444,13 @@ def print_metrics(m: MetricsResult, label: str = "") -> None:
     print(f"    평균 CPA: {m.mean_cpa:.2f} m, 최대 CPA: {m.max_cpa:.2f} m")
 
     print(f"\n  [경로 추종 오차]")
-    print(f"    RMS cross-track: {m.rms_crosstrack:.2f} m, max: {m.max_crosstrack:.2f} m")
+    print(
+        f"    RMS cross-track: {m.rms_crosstrack:.2f} m, max: {m.max_crosstrack:.2f} m")
     print(f"      └ 직선 구간 RMS: {m.rms_crosstrack_straight:.2f} m")
     print(f"      └ 곡선 구간 RMS: {m.rms_crosstrack_curved:.2f} m "
           f"(시간 비율 {m.frac_time_curved*100:.1f}%)")
-    print(f"    RMS 고도 오차:   {m.rms_altitude_err:.2f} m, max: {m.max_altitude_err:.2f} m")
+    print(
+        f"    RMS 고도 오차:   {m.rms_altitude_err:.2f} m, max: {m.max_altitude_err:.2f} m")
 
     print(f"\n  [경로 자체의 이상 프로파일 (planner 평가)]")
     print(f"    경로 요구 가속도: max {m.path_max_a_required_g:.3f}g, "
@@ -457,12 +460,15 @@ def print_metrics(m: MetricsResult, label: str = "") -> None:
     print(f"    경로 feasibility: {m.path_feasibility_ratio*100:.1f}% "
           f"(한계 내 점 비율, 1=완전 가능)")
     if m.path_max_excess_g > 0.001:
-        print(f"    ⚠ 경로 자체가 한계 초과 — 최대 {m.path_max_excess_g:.3f}g")
+        print(f"    ⚠ 경로 자체가 한계 초과 — 최대 {m.path_max_excess_g:.3f}g 만큼 초과")
 
     print(f"\n  [가속도 한계 위반 (controller 명령 결과)]")
-    print(f"    max actual: {m.max_a_actual_g:.3f}g, max cmd: {m.max_a_cmd_g:.3f}g")
-    print(f"    위반 횟수: {m.n_violations} ({m.violation_time_ratio*100:.1f}% of time)")
-    print(f"    최대 위반량: {m.max_violation_g:.3f}g, 평균 위반량: {m.mean_violation:.3f} m/s²")
+    print(
+        f"    max actual: {m.max_a_actual_g:.3f}g, max cmd: {m.max_a_cmd_g:.3f}g")
+    print(
+        f"    위반 횟수: {m.n_violations} ({m.violation_time_ratio*100:.1f}% of time)")
+    print(
+        f"    최대 위반량: {m.max_violation_g:.3f}g, 평균 위반량: {m.mean_violation:.3f} m/s²")
 
     print(f"\n  [Excess 가속도 (controller 비효율 = 실제 - 이상)]")
     print(f"    RMS excess: {m.excess_a_rms_g:.3f}g")

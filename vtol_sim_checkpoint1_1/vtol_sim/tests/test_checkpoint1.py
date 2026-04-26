@@ -7,6 +7,10 @@
      속도/자세/고도 등 물리적 한계는 여전히 강제됨.
 """
 from __future__ import annotations
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from utils.config_loader import load_aircraft_params
 from utils.math_utils import (
     closest_point_on_polyline, look_ahead_point,
@@ -21,9 +25,6 @@ from dynamics.base_dynamics import (
     AircraftState, ControlInput, MODE_CRUISE
 )
 import numpy as np
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
