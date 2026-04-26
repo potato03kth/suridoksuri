@@ -1,26 +1,27 @@
 """
-Cubic Spline 경로 생성기 — C2 연속 (곡률 연속), WP 통과 보장
-=================================================================
+Cubic Spline 경로 생성기 — C2 연속 (곡률 연속), WP 직선 통과 보장
+====================================================================
 
-Dubins 대비 핵심 장점:
-  - 직선↔선회 경계에서 곡률 불연속 없음 → controller 추종 개선
-  - 같은 회전반경 조건에서 선행각 변화가 부드러움
-  - 모든 WP를 보간점으로 통과 (위치 보장)
+핵심 설계 철학:
+  "급선회 WP에 가기 전에 미리 outgoing 방향으로 돌아간 다음, WP를 직선으로 통과"
 
-핵심 설계:
-  1. 모든 WP를 aug_wps에 반드시 포함 (CubicSpline 보간점).
-  2. 각 WP 직전/직후에 WP와 동일 고도의 guide point (G_in, G_out) 삽입:
-       aug 구조: WP0, G_out0 | G_in1, WP1, G_out1 | G_in2, WP2, ...
-     - G_in_i : WP_i 직전, incoming 방향으로 d_guide 거리, 고도 = WP_i
-     - G_out_i: WP_i 직후, outgoing 방향으로 d_guide 거리, 고도 = WP_i
-     → WP 근방 직선 구간 + 고도 편차 최소화
-  3. G_out_i ~ G_in_{i+1} 구간은 자유 spline → 부드러운 곡률 전환
-  4. 실제 호 길이 기반 재샘플링 (dense evaluate → uniform-s 역보간)
-  5. 각 샘플에서 chi_ref, curvature, gamma_ref 계산
+  aug 배열 구조:
+    WP0, G_dep0 | G_app1, WP1, G_dep1 | G_app2, WP2, G_dep2 | ... | G_app_{N-1}, WP_{N-1}
+
+  - G_app_i = WP_i − d × u_{i→i+1}  (WP 직전, outgoing 방향, 고도=WP)
+  - G_dep_i = WP_i + d × u_{i→i+1}  (WP 직후, outgoing 방향, 고도=WP)
+  - G_app_i, WP_i, G_dep_i 는 collinear → 스플라인이 WP를 직선 통과
+  - 자유 구간 G_dep_{i-1} → G_app_i 에서 β_{i-1}→β_i 방향 전환
+    (레그 전체 길이를 활용한 완만한 선회 = '크게 돌아 진입')
+
+Dubins 대비 장점:
+  - WP 정확 통과 (CubicSpline 보간점으로 포함)
+  - 직선 진입/이탈 (collinear guide point로 보장)
+  - 급선회를 레그 전체에 분산 → R_min 여유 확보 → 물리적 가능성
+  - C2 곡률 연속 (controller 추종 개선)
 
 곡률 부호 컨벤션:
-  kappa > 0 → 우선회 (항공: chi 증가 방향)
-  kappa = d(chi)/ds
+  kappa > 0 → 우선회,  kappa = d(chi)/ds
 """
 from __future__ import annotations
 import time
@@ -34,15 +35,15 @@ from utils.math_utils import wrap_angle
 class SplinePlanner(BasePlanner):
     def __init__(self, ds: float = 1.0, bc_type: str = "clamped",
                  R_factor: float = 1.0,
-                 guide_factor: float = 0.35):
+                 guide_factor: float = 0.25):
         """
         Parameters
         ----------
         ds           : 경로 샘플링 간격 (m)
         bc_type      : 'clamped' | 'natural' — 경로 양 끝단 BC
         R_factor     : 회전반경 보정 계수 (1.0 = a_max 기준 최소 반경)
-        guide_factor : guide point 거리 = R_min * guide_factor
-                       (단, 레그 길이의 40% 초과 불가 → G_in/G_out 비중복 보장)
+        guide_factor : guide point 거리 = R_min × guide_factor
+                       (레그 길이의 30% 초과 불가 → G_app/G_dep 비중복 보장)
         """
         self.ds = ds
         self.bc_type = bc_type
@@ -53,62 +54,64 @@ class SplinePlanner(BasePlanner):
     def _preprocess_waypoints(self, wps: np.ndarray,
                                R_min: float) -> tuple[np.ndarray, dict]:
         """
-        모든 WP를 보간점으로 포함하며, WP 직전/직후에 guide point 삽입.
+        WP를 outgoing 방향으로 직선 통과하도록 aug 배열 생성.
 
-        aug 배열 구조 (중간 WP 예시):
-          WP_0, G_out_0,  G_in_1, WP_1, G_out_1,  G_in_2, WP_2, ...
+        각 WP_i 에 대해:
+          G_app_i = WP_i − d × u_{i→i+1}  (outgoing 방향, 같은 고도)
+          G_dep_i = WP_i + d × u_{i→i+1}  (outgoing 방향, 같은 고도)
 
-        G_in / G_out 은 WP와 같은 고도로 설정:
-          - 고도 편차 최소화
-          - G_in~WP, WP~G_out 각각 방향 일치 → WP 근방 직선 구간 형성
+        세 점이 collinear이므로 스플라인은 WP에서 직선 구간을 형성.
+        선회는 G_dep_{i-1} → G_app_i 자유 구간에서 발생 (크게 돌아 진입).
 
-        G_out_i ~ G_in_{i+1} 사이 여백: 레그 길이의 최소 20%
-        → 스플라인 자유 구간에서 부드러운 곡률 전환
+        마지막 WP는 outgoing 방향이 없으므로 incoming 방향 사용.
 
         Returns
         -------
         aug_wps : (M, 3) 확장 WP 배열
-        wp_map  : 원본 WP 인덱스 → aug 배열 내 WP 위치 매핑
+        wp_map  : 원본 WP 인덱스 → aug 배열 내 WP 위치
         """
         N = len(wps)
         aug: list[np.ndarray] = []
         wp_map: dict[int, int] = {}
 
-        d_base = R_min * self.guide_factor  # 기본 guide 거리
+        d_base = R_min * self.guide_factor
 
         for i in range(N):
-            in_vec = wps[i, :2] - wps[i - 1, :2] if i > 0 else None
-            out_vec = wps[i + 1, :2] - wps[i, :2] if i < N - 1 else None
+            # outgoing 단위벡터 및 해당 레그 길이
+            if i < N - 1:
+                out_vec = wps[i + 1, :2] - wps[i, :2]
+                leg_len = float(np.linalg.norm(out_vec))
+                u_out = out_vec / max(leg_len, 1e-6)
+            else:
+                # 마지막 WP: incoming 방향을 outgoing처럼 사용
+                in_vec = wps[i, :2] - wps[i - 1, :2]
+                leg_len = float(np.linalg.norm(in_vec))
+                u_out = in_vec / max(leg_len, 1e-6)
 
-            in_len = float(np.linalg.norm(in_vec)) if in_vec is not None else 0.0
-            out_len = float(np.linalg.norm(out_vec)) if out_vec is not None else 0.0
+            # guide 거리: R_min × factor, 단 레그의 30% 초과 금지
+            d = min(d_base, leg_len * 0.30)
 
-            in_dir = (in_vec / in_len) if (in_vec is not None and in_len > 1e-6) else None
-            out_dir = (out_vec / out_len) if (out_vec is not None and out_len > 1e-6) else None
-
-            # G_in: WP 직전, incoming 방향, 고도 = WP (첫 WP 제외)
-            if in_dir is not None:
-                d_in = min(d_base, in_len * 0.40)
-                g_in = np.array([
-                    wps[i, 0] - in_dir[0] * d_in,
-                    wps[i, 1] - in_dir[1] * d_in,
+            # G_app: WP 직전, outgoing 방향으로 d 거리 (첫 WP 제외)
+            if i > 0:
+                g_app = np.array([
+                    wps[i, 0] - u_out[0] * d,
+                    wps[i, 1] - u_out[1] * d,
                     wps[i, 2],
                 ])
-                aug.append(g_in)
+                aug.append(g_app)
 
             # WP 자체 — 항상 보간점으로 포함
             aug.append(wps[i].copy())
             wp_map[i] = len(aug) - 1
 
-            # G_out: WP 직후, outgoing 방향, 고도 = WP (마지막 WP 제외)
-            if out_dir is not None:
-                d_out = min(d_base, out_len * 0.40)
-                g_out = np.array([
-                    wps[i, 0] + out_dir[0] * d_out,
-                    wps[i, 1] + out_dir[1] * d_out,
+            # G_dep: WP 직후, outgoing 방향으로 d 거리 (마지막 WP 제외)
+            if i < N - 1:
+                g_dep = np.array([
+                    wps[i, 0] + u_out[0] * d,
+                    wps[i, 1] + u_out[1] * d,
                     wps[i, 2],
                 ])
-                aug.append(g_out)
+                aug.append(g_dep)
 
         return np.array(aug), wp_map
 
@@ -144,8 +147,8 @@ class SplinePlanner(BasePlanner):
             raise ValueError("WP들이 모두 같은 위치")
 
         # ===== 3. Cubic Spline 피팅 =====
+        # aug_wps[0]=WP_0, aug_wps[1]=G_dep_0 → chi_start = WP_0→WP_1 방향
         init_heading = (initial_state or {}).get("initial_heading")
-        # aug_wps[0]=WP0, aug_wps[1]=G_out0 → WP0→WP1 방향이 자연스러운 시작 방향
         chi_start = (
             init_heading if init_heading is not None
             else float(np.arctan2(
@@ -153,7 +156,8 @@ class SplinePlanner(BasePlanner):
                 aug_wps[1, 0] - aug_wps[0, 0],
             ))
         )
-        # aug_wps[-1]=WP_{N-1}, aug_wps[-2]=G_in_{N-1} → 도착 방향
+        # aug_wps[-2]=G_app_{N-1}, aug_wps[-1]=WP_{N-1}
+        # → chi_end = incoming 방향으로 마지막 WP 진입
         chi_end = float(np.arctan2(
             aug_wps[-1, 1] - aug_wps[-2, 1],
             aug_wps[-1, 0] - aug_wps[-2, 0],
@@ -206,7 +210,7 @@ class SplinePlanner(BasePlanner):
         kappa = (dN_u * d2E_u - dE_u * d2N_u) / (horiz_speed ** 3)
         gamma_arr = np.arctan2(dh_u, horiz_speed)
 
-        # ===== 7. 원본 WP 인덱스 마킹 (aug 내 WP 위치 기준) =====
+        # ===== 7. 원본 WP 인덱스 마킹 =====
         wp_assigned: dict[int, int] = {}
         for orig_wi, aug_wi in wp_map.items():
             wp_pos = aug_wps[aug_wi]

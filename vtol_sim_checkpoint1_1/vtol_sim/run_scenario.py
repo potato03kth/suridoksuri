@@ -9,9 +9,26 @@
 기본: planner=dubins, controller=nlgl, seed=시나리오 yaml의 monte_carlo.seed_base
 """
 from __future__ import annotations
+from visualization import plot_simulation_results
+from metrics import compute_metrics, print_metrics
+from simulator import Simulator
+from path_following.inner_loop import InnerLoopPI
+from path_following.mpc_controller import MPCController
+from path_following.nlgl_controller import NLGLController
+from path_planning.waypoint_generator import waypoints_from_config
+from path_planning.spline_planner import SplinePlanner
+from path_planning.dubins_planner import DubinsPlanner
+from path_planning.bspline_planner import BSplinePlanner
+from path_planning.bspline_2_planner import BSplinePlanner as BSpline2Planner
+from utils.config_loader import (
+    load_simulation_params, load_scenario, merge_scenario_into_aircraft,
+    load_aircraft_params,
+)
+import numpy as np
 import sys
 import os
 import argparse
+from time import localtime, strftime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -21,28 +38,16 @@ try:
 except AttributeError:
     pass
 
-import numpy as np
-
-from utils.config_loader import (
-    load_simulation_params, load_scenario, merge_scenario_into_aircraft,
-    load_aircraft_params,
-)
-from path_planning.dubins_planner import DubinsPlanner
-from path_planning.spline_planner import SplinePlanner
-from path_planning.waypoint_generator import waypoints_from_config
-from path_following.nlgl_controller import NLGLController
-from path_following.mpc_controller import MPCController
-from path_following.inner_loop import InnerLoopPI
-from simulator import Simulator
-from metrics import compute_metrics, print_metrics
-from visualization import plot_simulation_results
-
 
 def build_planner(name: str):
     if name == "dubins":
         return DubinsPlanner(ds=2.0, R_factor=1.05, use_energy_climb=True)
     if name == "spline":
         return SplinePlanner(ds=2.0, bc_type="clamped")
+    if name == "bspline":
+        return BSplinePlanner(ds=1.0, d_straight=30.0, spline_degree=5)
+    if name == "bspline2":
+        return BSpline2Planner(ds=1.0, straight_lead=50, spline_degree=3, max_refine_iter=10)
     raise ValueError(f"Unknown planner: {name}")
 
 
@@ -82,7 +87,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("scenario", help="scenario name (e.g., 'basic')")
     parser.add_argument("--planner", default="dubins",
-                        choices=["dubins", "spline"])
+                        choices=["dubins", "spline", "bspline", "bspline2"])
     parser.add_argument("--controller", default="nlgl",
                         choices=["nlgl", "mpc"])
     parser.add_argument("--seed", type=int, default=None)
@@ -135,9 +140,10 @@ def main():
     # Plot
     if not args.no_plot:
         os.makedirs(args.output_dir, exist_ok=True)
+        time_now = strftime("%Y%m%d%H%M%S", localtime())
         plot_path = os.path.join(
             args.output_dir,
-            f"{args.scenario}_{args.planner}_{args.controller}_s{seed}.png"
+            f"{args.scenario}_{args.planner}_{args.controller}_s{seed}_{time_now}.png"
         )
         plot_simulation_results(
             result, plot_path, title=label,
