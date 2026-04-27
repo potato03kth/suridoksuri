@@ -340,6 +340,8 @@ class MPCController(BaseController):
         phi = est_phi
 
         x0 = np.array([e_y, e_chi, phi])
+        if not np.all(np.isfinite(x0)):
+            x0 = np.nan_to_num(x0, nan=0.0, posinf=0.0, neginf=0.0)
 
         # 곡률 피드포워드는 비활성화 (예측 스텝 불일치 시 불안정 위험)
         # Phase 3에서 정확한 multi-rate 구현 시 활성화
