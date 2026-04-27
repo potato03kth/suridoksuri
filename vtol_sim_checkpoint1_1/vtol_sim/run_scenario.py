@@ -20,6 +20,9 @@ from path_planning.spline_planner import SplinePlanner
 from path_planning.dubins_planner import DubinsPlanner
 from path_planning.bspline_planner import BSplinePlanner
 from path_planning.bspline_2_planner import BSplinePlanner as BSpline2Planner
+from path_planning.hermite_bspline import BSplinePlanner as HermitePlanner
+from path_planning.Qhermite_bspline import BSplinePlanner as QHermitePlanner
+from path_planning.iterpin_planner import IterativePinPlanner
 from utils.config_loader import (
     load_simulation_params, load_scenario, merge_scenario_into_aircraft,
     load_aircraft_params,
@@ -48,6 +51,12 @@ def build_planner(name: str):
         return BSplinePlanner(ds=1.0, d_straight=30.0, spline_degree=5)
     if name == "bspline2":
         return BSpline2Planner(ds=1.0, straight_lead=50, spline_degree=3, max_refine_iter=5)
+    if name == "hermite":
+        return HermitePlanner(ds=1.0, straight_lead=50.0, max_refine_iter=30, accel_tol=0.9)
+    if name == "qhermite":
+        return QHermitePlanner(ds=1.0, straight_lead=50.0, max_refine_iter=30, accel_tol=0.9, tangent_scale=1.1)
+    if name == "iterpin":
+        return IterativePinPlanner(ds=1.0, num_iter=3, alpha=0.1, straight_ratio=0.05)
     raise ValueError(f"Unknown planner: {name}")
 
 
@@ -87,7 +96,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("scenario", help="scenario name (e.g., 'basic')")
     parser.add_argument("--planner", default="dubins",
-                        choices=["dubins", "spline", "bspline", "bspline2"])
+                        choices=["dubins", "spline", "bspline", "bspline2", "hermite", "qhermite", "iterpin"])
     parser.add_argument("--controller", default="nlgl",
                         choices=["nlgl", "mpc"])
     parser.add_argument("--seed", type=int, default=None)
@@ -112,12 +121,11 @@ def main():
     planner = build_planner(args.planner)
     controller = build_controller(args.controller, aircraft)
     print(f"\nUsing planner: {args.planner}")
-    ctrl_info = f"L1={controller.L1:.1f}m" if hasattr(controller, "L1") \
-        else f"N_p={controller.N_p}"
+    ctrl_info = f"L1={controller.L1:.1f}m" if hasattr(
+        controller, "L1") else f"N_p={controller.N_p}"
     print(f"Using controller: {args.controller} ({ctrl_info})")
 
-    seed = args.seed if args.seed is not None \
-        else scenario["monte_carlo"]["seed_base"]
+    seed = args.seed if args.seed is not None else scenario["monte_carlo"]["seed_base"]
     print(f"Seed: {seed}")
 
     # 시뮬레이션
