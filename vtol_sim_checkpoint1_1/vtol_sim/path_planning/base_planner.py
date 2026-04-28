@@ -11,7 +11,8 @@ import numpy as np
 @dataclass
 class PathPoint:
     """경로 위의 한 점 — 호 길이 매개변수화."""
-    pos: np.ndarray = field(default_factory=lambda: np.zeros(3))  # [x_N, x_E, h]
+    pos: np.ndarray = field(default_factory=lambda: np.zeros(
+        3))  # [x_N, x_E, h(표준 NED와 부호 반대)]
     v_ref: float = 0.0           # 계획된 속도 (m/s)
     chi_ref: float = 0.0         # 계획된 방위각 (rad)
     gamma_ref: float = 0.0       # 계획된 상승각 (rad)
