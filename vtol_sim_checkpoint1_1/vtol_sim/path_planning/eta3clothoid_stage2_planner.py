@@ -386,6 +386,157 @@ def _check_and_insert_wps(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 2순위 v2: 전역 동시 NR — G1-체인 재매개변수화
+#
+# 핵심 변경:
+#   이전: x = [θ_1, u_1, ..., θ_{N-2}, u_{N-2}]  — θ를 자유 변수로 취급
+#         → L=chord 고정 시 θ(s=L) ≠ θ_{i+1} → G1 불연속
+#   현재: x = [u_1, ..., u_{N-2}, v_0, ..., v_{N-2}]  — θ를 G1 체인에서 도출
+#         θ_{i+1} = θ_i + (κ_i+κ_{i+1})/2 · L_i  → G1/G2 구조적 보장
+#         L_i = chord_i · exp(v_i)  → L > 0 구조적 보장, v=0이 chord 초기값
+#
+# 과결정 수준: 2(N-1)+1 방정식 vs 2N-3 자유 변수 = 항상 2 (N에 무관)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _global_residual_g1(
+    x:         np.ndarray,    # [u_1,...,u_{N-2}, v_0,...,v_{N-2}]  크기 2N-3
+    wps_2d:    np.ndarray,    # (N, 2)
+    theta_bc:  tuple,         # (θ_0, θ_{N-1})
+    kappa_bc:  tuple,         # (κ_0, κ_{N-1})
+    kappa_max: float,
+    n_quad:    int = 100,
+) -> np.ndarray:              # F 크기 2(N-1)+1 = 2N-1
+    """
+    G1-체인 전역 잔차.
+
+    자유 변수 레이아웃:
+      x[:N-2]  = u_i  (내부 노드 κ 재매개변수화)
+      x[N-2:]  = v_i  (구간 길이 재매개변수화, L_i = chord_i · exp(v_i))
+
+    θ 도출 (G1/G2 구조적 보장):
+      θ_{i+1} = θ_i + (κ_i + κ_{i+1})/2 · L_i
+
+    잔차:
+      F[2i], F[2i+1] : Fresnel 끝점 오차 (위치)
+      F[-1]          : mean_chord · wrap(θ_{N-1}_chain − θ_{N-1}_bc)  (터미널 헤딩)
+    """
+    N       = len(wps_2d)
+    n_inner = N - 2
+    n_segs  = N - 1
+
+    u = x[:n_inner]
+    v = x[n_inner:]
+
+    kappas = np.empty(N)
+    kappas[0]    = kappa_bc[0]
+    kappas[-1]   = kappa_bc[1]
+    if n_inner > 0:
+        kappas[1:-1] = kappa_max * np.tanh(u)
+
+    chords = np.array([np.linalg.norm(wps_2d[i + 1] - wps_2d[i]) for i in range(n_segs)])
+    # v를 ±3으로 클램핑 → L ∈ [chord/20, 20·chord] 범위 유지
+    Ls = np.maximum(chords * np.exp(np.clip(v, -3.0, 3.0)), 1e-3)
+
+    # G1 체인: θ를 κ와 L에서 결정론적으로 도출
+    thetas = np.empty(N)
+    thetas[0] = theta_bc[0]
+    for i in range(n_segs):
+        thetas[i + 1] = thetas[i] + (kappas[i] + kappas[i + 1]) / 2.0 * Ls[i]
+
+    # 위치 잔차
+    F = np.empty(2 * n_segs + 1)
+    for i in range(n_segs):
+        p      = _fresnel_endpoint(thetas[i], kappas[i], kappas[i + 1], Ls[i], n_quad)
+        target = wps_2d[i + 1] - wps_2d[i]
+        F[2 * i]     = p[0] - target[0]
+        F[2 * i + 1] = p[1] - target[1]
+
+    # 터미널 헤딩 잔차 (위치 잔차와 스케일 일치: m 단위)
+    F[-1] = float(np.mean(chords)) * _wrap(thetas[-1] - theta_bc[1])
+    return F
+
+
+def _global_stage2_nr(
+    wps_2d:    np.ndarray,
+    thetas:    np.ndarray,
+    kappas:    np.ndarray,
+    kappa_max: float,
+    max_iter:  int   = 50,
+    tol:       float = 1e-4,
+    eps_jac:   float = 1e-6,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    G1-체인 전역 동시 NR.
+
+    자유 변수: [u_1,...,u_{N-2}, v_0,...,v_{N-2}]  크기 2N-3
+      κ_i = kappa_max · tanh(u_i)  → κ ∈ (-κ_max, κ_max) 구조적 보장
+      L_i = chord_i · exp(v_i)     → L > 0 구조적 보장
+
+    θ는 G1 체인 θ_{i+1} = θ_i + (κ_i+κ_{i+1})/2·L_i 에서 도출
+    → G1/G2 연속성 구조적 보장 (NR 수렴 여부 무관)
+
+    잔차: 2(N-1)+1 = 2N-1  vs 자유 변수 2N-3 → 과결정 2 (N에 무관)
+
+    Returns: thetas (N,), kappas (N,), Ls (N-1,)
+    """
+    N = len(wps_2d)
+    n_segs = N - 1
+    chords = np.array([np.linalg.norm(wps_2d[i + 1] - wps_2d[i]) for i in range(n_segs)])
+
+    if N <= 2:
+        return thetas, kappas, np.maximum(chords, 1e-3)
+
+    n_inner = N - 2
+
+    # 초기값: u는 현재 κ에서, v=0 (L_i = chord_i)
+    u_init = np.arctanh(np.clip(kappas[1:-1] / kappa_max, -0.9999, 0.9999))
+    x = np.concatenate([u_init, np.zeros(n_segs)])
+
+    theta_bc = (float(thetas[0]), float(thetas[-1]))
+    kappa_bc = (float(kappas[0]), float(kappas[-1]))
+
+    for _ in range(max_iter):
+        F      = _global_residual_g1(x, wps_2d, theta_bc, kappa_bc, kappa_max)
+        norm_F = np.linalg.norm(F)
+        if norm_F < tol:
+            break
+
+        # 전진 차분 수치 야코비안  (2N-1) × (2N-3)
+        F0 = F
+        m_j, n_j = len(F0), len(x)
+        J = np.zeros((m_j, n_j))
+        for j in range(n_j):
+            xp = x.copy()
+            xp[j] += eps_jac
+            J[:, j] = (_global_residual_g1(xp, wps_2d, theta_bc, kappa_bc, kappa_max) - F0) / eps_jac
+
+        dx = np.linalg.lstsq(J, -F, rcond=None)[0]
+
+        # Armijo 역방향 선탐색
+        step = 1.0
+        for _ in range(10):
+            F_try = _global_residual_g1(x + step * dx, wps_2d, theta_bc, kappa_bc, kappa_max)
+            if np.linalg.norm(F_try) < norm_F:
+                break
+            step *= 0.5
+        x += step * dx
+
+    # 결과 추출
+    u_sol = x[:n_inner]
+    v_sol = x[n_inner:]
+    Ls    = np.maximum(chords * np.exp(np.clip(v_sol, -3.0, 3.0)), 1e-3)
+
+    kappas[1:-1] = kappa_max * np.tanh(u_sol)
+
+    # 최종 κ와 L로 θ G1 체인 재계산
+    thetas[0] = theta_bc[0]
+    for i in range(n_segs):
+        thetas[i + 1] = thetas[i] + (kappas[i] + kappas[i + 1]) / 2.0 * Ls[i]
+
+    return thetas, kappas, Ls
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Planner 클래스
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -465,22 +616,20 @@ class Eta3ClothoidPlanner(BasePlanner):
         )
         N = len(wps_2d)
 
-        # ── Stage 2: 구간별 Clothoid + NR 위치 보정 ───────────────────
+        # ── [2순위] 전역 동시 NR — G1-체인 (θ 자유 변수 제거, L 자유 변수 추가) ──
+        thetas, kappas, seg_Ls = _global_stage2_nr(
+            wps_2d, thetas, kappas, kappa_max,
+            max_iter=self.nr_max_iter, tol=self.nr_tol,
+        )
+
+        # ── Stage 2: Clothoid 샘플링 (전역 NR 후) ─────────────────────
         all_pts:   list[np.ndarray] = []
         all_kappa: list[np.ndarray] = []
         wp_marks:  dict[int, int]   = {}   # path_idx → wp_index
 
         for i in range(N - 1):
-            target_disp = wps_2d[i + 1] - wps_2d[i]
-
-            L, th_c, kp_c = _segment_nr_correct(
-                thetas[i], kappas[i],
-                thetas[i + 1], kappas[i + 1],
-                target_disp, kappa_max,
-                max_iter=self.nr_max_iter, tol=self.nr_tol,
-            )
-            thetas[i] = th_c
-            kappas[i] = kp_c
+            # NR가 결정한 L을 그대로 사용 → NR-샘플링 일관성 + G1 연속성 보장
+            L = seg_Ls[i]
 
             seg_pts, _, seg_kappa = _clothoid_sample(
                 thetas[i], kappas[i], kappas[i + 1], L, self.ds
