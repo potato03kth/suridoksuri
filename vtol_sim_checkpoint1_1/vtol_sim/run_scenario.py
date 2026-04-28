@@ -23,6 +23,9 @@ from path_planning.bspline_2_planner import BSplinePlanner as BSpline2Planner
 from path_planning.hermite_bspline import BSplinePlanner as HermitePlanner
 from path_planning.Qhermite_bspline import BSplinePlanner as QHermitePlanner
 from path_planning.iterpin_planner import IterativePinPlanner
+from path_planning.D_iterpin_planner import DIterativePinPlanner
+from path_planning.clothoid_planner import ClothoidPlanner
+from path_planning.eta3clothoid_planner import Eta3ClothoidPlanner
 from utils.config_loader import (
     load_simulation_params, load_scenario, merge_scenario_into_aircraft,
     load_aircraft_params,
@@ -57,6 +60,12 @@ def build_planner(name: str):
         return QHermitePlanner(ds=1.0, straight_lead=50.0, max_refine_iter=30, accel_tol=0.9, tangent_scale=1.1)
     if name == "iterpin":
         return IterativePinPlanner(ds=1.0, num_iter=3, alpha=0.1, straight_ratio=0.05)
+    if name == "diterpin":
+        return DIterativePinPlanner(num_iter=4, alpha0=0.6, straight_ratio0=0.4, search_steps=50, max_detours=2, alpha_range=(0.1, 2.2), sr_range=(0.02, 0.8))
+    if name == "clothoid":
+        return ClothoidPlanner(ds=1.0, accel_tol=0.9, spiral_fraction=0.4)
+    if name == "eta3clothoid":
+        return Eta3ClothoidPlanner(ds=1.0, accel_tol=0.8)
     raise ValueError(f"Unknown planner: {name}")
 
 
@@ -96,7 +105,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("scenario", help="scenario name (e.g., 'basic')")
     parser.add_argument("--planner", default="dubins",
-                        choices=["dubins", "spline", "bspline", "bspline2", "hermite", "qhermite", "iterpin"])
+                        choices=["dubins", "spline", "bspline", "bspline2", "hermite", "qhermite", "iterpin", "diterpin", "clothoid", "eta3clothoid"])
     parser.add_argument("--controller", default="nlgl",
                         choices=["nlgl", "mpc"])
     parser.add_argument("--seed", type=int, default=None)
@@ -111,7 +120,13 @@ def main():
 
     aircraft = merge_scenario_into_aircraft(aircraft_orig, scenario)
 
-    # WP 생성
+    # 시드 결정 (WP 생성과 시뮬레이션이 동일한 시드를 사용)
+    seed = args.seed if args.seed is not None else scenario["monte_carlo"]["seed_base"]
+    print(f"Seed: {seed}")
+
+    # 결정된 seed를 config에 주입한 뒤 WP 생성
+    if scenario["waypoint"].get("source", "auto") == "auto":
+        scenario["waypoint"]["auto"]["seed"] = seed
     waypoints = waypoints_from_config(scenario)
     print(f"Generated {len(waypoints)} waypoints:")
     for i, wp in enumerate(waypoints):
@@ -124,9 +139,6 @@ def main():
     ctrl_info = f"L1={controller.L1:.1f}m" if hasattr(
         controller, "L1") else f"N_p={controller.N_p}"
     print(f"Using controller: {args.controller} ({ctrl_info})")
-
-    seed = args.seed if args.seed is not None else scenario["monte_carlo"]["seed_base"]
-    print(f"Seed: {seed}")
 
     # 시뮬레이션
     sim = Simulator(
