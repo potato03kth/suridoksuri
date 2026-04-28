@@ -26,6 +26,7 @@ from path_planning.iterpin_planner import IterativePinPlanner
 from path_planning.D_iterpin_planner import DIterativePinPlanner
 from path_planning.clothoid_planner import ClothoidPlanner
 from path_planning.eta3clothoid_planner import Eta3ClothoidPlanner
+from path_planning.eta3clothoid_stage2_planner import Eta3ClothoidPlanner as Eta3ClothoidPhase2Planner
 from utils.config_loader import (
     load_simulation_params, load_scenario, merge_scenario_into_aircraft,
     load_aircraft_params,
@@ -66,6 +67,8 @@ def build_planner(name: str):
         return ClothoidPlanner(ds=1.0, accel_tol=0.9, spiral_fraction=0.4)
     if name == "eta3clothoid":
         return Eta3ClothoidPlanner(ds=1.0, accel_tol=0.8)
+    if name == "eta3clothoid2":
+        return Eta3ClothoidPhase2Planner(ds=1.0, accel_tol=0.8, nr_max_iter=40)
     raise ValueError(f"Unknown planner: {name}")
 
 
@@ -105,7 +108,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("scenario", help="scenario name (e.g., 'basic')")
     parser.add_argument("--planner", default="dubins",
-                        choices=["dubins", "spline", "bspline", "bspline2", "hermite", "qhermite", "iterpin", "diterpin", "clothoid", "eta3clothoid"])
+                        choices=["dubins", "spline", "bspline", "bspline2", "hermite", "qhermite", "iterpin", "diterpin", "clothoid", "eta3clothoid", "eta3clothoid2"])
     parser.add_argument("--controller", default="nlgl",
                         choices=["nlgl", "mpc"])
     parser.add_argument("--seed", type=int, default=None)

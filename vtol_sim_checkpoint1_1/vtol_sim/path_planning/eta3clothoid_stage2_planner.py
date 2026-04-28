@@ -110,14 +110,36 @@ def _compute_L(theta_i: float, kappa_i: float,
 # Stage 1 — η³-Spline G2 초기 풀이 (PSEUDO)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _menger_kappa(wps_2d: np.ndarray, i: int, kappa_max: float) -> float:
+    """
+    Interior node i 의 부호 있는 Menger 곡률.
+    NED 컨벤션: 우선회(CW) = 양수.
+
+    κ = 2·Area(a,b) / (|a|·|b|·|a-b_chord|)
+    """
+    a = wps_2d[i]     - wps_2d[i - 1]   # 진입 코드
+    b = wps_2d[i + 1] - wps_2d[i]       # 탈출 코드
+    cross = a[0] * b[1] - a[1] * b[0]   # >0 → NED 우선회
+    area2 = abs(cross)
+    la        = np.linalg.norm(a)
+    lb        = np.linalg.norm(b)
+    chord_ac  = np.linalg.norm(wps_2d[i + 1] - wps_2d[i - 1])
+    if la * lb * chord_ac < 1e-9:
+        return 0.0
+    kappa_abs = area2 / (la * lb * chord_ac)
+    sign = 1.0 if cross >= 0.0 else -1.0
+    return float(np.clip(sign * kappa_abs, -kappa_max * 0.9, kappa_max * 0.9))
+
+
 def _eta3_initial_guess(wps_2d: np.ndarray,
                         theta0: float, kappa0: float,
-                        theta_N: float, kappa_N: float) -> tuple[np.ndarray, np.ndarray]:
+                        theta_N: float, kappa_N: float,
+                        kappa_max: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
     """
     η³ G2 풀기 전 초기값 생성.
 
-    θ_i : 인접 코드 방향의 이등분선 방위각
-    κ_i : 0 (내부 노드), Menger 곡률도 가능
+    θ_i : 인접 코드 방향의 이등분선 방위각 (U턴은 수직 방향으로 처리)
+    κ_i : Menger 곡률 (내부 노드) — κ=0 대비 _compute_L 특이점 회피
     """
     N = len(wps_2d)
     thetas = np.zeros(N)
@@ -128,9 +150,11 @@ def _eta3_initial_guess(wps_2d: np.ndarray,
     for i in range(1, N - 1):
         d_in  = _unit(wps_2d[i] - wps_2d[i - 1])
         d_out = _unit(wps_2d[i + 1] - wps_2d[i])
-        bis   = _unit(d_in + d_out)
+        bis   = d_in + d_out
+        if np.linalg.norm(bis) < 1e-9:
+            bis = np.array([-d_in[1], d_in[0]])  # U턴: 진입 방향에 수직
         thetas[i] = np.arctan2(bis[1], bis[0])
-        kappas[i] = 0.0  # 초기값; Stage 1 NR이 갱신
+        kappas[i] = _menger_kappa(wps_2d, i, kappa_max)
 
     return thetas, kappas
 
@@ -190,7 +214,7 @@ def _solve_eta3_g2(wps_2d: np.ndarray,
     Returns thetas (N,), kappas (N,)  — 경계 포함, ±κ_max 클리핑됨
     """
     N = len(wps_2d)
-    thetas, kappas = _eta3_initial_guess(wps_2d, theta0, kappa0, theta_N, kappa_N)
+    thetas, kappas = _eta3_initial_guess(wps_2d, theta0, kappa0, theta_N, kappa_N, kappa_max)
 
     if N <= 2:
         return thetas, kappas
@@ -292,6 +316,76 @@ def _segment_nr_correct(theta_i: float, kappa_i: float,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 1순위: 기하학적 실현 가능성 검사 + WP 삽입
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _check_and_insert_wps(
+    wps_2d:     np.ndarray,
+    thetas:     np.ndarray,
+    kappas:     np.ndarray,
+    kappa_max:  float,
+    max_insert: int = 3,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list]:
+    """
+    κ_needed > κ_max 인 구간에 중점 WP를 삽입하여 기하학적 실현 가능성을 확보.
+
+    κ_needed = 2·|Δθ| / chord  (균일 κ 근사)
+
+    삽입 WP:
+      θ_mid = 코드 방향각 (양 끝 코드가 동일 방향이므로 bisector = 코드 방향)
+      κ_mid = 0  (중점 Menger 곡률은 구조적으로 0)
+
+    max_insert 회 반복 후에도 불가 구간이 남으면 그대로 진행
+    (후속 NR에서 κ_max 클리핑으로 최선 근사).
+
+    Returns
+    -------
+    wps_2d_new   : (N_new, 2)
+    thetas_new   : (N_new,)
+    kappas_new   : (N_new,)
+    orig_indices : list[int]  길이 N_new
+        orig_indices[k] >= 0 → 원본 WP 인덱스
+        orig_indices[k] == -1 → 삽입된 WP
+    """
+    wps_2d = np.array(wps_2d, dtype=float)
+    thetas = np.array(thetas, dtype=float)
+    kappas = np.array(kappas, dtype=float)
+    orig_indices: list = list(range(len(wps_2d)))
+
+    for _ in range(max_insert):
+        inserted = False
+        i = 0
+        while i < len(wps_2d) - 1:
+            chord = np.linalg.norm(wps_2d[i + 1] - wps_2d[i])
+            if chord < 1e-6:
+                i += 1
+                continue
+
+            dtheta = abs(_wrap(thetas[i + 1] - thetas[i]))
+            kappa_needed = 2.0 * dtheta / chord
+
+            if kappa_needed > kappa_max:
+                wp_mid    = 0.5 * (wps_2d[i] + wps_2d[i + 1])
+                theta_mid = np.arctan2(
+                    wps_2d[i + 1][1] - wps_2d[i][1],
+                    wps_2d[i + 1][0] - wps_2d[i][0],
+                )
+                wps_2d = np.insert(wps_2d, i + 1, wp_mid,    axis=0)
+                thetas = np.insert(thetas, i + 1, theta_mid)
+                kappas = np.insert(kappas, i + 1, 0.0)
+                orig_indices.insert(i + 1, -1)
+                inserted = True
+                i += 2          # 삽입된 두 부분 구간을 이번 패스에서 재검사하지 않음
+            else:
+                i += 1
+
+        if not inserted:
+            break
+
+    return wps_2d, thetas, kappas, orig_indices
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Planner 클래스
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -338,8 +432,9 @@ class Eta3ClothoidPlanner(BasePlanner):
         a_max     = a_max_g * g * self.accel_tol
         kappa_max = a_max / (v_cruise ** 2)   # = 1/R_min
 
-        wps_2d = wps[:, :2]
-        N      = len(wps)
+        N_original = len(wps)          # 원본 WP 수 — 고도 보간, wp_index 마킹에 사용
+        wps_2d     = wps[:, :2]
+        N          = N_original
 
         # ── 경계 조건 ─────────────────────────────────────────────────
         theta0  = np.arctan2(wps[1, 1] - wps[0, 1], wps[1, 0] - wps[0, 0])
@@ -358,9 +453,17 @@ class Eta3ClothoidPlanner(BasePlanner):
         #     max_iter=50, tol=1e-6,
         # )
         #
-        # PSEUDO 대체: 코드 흐름 확인용 단순 초기값 사용
-        thetas, kappas = _eta3_initial_guess(wps_2d, theta0, kappa0, theta_N, kappa_N)
+        # PSEUDO 대체: Menger κ를 초기값으로 사용하는 개선된 초기값
+        thetas, kappas = _eta3_initial_guess(
+            wps_2d, theta0, kappa0, theta_N, kappa_N, kappa_max,
+        )
         kappas = np.clip(kappas, -kappa_max, kappa_max)
+
+        # ── [1순위] 기하학적 실현 가능성 검사 + WP 삽입 ──────────────
+        wps_2d, thetas, kappas, orig_indices = _check_and_insert_wps(
+            wps_2d, thetas, kappas, kappa_max,
+        )
+        N = len(wps_2d)
 
         # ── Stage 2: 구간별 Clothoid + NR 위치 보정 ───────────────────
         all_pts:   list[np.ndarray] = []
@@ -384,14 +487,16 @@ class Eta3ClothoidPlanner(BasePlanner):
             )
             seg_pts = seg_pts + wps_2d[i]  # 월드 프레임 평행 이동
 
-            wp_marks[sum(len(p) for p in all_pts)] = i
+            if orig_indices[i] >= 0:        # 삽입 WP는 wp_index 마킹 제외
+                wp_marks[sum(len(p) for p in all_pts)] = orig_indices[i]
 
             all_pts.append(seg_pts[:-1])        # 마지막 점 = 다음 구간 첫 점
             all_kappa.append(seg_kappa[:-1])
 
-        # 마지막 WP
+        # 마지막 WP (orig_indices[-1] 은 항상 N_original-1)
         idx_last = sum(len(p) for p in all_pts)
-        wp_marks[idx_last] = N - 1
+        if orig_indices[N - 1] >= 0:
+            wp_marks[idx_last] = orig_indices[N - 1]
         all_pts.append(wps_2d[N - 1: N])
         all_kappa.append(np.array([kappas[-1]]))
 
@@ -411,8 +516,10 @@ class Eta3ClothoidPlanner(BasePlanner):
         s_arr    = np.concatenate([[0.0], np.cumsum(np.hypot(diffs[:, 0], diffs[:, 1]))])
 
         # ── 고도 보간 ─────────────────────────────────────────────────
-        sorted_marks = sorted([(k, wi) for k, wi in wp_marks.items() if wi < N],
-                               key=lambda x: x[1])
+        sorted_marks = sorted(
+            [(k, wi) for k, wi in wp_marks.items() if wi < N_original],
+            key=lambda x: x[1],
+        )
         wp_s_arr = np.array([s_arr[k] for k, _ in sorted_marks])
         wp_h_arr = np.array([wps[wi, 2] for _, wi in sorted_marks])
         alt_arr  = np.interp(s_arr, wp_s_arr, wp_h_arr)

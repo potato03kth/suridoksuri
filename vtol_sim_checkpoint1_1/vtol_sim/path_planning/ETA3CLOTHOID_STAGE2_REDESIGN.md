@@ -343,13 +343,64 @@ for i in range(N - 1):
 
 ---
 
-## 5. 구현 우선순위
+## 5. 구현 우선순위 및 진행 상황
 
 ```
-1순위: _check_and_insert_wps()     ← 실현 가능성 확보, Stage 1 없이도 효과
-2순위: _global_stage2_nr()         ← 순방향 덮어쓰기 제거, κ 구조적 보장
-3순위: Stage 1 η³ G2 잔차 구현      ← G2 연속성 완성 (Bertolazzi-Frego 2018 참조)
+1순위: _check_and_insert_wps()     ✅ 완료 (2026-04-29)
+2순위: _global_stage2_nr()         ⬜ 미구현 — 순방향 덮어쓰기 제거, κ 구조적 보장
+3순위: Stage 1 η³ G2 잔차 구현      ⬜ 미구현 — G2 연속성 완성 (Bertolazzi-Frego 2018 참조)
 ```
 
 Stage 1 없이도 1·2순위만 구현하면 현재보다 실질적으로 안정적인 경로가 생성된다.  
 Stage 1이 완성되면 전역 NR의 초기값 품질이 높아져 수렴이 더 빠르고 정확해진다.
+
+---
+
+## 6. 1순위 구현 상세 (2026-04-29)
+
+### 6.1 추가된 함수
+
+#### `_menger_kappa(wps_2d, i, kappa_max) → float`
+
+내부 노드 i 의 부호 있는 Menger 곡률. κ=0 초기값으로 인한 `_compute_L` 특이점(ksum≈0)을 회피하기 위해 도입.
+
+- NED 컨벤션 (우선회=양수): `sign = +1` if `cross = a×b ≥ 0`
+- 반환값: `clip(sign·area2/(|a|·|b|·|ac_chord|), -0.9κ_max, +0.9κ_max)`
+
+#### `_check_and_insert_wps(wps_2d, thetas, kappas, kappa_max, max_insert=3)`
+
+κ_needed = `2·|Δθ|/chord > κ_max` 인 구간에 중점 WP를 삽입.
+
+| 삽입 WP 초기값 | 이유 |
+|---|---|
+| `θ_mid = atan2(chord)` | 양쪽 부분 코드가 동일 방향이므로 bisector = chord 방향 |
+| `κ_mid = 0` | 중점의 Menger 곡률은 평행한 두 코드 → cross=0 → 구조적으로 0 |
+
+`orig_indices: list[int]` 를 반환하여 삽입 WP(-1)와 원본 WP(≥0)를 구별.
+
+### 6.2 수정된 함수
+
+#### `_eta3_initial_guess`
+- 시그니처에 `kappa_max: float = 1.0` 추가
+- 내부 노드 κ 초기값: `0.0` → `_menger_kappa(wps_2d, i, kappa_max)`
+- U턴 처리: bisector 벡터 크기 < 1e-9 이면 진입 방향에 수직인 방향 사용
+
+#### `plan()`
+- `N_original = len(wps)` 추가 (WP 삽입 후에도 원본 수 보존)
+- `_eta3_initial_guess` 호출 시 `kappa_max` 전달
+- `_check_and_insert_wps` 호출 → `wps_2d, thetas, kappas, orig_indices` 갱신
+- Stage 2 루프: `orig_indices[i] >= 0` 인 경우에만 `wp_marks`에 원본 WP 인덱스 기록
+- 고도 보간 필터: `wi < N` → `wi < N_original` (삽입 WP가 원본 고도 배열을 벗어나지 않도록)
+
+### 6.3 검증 결과 (스모크 테스트)
+
+```
+Menger κ (90° 우선회, chord=10): 0.0707  ✓ (양수)
+급격 구간 WP 삽입: 3개 삽입, orig_indices 정확
+4-WP plan(): 307점, 918.5m, wp_index [0,1,2,3] 모두 마킹 ✓
+```
+
+### 6.4 남은 한계 (2순위에서 해결 예정)
+
+- G1/G2 불연속: 순방향 NR 덮어쓰기 문제는 여전히 존재 → `_global_stage2_nr` 필요
+- κ 클리핑 NR 수렴 불안정: tanh 재매개변수화 미적용 → 2순위에서 해결
