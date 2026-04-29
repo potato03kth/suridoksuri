@@ -65,15 +65,15 @@ def plot_simulation_results(sim_result: dict, save_path: str,
     # ax_2d.plot(actual_pos[:, 1], actual_pos[:, 0], "r-",
     #            label="Actual", linewidth=1.0)
     ax_2d.scatter(waypoints[:, 1], waypoints[:, 0],
-                  c="green", s=100, marker="o", zorder=5,
+                  c="green", s=25, marker="o", zorder=5,
                   edgecolor="black", label="WP")
     for i, wp in enumerate(waypoints):
         ax_2d.annotate(f"{i}", (wp[1], wp[0]),
                        textcoords="offset points", xytext=(5, 5))
-    for rec in wp_records:
-        if rec is not None and rec.cpa_distance < 50.0:
-            ax_2d.plot(rec.cpa_position[1], rec.cpa_position[0], "rx",
-                       markersize=10, markeredgewidth=2)
+    # for rec in wp_records:
+    #     if rec is not None and rec.cpa_distance < 50.0:
+    #         ax_2d.plot(rec.cpa_position[1], rec.cpa_position[0], "rx",
+    #                    markersize=10, markeredgewidth=2)
     ax_2d.set_xlabel("East (m)")
     ax_2d.set_ylabel("North (m)")
     ax_2d.set_title("Top-down (NE plane)")
@@ -136,7 +136,7 @@ def plot_simulation_results(sim_result: dict, save_path: str,
     ax_u = fig.add_subplot(3, 3, 5)
     bank_deg = np.rad2deg(arr["bank_cmd"])
     thrust = arr["thrust_cmd"]
-    # ax_u.plot(t_arr, bank_deg, "b-", label="bank_cmd (deg)", alpha=0.7)
+    ax_u.plot(t_arr, bank_deg, "b-", label="bank_cmd (deg)", alpha=0.7)
     ax_u2 = ax_u.twinx()
     ax_u2.plot(t_arr, thrust, "g-", label="thrust_cmd", alpha=0.7)
     ax_u.set_xlabel("Time (s)")
@@ -172,8 +172,8 @@ def plot_simulation_results(sim_result: dict, save_path: str,
                 label="|φ_required| (path)", linewidth=1.0)
     ax_phi.plot(t_arr, -phi_req_deg, color="green", linestyle=":",
                 linewidth=1.0)  # 음수도 표시 (좌선회 가능)
-    # ax_phi.plot(t_arr, phi_cmd_deg, "b-", label="φ_cmd (controller)",
-    #             linewidth=1.0, alpha=0.8)
+    ax_phi.plot(t_arr, phi_cmd_deg, "b-", label="φ_cmd (controller)",
+                linewidth=1.0, alpha=0.8)
     if aircraft_params is not None:
         a_max_g = aircraft_params["a_max_g"]
         phi_practical = np.rad2deg(np.arctan(a_max_g))
