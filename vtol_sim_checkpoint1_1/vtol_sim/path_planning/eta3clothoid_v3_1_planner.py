@@ -1,21 +1,21 @@
 """
-η³-Clothoid Planner v3 — 단일 통합 G2 NR
-==========================================
-설계 문서: eta3_clothoid_planner_v3.md
+η³-Clothoid Planner v3.1 — 단일 통합 G2 NR (수렴 안정성 + 연결 일관성 개선)
+================================================================================
+설계 문서: eta3_clothoid_planner_v3.md  (변경점은 CHANGES_v3_1.md 참조)
+
+v3 → v3.1 핵심 변경:
+  • Stage 0에서 계산한 θ 초기값을 Stage 1 NR로 전달 (이전: 폐기 후 재계산)
+  • L 자유변수 클립 범위 확장: v∈[-0.5, 1.2] → L∈[0.61, 3.32]·chord
+  • NR 비수렴 시 L 클립 한계를 더 풀어 재시도하는 fallback 루프
+  • Clothoid 연결을 "WP 좌표 점프"가 아닌 "이전 segment 끝점 누적"으로 변경
+    (NR 잔차에 의한 시각적 꺾임/직선 점프 제거)
+  • 종단 마지막 WP 더미 점 추가 제거
+  • Armijo line search 백트래킹 횟수 8 → 20
 
 파이프라인:
   Stage 0 — κ_needed > κ_max 구간에 WP 사전 삽입 (θ는 원형 평균)
   Stage 1 — 단일 통합 NR: 위치(2) + 헤딩(1) 잔차 직접 해소
   종단    — κ 감쇠 클로소이드 1개 삽입 후 직선 연장
-
-보장 항목:
-  ✓ WP 완전 통과          (위치 잔차 < nr_tol)
-  ✓ κ_max 전 구간 준수    (κ_max·tanh 매개변수화)
-  ✓ G1 연속성             (헤딩 잔차 < nr_tol/mean_chord rad)
-  ✓ G2 연속 (구조적)      (단일 클로소이드 + 노드 κ 공유)
-  ✓ 자기 루프 없음        (v ∈ [−0.3, 0.6] → L ∈ [0.74, 1.82]·chord)
-  ✓ 종단 κ 부드러움       (감쇠 클로소이드로 κ_end → 0)
-  ✗ G3 연속성             (미구현)
 """
 from __future__ import annotations
 import time
@@ -91,9 +91,7 @@ def _menger_kappa(wps: np.ndarray, i: int, kappa_max: float) -> float:
 
 def _initial_thetas(wps: np.ndarray,
                     theta0: float, theta_N: float) -> np.ndarray:
-    """
-    가중 이등분선으로 초기 θ 추정.
-
+    """가중 이등분선으로 초기 θ 추정.
     θ_nat = arg( d_in/√L_in + d_out/√L_out ) — 짧은 코드 쪽 가중 ↑
     """
     N = len(wps)
@@ -117,15 +115,12 @@ def _initial_thetas(wps: np.ndarray,
 
 
 def _insert_wps_if_infeasible(wps: np.ndarray,
-                               thetas: np.ndarray,
-                               kappa_max: float,
-                               max_insert: int = 4
-                               ) -> tuple[np.ndarray, np.ndarray, list]:
-    """
-    κ_needed > κ_max 구간에 중점 WP 삽입.
-
+                              thetas: np.ndarray,
+                              kappa_max: float,
+                              max_insert: int = 4
+                              ) -> tuple[np.ndarray, np.ndarray, list]:
+    """κ_needed > κ_max 구간에 중점 WP 삽입.
     삽입된 WP의 θ: 양옆 θ의 원형 평균 (G1 부드러움 유지).
-    삽입된 WP의 κ: Stage 1 NR이 자유롭게 결정 (κ=0 강제 안 함).
     """
     wps = np.array(wps, dtype=float)
     thetas = np.array(thetas, dtype=float)
@@ -143,7 +138,6 @@ def _insert_wps_if_infeasible(wps: np.ndarray,
             k_need = 2.0 * dtheta / chord
             if k_need > kappa_max * 0.9:
                 wp_mid = 0.5 * (wps[i] + wps[i + 1])
-                # 원형 평균으로 θ 보간 — 직선 방향 강제보다 G1 연속성 유지
                 th_mid = float(np.arctan2(
                     np.sin(thetas[i]) + np.sin(thetas[i + 1]),
                     np.cos(thetas[i]) + np.cos(thetas[i + 1])))
@@ -164,22 +158,17 @@ def _insert_wps_if_infeasible(wps: np.ndarray,
 # Stage 1 — 단일 통합 G2 NR
 # ─────────────────────────────────────────────────────────────────────────────
 
-_V_CLIP_LO = -0.3
-_V_CLIP_HI = 0.6
+# v3.1: L 클립 범위 확장 — 큰 회전각/긴 chord 케이스 수렴 보장
+_V_CLIP_LO_DEFAULT = -0.5   # exp(-0.5) ≈ 0.61
+_V_CLIP_HI_DEFAULT = 1.2   # exp(1.2)  ≈ 3.32
 
 
 def _unpack(x: np.ndarray, N: int,
             theta_bc: tuple, kappa_bc: tuple,
-            kappa_max: float, chords: np.ndarray
+            kappa_max: float, chords: np.ndarray,
+            v_lo: float, v_hi: float
             ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    자유변수 벡터 x → (θ, κ, L) 디코딩.
-
-    자유변수 레이아웃:
-      x[0 : N-2]           = θ_inner (interior 헤딩, 직접)
-      x[N-2 : 2(N-2)]      = u_inner → κ_inner = κ_max·tanh(u)
-      x[2(N-2) : 3(N-2)+1] = v_k     → L_k = chord_k·exp(clip(v))
-    """
+    """자유변수 벡터 x → (θ, κ, L) 디코딩."""
     n_inner = N - 2
     n_segs = N - 1
     th = np.empty(N)
@@ -190,7 +179,7 @@ def _unpack(x: np.ndarray, N: int,
         th[1:-1] = x[0:n_inner]
         kp[1:-1] = kappa_max * np.tanh(x[n_inner:2 * n_inner])
     v = x[2 * n_inner:2 * n_inner + n_segs]
-    Ls = np.maximum(chords * np.exp(np.clip(v, _V_CLIP_LO, _V_CLIP_HI)), 1e-3)
+    Ls = np.maximum(chords * np.exp(np.clip(v, v_lo, v_hi)), 1e-3)
     return th, kp, Ls
 
 
@@ -200,19 +189,13 @@ def _residual(x: np.ndarray,
               kappa_max: float,
               chords: np.ndarray,
               mean_chord: float,
+              v_lo: float, v_hi: float,
               n_quad: int = 100) -> np.ndarray:
-    """
-    전역 잔차 — 각 segment k에 3개:
-
-      F[3k  ] = ∫cos θ(s)ds − (x_{k+1}−x_k)        [위치 x]
-      F[3k+1] = ∫sin θ(s)ds − (y_{k+1}−y_k)        [위치 y]
-      F[3k+2] = mean_chord · wrap(θ_end_k − θ_{k+1}) [헤딩 G1]
-
-    헤딩 잔차에 mean_chord를 곱해 위치 잔차와 단위·크기 통일 (야코비안 조건수 개선).
-    """
+    """전역 잔차 (segment 당 3개: 위치 x, y, 헤딩)."""
     N = len(wps)
     n_segs = N - 1
-    th, kp, Ls = _unpack(x, N, theta_bc, kappa_bc, kappa_max, chords)
+    th, kp, Ls = _unpack(x, N, theta_bc, kappa_bc,
+                         kappa_max, chords, v_lo, v_hi)
     F = np.empty(3 * n_segs)
     for k in range(n_segs):
         p = _fresnel_endpoint(th[k], kp[k], kp[k + 1], Ls[k], n_quad)
@@ -228,91 +211,123 @@ def _solve_g2_nr(wps: np.ndarray,
                  kappa_max: float,
                  theta0: float, kappa0: float,
                  theta_N: float, kappa_N: float,
+                 th_init_full: np.ndarray | None = None,   # v3.1: Stage 0의 θ 전달
                  max_iter: int = 60, tol: float = 1e-5,
                  eps_jac: float = 1e-6,
                  verbose: bool = False
-                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    단일 통합 G2 NR (Newton-Raphson + 수치 야코비안 + Armijo line search).
-
-    G2는 단일 클로소이드 + 노드 κ 공유 매개변수화로 구조적 자동 보장.
-    """
+                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    """단일 통합 G2 NR. 반환에 최종 |F|를 추가하여 수렴 여부를 판단할 수 있게 함."""
     N = len(wps)
     n_segs = N - 1
     chords = np.array([np.linalg.norm(wps[k + 1] - wps[k])
                        for k in range(n_segs)])
 
-    # 초기값: 가중 이등분선 θ + Menger κ
-    th_init = _initial_thetas(wps, theta0, theta_N)
+    # v3.1: Stage 0의 θ가 있으면 사용, 없으면 가중 이등분선으로 다시 계산
+    if th_init_full is not None and len(th_init_full) == N:
+        th_init = np.array(th_init_full, dtype=float)
+        th_init[0] = theta0
+        th_init[-1] = theta_N
+    else:
+        th_init = _initial_thetas(wps, theta0, theta_N)
+
     kp_init = np.zeros(N)
     for i in range(1, N - 1):
         kp_init[i] = _menger_kappa(wps, i, kappa_max)
     kp_init[0], kp_init[-1] = kappa0, kappa_N
 
     if N <= 2:
-        return th_init, kp_init, np.maximum(chords, 1e-3)
+        return th_init, kp_init, np.maximum(chords, 1e-3), 0.0
 
     n_inner = N - 2
     mean_chord = float(np.mean(chords))
     theta_bc = (float(theta0), float(theta_N))
     kappa_bc = (float(kappa0), float(kappa_N))
 
-    x = np.empty(2 * n_inner + n_segs)
-    x[0:n_inner] = th_init[1:-1]
-    x[n_inner:2 * n_inner] = np.arctanh(
-        np.clip(kp_init[1:-1] / kappa_max, -0.9999, 0.9999))
-    x[2 * n_inner:] = 0.0  # v=0 → L_k = chord_k (초기 구간 길이)
+    # v3.1: 비수렴 시 L 클립 한계를 단계적으로 풀며 재시도
+    clip_attempts = [
+        (_V_CLIP_LO_DEFAULT, _V_CLIP_HI_DEFAULT),    # 1차: [-0.5, 1.2]
+        (-0.7, 1.8),                                 # 2차: 더 풀어줌
+        (-1.0, 2.5),                                 # 3차: 매우 관대
+    ]
 
-    args = (wps, theta_bc, kappa_bc, kappa_max, chords, mean_chord)
-    prev_norm = np.inf
+    best = None  # (norm_F, x, v_lo, v_hi)
 
-    for it in range(max_iter):
-        F = _residual(x, *args)
-        norm_F = float(np.linalg.norm(F))
+    for v_lo, v_hi in clip_attempts:
+        x = np.empty(2 * n_inner + n_segs)
+        x[0:n_inner] = th_init[1:-1]
+        x[n_inner:2 * n_inner] = np.arctanh(
+            np.clip(kp_init[1:-1] / kappa_max, -0.9999, 0.9999))
+        x[2 * n_inner:] = 0.0
+
+        args = (wps, theta_bc, kappa_bc, kappa_max,
+                chords, mean_chord, v_lo, v_hi)
+        prev_norm = np.inf
+
+        for it in range(max_iter):
+            F = _residual(x, *args)
+            norm_F = float(np.linalg.norm(F))
+
+            if verbose:
+                _, kk, LL = _unpack(x, N, theta_bc, kappa_bc, kappa_max,
+                                    chords, v_lo, v_hi)
+                pos_max = max(np.max(np.abs(F[0::3])), np.max(np.abs(F[1::3])))
+                head_max = np.max(np.abs(F[2::3])) / max(mean_chord, 1e-9)
+                print(f"  [G2-NR clip=({v_lo:.1f},{v_hi:.1f}) it={it:02d}] "
+                      f"|F|={norm_F:.3e} pos_max={pos_max:.3e}m "
+                      f"head_max={head_max:.3e}rad "
+                      f"|κ|/κmax={np.max(np.abs(kk))/kappa_max:.3f} "
+                      f"L/chord∈[{np.min(LL/chords):.2f},{np.max(LL/chords):.2f}]")
+
+            if norm_F < tol:
+                break
+
+            # 수치 야코비안
+            m_j, n_j = len(F), len(x)
+            J = np.zeros((m_j, n_j))
+            for j in range(n_j):
+                xp = x.copy()
+                xp[j] += eps_jac
+                J[:, j] = (_residual(xp, *args) - F) / eps_jac
+
+            try:
+                dx, *_ = np.linalg.lstsq(J, -F, rcond=None)
+            except np.linalg.LinAlgError:
+                break
+
+            # v3.1: Armijo line search 백트래킹 횟수 8 → 20
+            c_armijo = 1e-4
+            step = 1.0
+            for _bt in range(20):
+                if np.linalg.norm(_residual(x + step * dx, *args)) \
+                        <= (1.0 - c_armijo * step) * norm_F:
+                    break
+                step *= 0.5
+            x += step * dx
+
+            if abs(prev_norm - norm_F) < 1e-10 and norm_F < 10 * tol:
+                break
+            prev_norm = norm_F
+
+        # 이번 시도 결과 평가
+        F_final = _residual(x, *args)
+        norm_final = float(np.linalg.norm(F_final))
+        if best is None or norm_final < best[0]:
+            best = (norm_final, x.copy(), v_lo, v_hi)
+
+        if norm_final < tol:
+            break  # 충분히 수렴 → 다음 클립 시도 불필요
 
         if verbose:
-            _, kk, LL = _unpack(x, N, theta_bc, kappa_bc, kappa_max, chords)
-            pos_max = max(np.max(np.abs(F[0::3])), np.max(np.abs(F[1::3])))
-            head_max = np.max(np.abs(F[2::3])) / max(mean_chord, 1e-9)
-            print(f"  [G2-NR it={it:02d}] |F|={norm_F:.3e}  pos_max={pos_max:.3e}m  "
-                  f"head_max={head_max:.3e}rad  "
-                  f"|κ|/κmax={np.max(np.abs(kk))/kappa_max:.3f}  "
-                  f"L/chord∈[{np.min(LL/chords):.2f},{np.max(LL/chords):.2f}]")
+            print(f"  [G2-NR] clip=({v_lo:.1f},{v_hi:.1f}) 미수렴 "
+                  f"(|F|={norm_final:.3e}). 더 넓은 클립으로 재시도.")
 
-        if norm_F < tol:
-            break
-
-        # 수치 야코비안
-        m_j, n_j = len(F), len(x)
-        J = np.zeros((m_j, n_j))
-        for j in range(n_j):
-            xp = x.copy()
-            xp[j] += eps_jac
-            J[:, j] = (_residual(xp, *args) - F) / eps_jac
-
-        try:
-            dx, *_ = np.linalg.lstsq(J, -F, rcond=None)
-        except np.linalg.LinAlgError:
-            break
-
-        # Armijo line search
-        c_armijo = 1e-4
-        step = 1.0
-        for _ in range(8):
-            if np.linalg.norm(_residual(x + step * dx, *args)) \
-                    <= (1.0 - c_armijo * step) * norm_F:
-                break
-            step *= 0.5
-        x += step * dx
-
-        if abs(prev_norm - norm_F) < 1e-10 and norm_F < 10 * tol:
-            break
-        prev_norm = norm_F
-
-    th, kp, Ls = _unpack(x, N, theta_bc, kappa_bc, kappa_max, chords)
+    # 최선 결과 사용
+    norm_best, x_best, v_lo_best, v_hi_best = best
+    th, kp, Ls = _unpack(x_best, N, theta_bc, kappa_bc, kappa_max,
+                         chords, v_lo_best, v_hi_best)
     kp = np.clip(kp, -kappa_max * 0.98, kappa_max * 0.98)
     kp[0], kp[-1] = kappa_bc
-    return th, kp, Ls
+    return th, kp, Ls, norm_best
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -322,12 +337,7 @@ def _solve_g2_nr(wps: np.ndarray,
 def _terminal_decay(theta_end: float, kappa_end: float,
                     kappa_max: float, ds: float
                     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-    """
-    종단 κ를 0으로 부드럽게 감쇠시키는 단일 클로소이드.
-
-    L_decay = |κ_end| / (κ_max · 0.5)
-    κ_max 준수 조건에서 도출 — 너무 짧으면 κ 변화율 초과, 너무 길면 불필요한 경로 추가.
-    """
+    """종단 κ를 0으로 부드럽게 감쇠시키는 단일 클로소이드."""
     if abs(kappa_end) < 1e-6:
         return np.zeros((0, 2)), np.array([]), np.array([]), 0.0
     L = abs(kappa_end) / (kappa_max * 0.5)
@@ -340,12 +350,7 @@ def _terminal_decay(theta_end: float, kappa_end: float,
 # ─────────────────────────────────────────────────────────────────────────────
 
 class Eta3ClothoidPlannerV3(BasePlanner):
-    """
-    η³-Clothoid Planner v3.
-
-    Stage 0 (WP 사전 삽입) → Stage 1 (단일 G2 NR) → Clothoid 샘플링
-    → 종단 κ 감쇠 클로소이드 → 직선 연장.
-    """
+    """η³-Clothoid Planner v3.1."""
 
     def __init__(self,
                  ds: float = 1.0,
@@ -390,7 +395,8 @@ class Eta3ClothoidPlannerV3(BasePlanner):
 
         # ── Stage 0: WP 사전 삽입 ─────────────────────────────
         th_pre = _initial_thetas(wps_2d, theta0, theta_N)
-        wps_2d, _, orig_indices = _insert_wps_if_infeasible(
+        # v3.1: 두 번째 반환값(삽입 후 θ)을 받아 NR 초기값으로 사용
+        wps_2d, th_after_insert, orig_indices = _insert_wps_if_infeasible(
             wps_2d, th_pre, kappa_max)
         N = len(wps_2d)
         if self.verbose:
@@ -400,48 +406,71 @@ class Eta3ClothoidPlannerV3(BasePlanner):
         # ── Stage 1: 단일 통합 G2 NR ──────────────────────────
         if self.verbose:
             print("[Stage 1] 단일 통합 G2 NR")
-        thetas, kappas, seg_Ls = _solve_g2_nr(
+        thetas, kappas, seg_Ls, nr_norm_final = _solve_g2_nr(
             wps_2d, kappa_max, theta0, kappa0, theta_N, kappa_N,
+            th_init_full=th_after_insert,            # v3.1
             max_iter=self.nr_max_iter, tol=self.nr_tol,
             verbose=self.verbose,
         )
+        if self.verbose:
+            print(f"[Stage 1] 최종 |F|={nr_norm_final:.3e} "
+                  f"(tol={self.nr_tol:.0e}, "
+                  f"{'수렴' if nr_norm_final < self.nr_tol else '⚠ 미수렴'})")
 
-        # ── Clothoid 샘플링 ───────────────────────────────────
+        # ── Clothoid 샘플링 (v3.1: 누적 좌표로 연결, WP 점프 제거) ──
         all_pts:   list[np.ndarray] = []
         all_kappa: list[np.ndarray] = []
         wp_marks:  dict[int, int] = {}
 
+        # 시작점
+        cur_origin = wps_2d[0].copy()
+        if orig_indices[0] >= 0:
+            wp_marks[0] = orig_indices[0]
+
         for k in range(N - 1):
-            seg_pts, _, seg_kp = _clothoid_sample(
+            seg_pts, _seg_th, seg_kp = _clothoid_sample(
                 thetas[k], kappas[k], kappas[k + 1], seg_Ls[k], self.ds)
-            seg_pts = seg_pts + wps_2d[k]
-            if orig_indices[k] >= 0:
-                wp_marks[sum(len(p) for p in all_pts)] = orig_indices[k]
-            all_pts.append(seg_pts[:-1])
-            all_kappa.append(seg_kp[:-1])
+            # 로컬 → 전역: 이전 segment의 끝점(=현재 origin)을 기준
+            seg_pts_global = seg_pts + cur_origin
 
-        idx_last = sum(len(p) for p in all_pts)
-        if orig_indices[N - 1] >= 0:
-            wp_marks[idx_last] = orig_indices[N - 1]
+            if k == 0:
+                all_pts.append(seg_pts_global[:-1])
+                all_kappa.append(seg_kp[:-1])
+            else:
+                # 이전 segment 끝점은 이미 추가됨 → 중복 제거 위해 [1:-1] 사용 시
+                # 시작점이 빠짐. 대신 [:-1]을 쓰되, 이전에 끝점을 안 넣었으므로
+                # 여기 시작점이 바로 그 끝점 역할.
+                all_pts.append(seg_pts_global[:-1])
+                all_kappa.append(seg_kp[:-1])
 
-        # 마지막 segment 끝 헤딩 (decay 시작점)
-        th_terminal = thetas[-2] + 0.5 * (kappas[-2] + kappas[-1]) * seg_Ls[-1]
+            # 다음 segment의 origin = 이번 segment의 실제 끝점 (NR 잔차 포함, 일관됨)
+            cur_origin = seg_pts_global[-1]
 
-        all_pts.append(wps_2d[N - 1: N])
+            # WP 마커: 다음 segment 시작 인덱스가 곧 wps_2d[k+1]에 대응
+            idx_next_wp = sum(len(p) for p in all_pts)
+            if orig_indices[k + 1] >= 0:
+                wp_marks[idx_next_wp] = orig_indices[k + 1]
+
+        # 마지막 segment 끝점을 path에 포함 (위에서 [:-1]로 잘랐으므로 추가)
+        all_pts.append(cur_origin.reshape(1, 2))
         all_kappa.append(np.array([kappas[-1]]))
+
+        # 마지막 segment 끝 헤딩 = 마지막 클로소이드의 종단 헤딩
+        th_terminal = thetas[-2] + 0.5 * (kappas[-2] + kappas[-1]) * seg_Ls[-1]
 
         # ── 종단 κ 감쇠 클로소이드 ────────────────────────────
         decay_pts, decay_th_arr, decay_kp, _ = _terminal_decay(
             th_terminal, kappas[-1], kappa_max, self.ds)
 
         if len(decay_pts) > 1:
-            decay_pts = decay_pts + wps_2d[-1]
-            all_pts.append(decay_pts[1:])
+            # v3.1: decay도 cur_origin(실제 마지막 segment 끝점) 기준으로 평행이동
+            decay_pts_global = decay_pts + cur_origin - decay_pts[0]
+            all_pts.append(decay_pts_global[1:])
             all_kappa.append(decay_kp[1:])
-            terminal_pos = decay_pts[-1]
-            terminal_th = float(decay_th_arr[-1])  # decay 끝 헤딩
+            terminal_pos = decay_pts_global[-1]
+            terminal_th = float(decay_th_arr[-1])
         else:
-            terminal_pos = wps_2d[-1]
+            terminal_pos = cur_origin
             terminal_th = th_terminal
 
         # ── 종단 직선 연장 ────────────────────────────────────
@@ -452,7 +481,7 @@ class Eta3ClothoidPlannerV3(BasePlanner):
         all_pts.append(ext_pts[1:])
         all_kappa.append(np.zeros(len(ext_pts) - 1))
 
-        pts_arr   = np.concatenate(all_pts,    axis=0)
+        pts_arr = np.concatenate(all_pts,    axis=0)
         kappa_arr = np.concatenate(all_kappa,  axis=0)
 
         # ── 호 길이 ───────────────────────────────────────────
@@ -464,9 +493,12 @@ class Eta3ClothoidPlannerV3(BasePlanner):
         sorted_marks = sorted(
             [(idx, wi) for idx, wi in wp_marks.items() if wi < N_original],
             key=lambda t: t[1])
-        wp_s_arr = np.array([s_arr[idx] for idx, _ in sorted_marks])
-        wp_h_arr = np.array([wps[wi, 2] for _, wi in sorted_marks])
-        alt_arr = np.interp(s_arr, wp_s_arr, wp_h_arr)
+        if len(sorted_marks) >= 2:
+            wp_s_arr = np.array([s_arr[idx] for idx, _ in sorted_marks])
+            wp_h_arr = np.array([wps[wi, 2] for _, wi in sorted_marks])
+            alt_arr = np.interp(s_arr, wp_s_arr, wp_h_arr)
+        else:
+            alt_arr = np.full(len(pts_arr), wps[0, 2])
 
         # ── 방위각 ────────────────────────────────────────────
         chi_arr = np.zeros(len(pts_arr))
