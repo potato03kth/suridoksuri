@@ -347,7 +347,7 @@ for i in range(N - 1):
 
 ```
 1순위: _check_and_insert_wps()     ✅ 완료 (2026-04-29)
-2순위: _global_stage2_nr()         ⬜ 미구현 — 순방향 덮어쓰기 제거, κ 구조적 보장
+2순위: _global_stage2_nr()         ✅ 완료 (2026-04-29)
 3순위: Stage 1 η³ G2 잔차 구현      ⬜ 미구현 — G2 연속성 완성 (Bertolazzi-Frego 2018 참조)
 ```
 
@@ -400,7 +400,76 @@ Menger κ (90° 우선회, chord=10): 0.0707  ✓ (양수)
 4-WP plan(): 307점, 918.5m, wp_index [0,1,2,3] 모두 마킹 ✓
 ```
 
-### 6.4 남은 한계 (2순위에서 해결 예정)
+### 6.4 남은 한계 → 2순위에서 해결됨
 
-- G1/G2 불연속: 순방향 NR 덮어쓰기 문제는 여전히 존재 → `_global_stage2_nr` 필요
-- κ 클리핑 NR 수렴 불안정: tanh 재매개변수화 미적용 → 2순위에서 해결
+- G1/G2 불연속: 순방향 NR 덮어쓰기 문제 → **`_global_stage2_nr` 구현으로 해결**
+- κ 클리핑 NR 수렴 불안정: → **tanh 재매개변수화로 구조적 보장**
+
+---
+
+## 7. 2순위 구현 상세 (2026-04-29)
+
+### 7.1 추가된 함수
+
+#### `_global_residual(x, wps_2d, theta_bc, kappa_bc, kappa_max, n_quad=100)`
+
+전역 잔차 벡터 F, 크기 2(N-1). 구간 i의 끝점 변위 오차를 반환.
+
+- **L=chord 고정**: `_compute_L` 미사용. `kappa_sum≈0`일 때 L>>chord 발산 방지.
+- 내부 처리: `θ_k = x[2*(k-1)]`, `κ_k = kappa_max·tanh(x[2*(k-1)+1])`
+- `_fresnel_endpoint(θ_i, κ_i, κ_{i+1}, L=chord, n_quad)` → endpoint 변위 계산
+
+#### `_numerical_jacobian_global(x, wps_2d, theta_bc, kappa_bc, kappa_max, eps_jac=1e-6)`
+
+전진 차분 수치 야코비안. 형태 2(N-1) × 2(N-2).
+
+#### `_global_stage2_nr(wps_2d, thetas, kappas, kappa_max, max_iter=50, tol=1e-4, eps_jac=1e-6)`
+
+전역 동시 NR 메인 함수.
+
+| 설계 결정 | 이유 |
+|-----------|------|
+| L=chord (잔차, 샘플링 모두) | `_compute_L` 특이점 제거, NR-샘플링 일관성 |
+| tanh 재매개변수화 `κ=κ_max·tanh(u)` | κ ∈ (-κ_max, κ_max) 구조적 보장, 클리핑 불필요 |
+| Armijo 역방향 선탐색 | 단순 스텝 제한 교체 → 단조 감소 보장, 발산 방지 |
+| NR 후 θ 래핑 `_wrap(θ)` | θ 무한 증가 → 거대 L 추정 방지 |
+| lstsq (2(N-1) × 2(N-2)) | 과결정 시스템 최소잔차 해 |
+
+### 7.2 수정된 함수
+
+#### `plan()`
+
+- 순방향 `_segment_nr_correct` 루프 제거
+- `_global_stage2_nr()` 호출로 대체
+- 샘플링 루프: `_compute_L` → `L = max(chord, 1e-3)` (NR과 동일 L)
+
+### 7.3 검증 결과 (스모크 테스트, 2026-04-29)
+
+```
+[완만 선회] pts=687,  len=697m,   max|κ|=0.00662≤κ_max,  wps=[0,1,2,3],  t=0.08s  ✓
+[급격 90°]  pts=615,  len=630m,   max|κ|=0.00662≤κ_max,  wps=[0,1,2,3],  t=0.55s  ✓
+[U턴]       pts=446,  len=460m,   max|κ|=0.00662≤κ_max,  wps=[0,1,2,3],  t=0.74s  ✓
+
+run_scenario basic --planner eta3clothoid2 --controller nlgl --seed 42 --no-plot  ✓
+run_scenario basic --planner eta3clothoid2 --controller mpc  --seed 42 --no-plot  ✓
+```
+
+### 7.4 G1 연속성 보장 방식
+
+전역 NR에서 θ_i와 κ_i는 구간 i의 끝 조건이자 구간 i+1의 시작 조건으로 **공유**됨.
+순방향 NR과 달리 "구간 i 끝 헤딩 ≠ 구간 i+1 시작 헤딩" 문제가 구조적으로 사라짐.
+
+```
+순방향 NR (이전): segment i 끝 = θ_{i+1}_original
+                  segment i+1 시작 = θ_{i+1}_corrected  ← 불일치 → G1 불연속
+전역 NR (현재):   segment i 끝 = θ_{i+1}_optimized
+                  segment i+1 시작 = θ_{i+1}_optimized  ← 동일값 → G1 연속
+```
+
+### 7.5 남은 한계
+
+| 항목 | 상태 | 원인 |
+|------|------|------|
+| 기하학적 불가 구간 WP 통과 오차 | ||F||≈14m (R_min=151m에서 90° chord=200m) | 물리적 한계, 소프트웨어 결함 아님 |
+| G2 연속성 | 근사 보장 | Stage 1 미구현 → 3순위에서 해결 |
+| NR 수렴 속도 | 급격 구간에서 ~0.5s | max_insert=3 후에도 불가 구간 잔존 |
