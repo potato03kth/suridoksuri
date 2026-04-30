@@ -23,7 +23,8 @@ class AircraftState:
     위치는 NED 지역 좌표 [x_N, x_E, h] (h = -z_NED, 양수 = 위쪽).
     각도는 모두 라디안.
     """
-    pos: np.ndarray = field(default_factory=lambda: np.zeros(3))  # [x_N, x_E, h]
+    pos: np.ndarray = field(
+        default_factory=lambda: np.zeros(3))  # [x_N, x_E, h]
     v: float = 0.0           # m/s, 대기속도 (≈ 대지속도, 무풍 시)
     chi: float = 0.0         # rad, 방위각 (True North 기준, 시계방향 양)
     gamma: float = 0.0       # rad, 비행경로각 (상승 양)
@@ -36,12 +37,20 @@ class AircraftState:
     # [a_x: 전방, a_y: 우측, a_z: 하방] — body 좌표계 (NED 컨벤션)
 
     # === 알고리즘 평가용 가속도 기록 ===
-    a_total_cmd: float = 0.0     # m/s², 클립 전 명령 총 가속도 크기
-    a_total_actual: float = 0.0  # m/s², 클립 후 실제 총 가속도 크기 (수평면)
-    a_max_used: float = 0.0      # m/s², 이 step에서 적용된 최대 가속도 한계
-                                 # (시나리오 override를 반영한 실제값)
-    clip_event: bool = False     # True면 이 step에서 가속도 클리핑 발생
-    clip_factor: float = 1.0     # 클립 시 적용된 스케일 (1.0 = 클립 없음)
+    # 정책: 동역학은 가속도 한계를 강제하지 않는다.
+    # 알고리즘이 무리한 명령을 내리면 그대로 적용되고, 그 결과로 발생하는
+    # 한계 위반(violation)을 raw 데이터로 기록하여 평가에 사용한다.
+    # (속도 한계, 구조적 자세 한계 등 물리적 한계는 여전히 강제됨)
+    a_total_cmd: float = 0.0     # m/s², 명령된 총 가속도 크기 (= 실제 적용된 값)
+    a_total_actual: float = 0.0  # m/s², 실제 총 가속도 크기 (수평면)
+    # 이 모델에서는 a_total_cmd == a_total_actual
+    # (속도/자세 saturation에 의해 미세 차이 가능)
+    a_max_used: float = 0.0      # m/s², 평가 기준이 되는 가속도 한계
+    # (시나리오 override 반영한 실제값)
+    # True면 이 step에서 a_total > a_max_used (위반)
+    accel_violation: bool = False
+    # m/s², 한계 초과량 = max(0, a_total - a_max)
+    accel_violation_amount: float = 0.0
 
     def copy(self) -> "AircraftState":
         return replace(

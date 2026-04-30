@@ -1,0 +1,41 @@
+# =============================================================================
+# 시나리오 2: Gusty (강풍 + 돌풍)
+# =============================================================================
+name: "scenario_gusty"
+description: "강풍 조건 (5 m/s 정상풍 + 강한 돌풍). 외란 저항력 비교."
+
+# Waypoint 생성 — basic과 동일 시드로 같은 기하학적 경로 유지
+waypoint:
+  source: "auto"
+  auto:
+    n_waypoints: 6
+    area_size: 1500.0
+    min_separation: 330.0
+    altitude_range: [120.0, 200.0]
+    seed: 42
+  manual: []
+
+# 외란 — 강화된 바람
+noise:
+  gps_sigma: 0.5
+  gps_bias_tau: 300.0
+  gps_bias_drive_sigma: 0.05
+
+  wind_steady: [5.0, 3.0, 0.0]     # m/s, 북쪽 5 + 동쪽 3 = ~5.8 m/s 정상풍
+  wind_gust_sigma: 4.5              # m/s, 강한 돌풍 (basic의 1.8배)
+  wind_gust_length_scale: 120.0     # m, 짧은 공간 스케일 → 빠른 변화
+
+  actuator_deadband_deg: 1.0
+  actuator_bias_sigma_deg: 0.5
+
+# 지연
+delay_overrides:
+  delay_comm_to_fcc: 0.02
+
+# 가속도 제한
+a_max_g: 0.3
+
+# Monte Carlo
+monte_carlo:
+  n_runs: 30
+  seed_base: 2000

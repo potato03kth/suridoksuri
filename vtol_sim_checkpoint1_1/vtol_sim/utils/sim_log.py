@@ -32,12 +32,13 @@ class SimLog:
     # body-frame 가속도 (시뮬레이션 측정 가속도)
     a_body: list[np.ndarray] = field(default_factory=list)  # [a_x, a_y, a_z]
 
-    # === 알고리즘 평가용 ===
+    # === 알고리즘 평가용 (가속도) ===
+    # 정책: 동역학은 가속도 한계를 강제하지 않고 위반을 raw 데이터로 기록.
     a_total_cmd: list[float] = field(default_factory=list)
     a_total_actual: list[float] = field(default_factory=list)
     a_max_used: list[float] = field(default_factory=list)
-    clip_event: list[bool] = field(default_factory=list)
-    clip_factor: list[float] = field(default_factory=list)
+    accel_violation: list[bool] = field(default_factory=list)
+    accel_violation_amount: list[float] = field(default_factory=list)
 
     # 제어 입력
     bank_cmd: list[float] = field(default_factory=list)
@@ -69,8 +70,8 @@ class SimLog:
         self.a_total_cmd.append(state.a_total_cmd)
         self.a_total_actual.append(state.a_total_actual)
         self.a_max_used.append(state.a_max_used)
-        self.clip_event.append(state.clip_event)
-        self.clip_factor.append(state.clip_factor)
+        self.accel_violation.append(state.accel_violation)
+        self.accel_violation_amount.append(state.accel_violation_amount)
         self.bank_cmd.append(u.bank_cmd)
         self.pitch_cmd.append(u.pitch_cmd)
         self.thrust_cmd.append(u.thrust_cmd)
@@ -96,8 +97,8 @@ class SimLog:
             "a_total_cmd": np.array(self.a_total_cmd),
             "a_total_actual": np.array(self.a_total_actual),
             "a_max_used": np.array(self.a_max_used),
-            "clip_event": np.array(self.clip_event),
-            "clip_factor": np.array(self.clip_factor),
+            "accel_violation": np.array(self.accel_violation),
+            "accel_violation_amount": np.array(self.accel_violation_amount),
             "bank_cmd": np.array(self.bank_cmd),
             "pitch_cmd": np.array(self.pitch_cmd),
             "thrust_cmd": np.array(self.thrust_cmd),
@@ -114,38 +115,43 @@ def compute_acceleration_metrics(log: SimLog) -> dict:
     """
     로그에서 가속도 관련 통계를 계산.
 
+    정책: 동역학이 가속도 한계를 강제하지 않으므로, 알고리즘이 한계를 초과한
+    명령을 내면 그대로 적용되어 violation으로 기록된다. 이 함수는 그 violation
+    들을 종합하여 알고리즘 품질의 raw 척도를 제공한다.
+
     Returns
     -------
     dict with keys:
-        max_a_total_actual   : 시뮬 중 실제 가속도 최대값 (m/s²)
-        max_a_total_cmd      : 명령된 가속도 최대값 (포화 전, 알고리즘 공격성 척도)
-        rms_a_total_actual   : 실제 가속도 RMS
-        n_clip_events        : 클립 발생 step 수
-        clip_time_ratio      : 클립 발생 시간 비율 (0~1)
-        mean_clip_factor     : 클립 발생한 step의 평균 clip_factor
-                               (1.0에 가까울수록 살짝 넘은 것, 0에 가까울수록 심하게 넘은 것)
-        max_a_total_cmd_g    : g 단위
-        max_a_body_xy        : 수평면 body 가속도 최대 크기
-        a_max_used_min       : a_max_used 최솟값 (시나리오 동적 변경 시 변동)
-        a_max_used_max       : a_max_used 최댓값
+        max_a_total_actual / _g  : 시뮬 중 도달한 가속도 최대값
+        rms_a_total_actual       : 실제 가속도 RMS
+        n_violations             : 한계 초과한 step 수
+        violation_time_ratio     : 위반 시간 비율 (0~1)
+        max_violation_amount     : 최대 초과량 (m/s²) — 가장 무리한 명령
+        max_violation_amount_g   : g 단위
+        mean_violation_amount    : 위반 step의 평균 초과량
+        a_max_used_min/_max      : 가속도 한계 (시나리오 동적 변경 추적)
+        max_a_body_xy            : 수평면 body 가속도 최대 크기
     """
     arr = log.to_arrays() if isinstance(log, SimLog) else log
     a_actual = arr["a_total_actual"]
     a_cmd = arr["a_total_cmd"]
-    clip_events = arr["clip_event"]
-    clip_factors = arr["clip_factor"]
+    violations = arr["accel_violation"]
+    violation_amounts = arr["accel_violation_amount"]
     a_body = arr["a_body"]
     a_max_used = arr["a_max_used"]
     g = 9.81
 
     n_total = len(a_actual)
-    n_clip = int(np.sum(clip_events))
+    n_violations = int(np.sum(violations))
 
-    # 클립 발생한 step의 clip_factor만 평균
-    if n_clip > 0:
-        mean_clip_factor = float(np.mean(clip_factors[clip_events]))
+    # 위반 step의 평균 초과량
+    if n_violations > 0:
+        viol_amts_only = violation_amounts[violations]
+        mean_viol_amount = float(np.mean(viol_amts_only))
+        max_viol_amount = float(np.max(viol_amts_only))
     else:
-        mean_clip_factor = 1.0
+        mean_viol_amount = 0.0
+        max_viol_amount = 0.0
 
     # 수평면 body 가속도 크기
     a_body_xy = np.sqrt(a_body[:, 0]**2 + a_body[:, 1]**2)
@@ -156,9 +162,11 @@ def compute_acceleration_metrics(log: SimLog) -> dict:
         "max_a_total_cmd": float(np.max(a_cmd)) if n_total else 0.0,
         "max_a_total_cmd_g": float(np.max(a_cmd)) / g if n_total else 0.0,
         "rms_a_total_actual": float(np.sqrt(np.mean(a_actual**2))) if n_total else 0.0,
-        "n_clip_events": n_clip,
-        "clip_time_ratio": (n_clip / n_total) if n_total else 0.0,
-        "mean_clip_factor": mean_clip_factor,
+        "n_violations": n_violations,
+        "violation_time_ratio": (n_violations / n_total) if n_total else 0.0,
+        "max_violation_amount": max_viol_amount,
+        "max_violation_amount_g": max_viol_amount / g,
+        "mean_violation_amount": mean_viol_amount,
         "max_a_body_xy": float(np.max(a_body_xy)) if n_total else 0.0,
         "a_max_used_min": float(np.min(a_max_used)) if n_total else 0.0,
         "a_max_used_max": float(np.max(a_max_used)) if n_total else 0.0,

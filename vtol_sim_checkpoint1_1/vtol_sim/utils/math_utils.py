@@ -24,21 +24,20 @@ def saturate(x: float, lo: float, hi: float) -> float:
 def closest_point_on_polyline(point: np.ndarray, polyline: np.ndarray
                               ) -> tuple[int, float, np.ndarray, float]:
     """
-    점에서 폴리라인 위 가장 가까운 점 찾기.
+    점에서 폴리라인 위 가장 가까운 점 찾기 (벡터화 구현).
 
     Parameters
     ----------
-    point : (3,) 또는 (2,) array
-    polyline : (N, 3) 또는 (N, 2) array — 경로점 시퀀스
+    point : (D,) array  (D=2 또는 3)
+    polyline : (N, D) array — 경로점 시퀀스
 
     Returns
     -------
     seg_idx : int
-        가장 가까운 세그먼트 인덱스 (i, i+1 잇는 세그먼트)
+        가장 가까운 세그먼트 인덱스
     t : float
         세그먼트 내 매개변수 [0, 1]
-    closest : array
-        가장 가까운 점 (좌표)
+    closest : array (D,)
     distance : float
     """
     n = len(polyline)
@@ -46,24 +45,41 @@ def closest_point_on_polyline(point: np.ndarray, polyline: np.ndarray
         d = float(np.linalg.norm(point - polyline[0]))
         return 0, 0.0, polyline[0], d
 
-    best = (0, 0.0, polyline[0].copy(), np.inf)
-    for i in range(n - 1):
-        a = polyline[i]
-        b = polyline[i + 1]
-        ab = b - a
-        ap = point - a
-        ab_sq = float(np.dot(ab, ab))
-        if ab_sq < 1e-12:
-            t = 0.0
-            cp = a.copy()
-        else:
-            t = float(np.dot(ap, ab) / ab_sq)
-            t = max(0.0, min(1.0, t))
-            cp = a + t * ab
-        d = float(np.linalg.norm(point - cp))
-        if d < best[3]:
-            best = (i, t, cp, d)
-    return best
+    # 모든 세그먼트 [polyline[i], polyline[i+1]] 동시 처리
+    a = polyline[:-1]                    # (N-1, D)
+    b = polyline[1:]                     # (N-1, D)
+    ab = b - a                           # (N-1, D)
+    ap = point - a                       # (N-1, D)
+    ab_sq = np.einsum("ij,ij->i", ab, ab)  # (N-1,)
+    # 0인 segment 보호
+    ab_sq_safe = np.where(ab_sq < 1e-12, 1.0, ab_sq)
+    t_raw = np.einsum("ij,ij->i", ap, ab) / ab_sq_safe
+    t = np.clip(t_raw, 0.0, 1.0)
+    # 0-length segment는 t=0
+    t = np.where(ab_sq < 1e-12, 0.0, t)
+    # 가장 가까운 점들
+    cps = a + t[:, None] * ab            # (N-1, D)
+    diffs = cps - point                  # (N-1, D)
+    d_sq = np.einsum("ij,ij->i", diffs, diffs)
+    seg = int(np.argmin(d_sq))
+    return seg, float(t[seg]), cps[seg].copy(), float(np.sqrt(d_sq[seg]))
+
+
+def closest_point_on_polyline_local(point: np.ndarray, polyline: np.ndarray,
+                                    last_seg: int, window: int = 50
+                                    ) -> tuple[int, float, np.ndarray, float]:
+    """
+    국소 검색 — 이전 segment 근처의 ±window 범위만 검사.
+
+    NLGL처럼 매 step 호출되는 경우, 기체 위치가 갑자기 점프하지 않으므로
+    이전 검색 결과 근처만 보면 충분히 정확하면서 훨씬 빠르다.
+    """
+    n = len(polyline)
+    lo = max(0, last_seg - window)
+    hi = min(n - 1, last_seg + window + 1)
+    sub = polyline[lo:hi + 1]
+    seg_local, t, cp, d = closest_point_on_polyline(point, sub)
+    return lo + seg_local, t, cp, d
 
 
 def look_ahead_point(polyline: np.ndarray, seg_idx: int, t: float,
