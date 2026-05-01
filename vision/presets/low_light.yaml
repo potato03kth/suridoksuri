@@ -1,0 +1,29 @@
+# 저조도/역광 환경 특화 파이프라인
+pipeline:
+  illumination:
+    clip_limit: 4.0
+    tile_size: 4
+
+  color_filter:
+    mode: gray
+    sat_max: 80
+    val_min: 40
+
+  denoise:
+    mode: bilateral
+    kernel_size: 9
+    sigma: 2.0
+
+  edge_detector:
+    low_threshold: 20
+    high_threshold: 60
+
+  morphology:
+    ops: [dilate, close, open]
+    kernel_size: 7
+
+  rect_detector:
+    min_area: 300
+    max_area: 500000
+    approx_epsilon: 0.05
+    min_solidity: 0.6

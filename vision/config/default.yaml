@@ -1,0 +1,41 @@
+# 기본 파라미터 참조용. 실제 실행은 presets/ yaml을 사용한다.
+color_filter:
+  mode: gray
+  sat_max: 50
+  val_min: 80
+  val_max: 255
+
+illumination:
+  clip_limit: 2.0
+  tile_size: 8
+
+denoise:
+  mode: gaussian
+  kernel_size: 5
+  sigma: 1.0
+
+edge_detector:
+  low_threshold: 50
+  high_threshold: 150
+
+morphology:
+  ops: [close, open]
+  kernel_size: 5
+
+rect_detector:
+  min_area: 500
+  max_area: 500000
+  approx_epsilon: 0.04
+  min_solidity: 0.7
+
+background_subtractor:
+  history: 500
+  var_threshold: 16.0
+
+kalman_tracker:
+  process_noise: 0.01
+  measurement_noise: 0.1
+
+temporal_fusion:
+  min_frames: 5
+  iou_threshold: 0.4

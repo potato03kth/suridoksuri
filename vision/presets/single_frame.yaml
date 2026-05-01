@@ -1,0 +1,29 @@
+# 정지 이미지 대상 기본 파이프라인
+pipeline:
+  color_filter:
+    mode: gray
+    sat_max: 50
+    val_min: 80
+
+  illumination:
+    clip_limit: 2.0
+    tile_size: 8
+
+  denoise:
+    mode: gaussian
+    kernel_size: 5
+    sigma: 1.0
+
+  edge_detector:
+    low_threshold: 50
+    high_threshold: 150
+
+  morphology:
+    ops: [close, open]
+    kernel_size: 5
+
+  rect_detector:
+    min_area: 500
+    max_area: 500000
+    approx_epsilon: 0.04
+    min_solidity: 0.7

@@ -1,0 +1,41 @@
+# 영상 대상 파이프라인 — 배경 차감 + Kalman 추적 + 시간 융합 포함
+pipeline:
+  color_filter:
+    mode: gray
+    sat_max: 60
+    val_min: 60
+
+  background_subtractor:
+    history: 500
+    var_threshold: 16.0
+
+  illumination:
+    clip_limit: 3.0
+    tile_size: 8
+
+  denoise:
+    mode: gaussian
+    kernel_size: 5
+    sigma: 1.5
+
+  edge_detector:
+    low_threshold: 30
+    high_threshold: 100
+
+  morphology:
+    ops: [close, open]
+    kernel_size: 7
+
+  rect_detector:
+    min_area: 300
+    max_area: 500000
+    approx_epsilon: 0.04
+    min_solidity: 0.65
+
+  kalman_tracker:
+    process_noise: 0.01
+    measurement_noise: 0.1
+
+  temporal_fusion:
+    min_frames: 5
+    iou_threshold: 0.4
