@@ -373,9 +373,8 @@ class Eta3ClothoidPlannerV3(BasePlanner):
             print(f"[Eta3ClothoidPlannerV3] ⚠ NR 위치 잔차 {pos_res:.3f}m가 큽니다. "
                   f"affine 보정으로 WP 통과는 보장하지만 곡선이 변형될 수 있습니다.")
 
-        all_pts:   list[np.ndarray] = []
-        all_kappa: list[np.ndarray] = []
-        wp_marks:  dict[int, int] = {}
+        all_pts:  list[np.ndarray] = []
+        wp_marks: dict[int, int] = {}
 
         if orig_indices[0] >= 0:
             wp_marks[0] = orig_indices[0]
@@ -394,10 +393,8 @@ class Eta3ClothoidPlannerV3(BasePlanner):
 
             if k < N - 2:
                 all_pts.append(seg_pts_global[:-1])
-                all_kappa.append(seg_kp[:-1])
             else:
                 all_pts.append(seg_pts_global)
-                all_kappa.append(seg_kp)
 
             idx_next_wp = sum(len(p) for p in all_pts) - \
                 (1 if k == N - 2 else 0)
@@ -413,7 +410,6 @@ class Eta3ClothoidPlannerV3(BasePlanner):
         if len(decay_pts) > 1:
             decay_pts_global = decay_pts + last_global
             all_pts.append(decay_pts_global[1:])
-            all_kappa.append(decay_kp[1:])
             terminal_pos = decay_pts_global[-1]
             terminal_th = float(decay_th_arr[-1])
         else:
@@ -425,14 +421,23 @@ class Eta3ClothoidPlannerV3(BasePlanner):
         ext_pts = (terminal_pos
                    + last_dir * np.linspace(0.0, self.end_extension, n_ext)[:, None])
         all_pts.append(ext_pts[1:])
-        all_kappa.append(np.zeros(len(ext_pts) - 1))
 
-        pts_arr = np.concatenate(all_pts,   axis=0)
-        kappa_arr = np.concatenate(all_kappa, axis=0)
+        pts_arr = np.concatenate(all_pts, axis=0)
 
         diffs = np.diff(pts_arr, axis=0)
         s_arr = np.concatenate(
             [[0.0], np.cumsum(np.hypot(diffs[:, 0], diffs[:, 1]))])
+
+        # affine 보정 후 실제 기하학적 곡률 재계산 (설계 κ 대신 실제 경로 위치 기준)
+        # NR 잔차가 클수록 설계 κ와 실제 κ의 괴리가 크므로, 하위 소비자(속도 프로필,
+        # MPC 피드포워드)에 정확한 값을 전달하기 위해 유한차분으로 재계산한다.
+        # 공식: κ = (N′·E″ − E′·N″) / |v|³  (iterpin_planner._compute_curvature 동일)
+        _dN = np.gradient(pts_arr[:, 0], s_arr)
+        _dE = np.gradient(pts_arr[:, 1], s_arr)
+        _d2N = np.gradient(_dN, s_arr)
+        _d2E = np.gradient(_dE, s_arr)
+        _spd = np.sqrt(np.maximum(_dN**2 + _dE**2, 1e-24))
+        kappa_arr = (_dN * _d2E - _dE * _d2N) / _spd**3
 
         sorted_marks = sorted(
             [(idx, wi) for idx, wi in wp_marks.items() if wi < N_original],

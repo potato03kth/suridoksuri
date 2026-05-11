@@ -38,8 +38,9 @@ def compute_speed_profile(
     kappa = np.abs(np.asarray(curvature, dtype=float))
     # 기본 제약: v = min(v_cruise, sqrt(a_max / |κ|))
     with np.errstate(divide="ignore", invalid="ignore"):
-        v_lim = np.where(kappa > 1e-6, np.sqrt(a_max / kappa), v_cruise)
-    v = np.minimum(v_cruise, v_lim)
+        v_lim = np.where(kappa > 1e-6, np.sqrt(a_max / kappa),
+                         v_cruise)  # 직선 deviide by zero 방지 클랩프
+    v = np.minimum(v_cruise, v_lim)  # 이중 클램프
 
     # 역방향 smoothing: 앞쪽에 저속 구간이 있으면 미리 감속
     # sliding minimum (window=smooth_window) 역방향 전파

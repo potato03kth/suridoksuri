@@ -14,7 +14,7 @@ _VTOL_SIM_ROOT = FSPath(__file__).parents[2] / "vtol_sim_checkpoint1_1"
 if str(_VTOL_SIM_ROOT) not in sys.path:
     sys.path.insert(0, str(_VTOL_SIM_ROOT))
 
-from vtol_sim.path_planning.base_planner import Path  # noqa: E402
+from vtol_sim_checkpoint1_1.vtol_sim.path_planning.base_planner import Path  # noqa: E402
 
 
 _PLANNER_NAMES = ("eta3", "diterpin")
@@ -54,13 +54,15 @@ def run_planner(
     wps = np.asarray(waypoints_ned, dtype=float)
 
     if planner_name == "eta3":
-        from vtol_sim.path_planning.eta3clothoid_v3_1_planner import (
+        from vtol_sim_checkpoint1_1.vtol_sim.path_planning.eta3clothoid_v3_1_planner import (
             Eta3ClothoidPlannerV3,
         )
-        planner = Eta3ClothoidPlannerV3(**kwargs)
+        planner = Eta3ClothoidPlannerV3(
+            ds=1.0, accel_tol=0.85, end_extension=0)
 
     else:  # diterpin
-        from vtol_sim.path_planning.D_iterpin_planner import DIterativePinPlanner
-        planner = DIterativePinPlanner(**kwargs)
+        from vtol_sim_checkpoint1_1.vtol_sim.path_planning.D_iterpin_planner import DIterativePinPlanner
+        planner = DIterativePinPlanner(num_iter=4, alpha0=0.6, straight_ratio0=0.4,
+                                       search_steps=50, max_detours=0, alpha_range=(0.1, 2.2), sr_range=(0.02, 0.8))
 
     return planner.plan(wps, vehicle_params, initial_state)
