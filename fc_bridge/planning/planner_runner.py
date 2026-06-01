@@ -10,9 +10,10 @@ from pathlib import Path as FSPath
 import numpy as np
 
 # vtol_sim 패키지 import 경로 설정
-_VTOL_SIM_ROOT = FSPath(__file__).parents[2] / "vtol_sim_checkpoint1_1"
-if str(_VTOL_SIM_ROOT) not in sys.path:
-    sys.path.insert(0, str(_VTOL_SIM_ROOT))
+# parents[2] = suridoksuri-1/ (repo root) — vtol_sim_checkpoint1_1 의 부모가 필요
+_REPO_ROOT = FSPath(__file__).parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from vtol_sim_checkpoint1_1.vtol_sim.path_planning.base_planner import Path  # noqa: E402
 

@@ -65,7 +65,8 @@ class MissionUploader:
         """
         wps = np.asarray(waypoints_ned, dtype=float)
         if wps.ndim != 2 or wps.shape[1] < 3:
-            raise ValueError("waypoints_ned shape must be (N, 3)")
+            raise ValueError(
+                "waypoints_ned shape must be (N, 3)(WP개수, [N,E,D(-h_up)])")
         items = self._build_items(wps, accept_radius, speed or 0.0)
         return self._handshake(items)
 
@@ -90,7 +91,8 @@ class MissionUploader:
                 "param2": accept_radius,
                 "param3": 0.0,             # pass radius
                 "param4": float("nan"),    # yaw (NaN = 자동)
-                "x": int(n * 1e4),         # MISSION_ITEM_INT: 1e7 for lat/lon, 1e4 for local
+                # MISSION_ITEM_INT: 1e7 for lat/lon, 1e4 for local
+                "x": int(n * 1e4),
                 "y": int(e * 1e4),
                 "z": float(-h),            # LOCAL_NED z = -h_up
                 "mission_type": MAV_MISSION_TYPE_MISSION,

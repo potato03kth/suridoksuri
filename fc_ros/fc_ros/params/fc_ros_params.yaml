@@ -1,0 +1,43 @@
+# fc_ros 노드 공통 파라미터
+# config.py 설정을 ROS2 파라미터로 이관
+
+offboard_node:
+  ros__parameters:
+    # 제어 루프
+    control_hz: 10.0          # 세트포인트 송신 주파수 (PX4 watchdog: ≥2Hz)
+    l1_dist: 20.0             # L1 lookahead 거리 (m)
+
+    # 진입 모드
+    entry_mode: "pre_takeoff" # "pre_takeoff" | "mid_flight"
+
+    # mid_flight WP0 진입 기준
+    wp0_entry_radius: 5.0     # WP0 도달 판정 반경 (m)
+    wp0_heading_tol: 0.2      # 헤딩 허용 오차 (rad)
+    v_approach: 5.0           # ENTRY 접근 속도 (m/s)
+
+    # 가속도 제한 및 적응 감소
+    a_max: 2.94               # 횡방향 가속도 상한 (m/s²) ≈ 0.3g
+    error_stall_steps: 20
+    accel_reduction: 0.9
+    accel_min_frac: 0.3
+
+    # TwistStamped frame_id — CC 환경의 MAVROS 버전에 따라 변경
+    # "base_link" 또는 "local_origin"
+    cmd_vel_frame_id: "base_link"
+
+    # 경로 계획 (main() entry_point 전용)
+    planner: "eta3"
+    waypoints:
+      - [0.0, 0.0, 150.0]
+      - [500.0, 0.0, 150.0]
+
+    # 기체 파라미터
+    v_cruise: 15.0            # m/s
+    a_max_g: 0.3              # g 단위 횡방향 가속도 상한
+    gravity: 9.81
+
+mission_node:
+  ros__parameters:
+    waypoints:
+      - [0.0, 0.0, 150.0]
+      - [500.0, 0.0, 150.0]

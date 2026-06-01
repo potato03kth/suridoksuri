@@ -13,59 +13,15 @@ PX4 텔레메트리 수신·캐시.
 from __future__ import annotations
 import threading
 import time
-import numpy as np
 from typing import Optional
+import numpy as np
 
 from fc_bridge.comm.mavlink_conn import MavlinkConn
+from fc_bridge.comm.vehicle_state import VehicleState  # noqa: F401 (re-exported)
 
 
 # PX4 custom_mode 비트 상수 (MAV_MODE_FLAG 기반)
 _MAV_MODE_FLAG_SAFETY_ARMED = 128
-
-
-class VehicleState:
-    """기체 상태 스냅샷 (불변 데이터클래스 대신 단순 class)."""
-    __slots__ = (
-        "pos_ned", "vel_ned",
-        "roll", "pitch", "yaw",
-        "vtol_state",
-        "armed", "base_mode", "custom_mode",
-        "timestamp",
-    )
-
-    def __init__(self):
-        self.pos_ned   = np.zeros(3)   # [N, E, -D] → [N, E, h_up]  (h = -z)
-        self.vel_ned   = np.zeros(3)   # [vN, vE, vD]
-        self.roll      = 0.0
-        self.pitch     = 0.0
-        self.yaw       = 0.0
-        self.vtol_state = 0             # 0=undefined,1=transition_to_fw,2=transition_to_mc,3=mc,4=fw
-        self.armed      = False
-        self.base_mode  = 0
-        self.custom_mode = 0
-        self.timestamp  = 0.0          # 마지막 갱신 시각 (time.monotonic)
-
-    @property
-    def heading_rad(self) -> float:
-        return self.yaw
-
-    @property
-    def pos_ned_2d(self) -> np.ndarray:
-        return self.pos_ned[:2]
-
-    def copy(self) -> "VehicleState":
-        s = VehicleState()
-        s.pos_ned    = self.pos_ned.copy()
-        s.vel_ned    = self.vel_ned.copy()
-        s.roll       = self.roll
-        s.pitch      = self.pitch
-        s.yaw        = self.yaw
-        s.vtol_state = self.vtol_state
-        s.armed      = self.armed
-        s.base_mode  = self.base_mode
-        s.custom_mode = self.custom_mode
-        s.timestamp  = self.timestamp
-        return s
 
 
 class Telemetry:
