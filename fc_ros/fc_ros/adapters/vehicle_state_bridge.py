@@ -8,9 +8,9 @@ from __future__ import annotations
 import time
 
 import numpy as np
-from transforms3d.euler import quat2euler
 
 from fc_bridge.comm.vehicle_state import VehicleState
+from fc_bridge.utils.rotation import quat_to_euler_xyz
 
 
 def update_from_pose(state: VehicleState, msg) -> None:
@@ -31,7 +31,7 @@ def update_from_pose(state: VehicleState, msg) -> None:
     state.pos_ned = np.array([p.y, p.x, p.z])
 
     q = msg.pose.orientation
-    roll_enu, pitch_enu, yaw_enu = quat2euler([q.w, q.x, q.y, q.z])
+    roll_enu, pitch_enu, yaw_enu = quat_to_euler_xyz(q.w, q.x, q.y, q.z)
     # ENU roll/pitch → NED roll/pitch 부호 변환 (우선회 양수 유지)
     state.roll  = float(roll_enu)
     state.pitch = float(-pitch_enu)
