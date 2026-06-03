@@ -277,13 +277,13 @@ def main(args=None):
 
     # 파라미터 읽기용 임시 노드
     tmp = rclpy.create_node("_offboard_param_reader")
-    tmp.declare_parameter("waypoints", [[0.0, 0.0, 150.0], [500.0, 0.0, 150.0]])
+    tmp.declare_parameter("waypoints", [0.0, 0.0, 150.0, 500.0, 0.0, 150.0])
     tmp.declare_parameter("planner",   "eta3")
     tmp.declare_parameter("v_cruise",  15.0)
     tmp.declare_parameter("a_max_g",   0.3)
     tmp.declare_parameter("gravity",   9.81)
 
-    raw_wps      = tmp.get_parameter("waypoints").value
+    raw_wps      = np.array(tmp.get_parameter("waypoints").value, dtype=float).reshape(-1, 3)
     planner_name = tmp.get_parameter("planner").value
     vehicle_params = {
         "v_cruise": tmp.get_parameter("v_cruise").value,
@@ -292,7 +292,7 @@ def main(args=None):
     }
     tmp.destroy_node()
 
-    waypoints = np.array(raw_wps, dtype=float)
+    waypoints = raw_wps
 
     from fc_bridge.planning.planner_runner import run_planner
     path = run_planner(planner_name, waypoints, vehicle_params)
