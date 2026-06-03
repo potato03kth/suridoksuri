@@ -22,7 +22,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State, ExtendedState
-from mavros_msgs.srv import SetMode
+from mavros_msgs.srv import CommandBool, SetMode
 
 _MAVROS_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -121,6 +121,9 @@ class OffboardNode(Node):
         self._sm            = _State.STREAMING
         self._prev_errors: list[float] = []
         self._offboard_requested = False
+        self._arm_requested      = False
+        self._stream_ticks       = 0
+        self._current_mode       = ""
 
         # ── MAVROS 토픽 구독 ─────────────────────────────────
         self.create_subscription(
@@ -145,6 +148,7 @@ class OffboardNode(Node):
             TwistStamped, "/mavros/setpoint_velocity/cmd_vel", 10)
         self._setpoint      = SetpointPublisher(pub, frame_id=frame_id)
         self._set_mode_cli  = self.create_client(SetMode, "/mavros/set_mode")
+        self._arm_cli       = self.create_client(CommandBool, "/mavros/cmd/arming")
 
         # ── 제어 타이머 ──────────────────────────────────────
         self.create_timer(self._dt, self._control_callback)
@@ -162,6 +166,7 @@ class OffboardNode(Node):
     def _cb_state(self, msg: State) -> None:
         with self._vs_lock:
             update_from_mavros_state(self._vehicle_state, msg)
+            self._current_mode = msg.mode
 
     def _cb_extended(self, msg: ExtendedState) -> None:
         with self._vs_lock:
@@ -178,11 +183,27 @@ class OffboardNode(Node):
 
         if self._sm == _State.STREAMING:
             self._setpoint.publish(np.zeros(3))
-            if not self._offboard_requested:
+            self._stream_ticks += 1
+
+            # 20 tick(2초) 후 OFFBOARD 전환 요청
+            if self._stream_ticks == 20 and not self._offboard_requested:
                 self._request_offboard()
                 self._offboard_requested = True
-            self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
-                        else _State.FOLLOWING)
+                self.get_logger().info("OFFBOARD 전환 요청")
+
+            # OFFBOARD 확인 후 ARM 요청
+            if (self._offboard_requested
+                    and self._current_mode == "OFFBOARD"
+                    and not self._arm_requested):
+                self._request_arm()
+                self._arm_requested = True
+                self.get_logger().info("ARM 요청")
+
+            # ARM 확인 후 다음 상태로 전환
+            if state.armed:
+                self.get_logger().info("ARM 완료 → FOLLOWING")
+                self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
+                            else _State.FOLLOWING)
 
         elif self._sm == _State.ENTRY:
             if self._step_entry(state):
@@ -206,6 +227,14 @@ class OffboardNode(Node):
         req = SetMode.Request()
         req.custom_mode = "OFFBOARD"
         self._set_mode_cli.call_async(req)
+
+    def _request_arm(self) -> None:
+        if not self._arm_cli.wait_for_service(timeout_sec=1.0):
+            self.get_logger().warn("/mavros/cmd/arming 서비스 없음")
+            return
+        req = CommandBool.Request()
+        req.value = True
+        self._arm_cli.call_async(req)
 
     # ── ENTRY ────────────────────────────────────────────────
 
