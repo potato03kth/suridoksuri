@@ -15,8 +15,15 @@ import threading
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State, ExtendedState
+
+_MAVROS_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+)
 
 from fc_bridge.comm.vehicle_state import VehicleState
 from fc_ros.adapters.vehicle_state_bridge import (
@@ -38,19 +45,19 @@ class TelemetryNode(Node):
         self.create_subscription(
             PoseStamped,
             "/mavros/local_position/pose",
-            self._cb_pose, 10)
+            self._cb_pose, _MAVROS_QOS)
         self.create_subscription(
             TwistStamped,
             "/mavros/local_position/velocity_local",
-            self._cb_twist, 10)
+            self._cb_twist, _MAVROS_QOS)
         self.create_subscription(
             State,
             "/mavros/state",
-            self._cb_state, 10)
+            self._cb_state, _MAVROS_QOS)
         self.create_subscription(
             ExtendedState,
             "/mavros/extended_state",
-            self._cb_extended, 10)
+            self._cb_extended, _MAVROS_QOS)
 
     def get_state(self) -> VehicleState:
         """현재 기체 상태의 thread-safe 스냅샷 반환."""
