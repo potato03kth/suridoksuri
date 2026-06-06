@@ -3,7 +3,7 @@ doc_type: verification_log
 project: suridoksuri-1
 scope: WSL SITL 환경 구축 및 hover 검증 (리포지토리 외부 진행분 기록)
 status: Phase 3 진행 중
-last_updated: 2026-06-01
+last_updated: 2026-06-04
 ---
 
 # WSL SITL 환경 구축 및 검증 로그
@@ -24,6 +24,7 @@ last_updated: 2026-06-01
 | 시뮬레이터 | Gazebo (HEADLESS=1 모드) |
 | 기체 모델 | gz_x500 |
 | GeographicLib | 데이터셋 설치 완료 |
+| GCS | QGroundControl (Windows, UDP 14551로 수동 연결) |
 
 ---
 
@@ -146,7 +147,139 @@ New-NetFirewallRule -DisplayName "Foxglove Bridge 8765" -Direction Inbound -Prot
 
 ---
 
-## 현재 진행 상태 (2026-06-01 기준)
+## Windows QGC ↔ WSL SITL 연결 (2026-06-04)
+
+QGC가 Windows에, PX4 SITL이 WSL에 있는 경우 브로드캐스트가 도달하지 않으므로 수동 연결이 필요하다.
+
+### 연결 방법
+
+**Step 1 — Windows 호스트 IP 확인 (WSL 터미널)**
+
+```bash
+cat /etc/resolv.conf | grep nameserver | awk '{print $2}'
+# 보통 172.x.x.1 형태
+```
+
+**Step 2 — PX4에 새 MAVLink 인스턴스 추가 (pxh, 기존 14540/14550 유지)**
+
+```
+pxh> mavlink start -x -u 14551 -r 4000000 -t <windows_ip>
+```
+
+**Step 3 — QGC 수동 연결 (Windows)**
+
+`Application Settings` → `Comm Links` → `Add` → Type: UDP, Port: `14551` → Connect
+
+### 주의사항
+
+- `mavlink start`는 기존 인스턴스를 건드리지 않고 추가만 한다 (14540 MAVROS, 14550 기본 GCS 유지)
+- WSL2 IP는 재시작마다 변경되므로 매번 갱신 필요
+
+### 아밍 불가 원인 분석 기록
+
+`commander arm` 직접 실행 시 "Resolve system health failures first" 오류 원인 진단 과정:
+
+| 확인 명령 | 결과 |
+|---|---|
+| `sensors status` | gyro/accel/mag/baro 모두 OK |
+| `ekf2 status` | attitude/local/global position 모두 1 (정상) |
+| `listener vehicle_status` | `gcs_connection_lost: True`, `pre_flight_checks_pass: False` |
+
+→ **GCS 미연결 상태에서 preflight 실패**가 직접 원인. QGC 연결 후 해소.
+
+---
+
+## fc_ros offboard_node 기동 검증 (2026-06-04)
+
+### 수정 사항
+
+`fc_ros` 노드를 SITL 환경에서 처음 실행하면서 발견된 버그 목록과 수정 내용.
+
+#### 1. NumPy 2.0 호환성 — `fc_bridge/utils/rotation.py` 신규 생성
+
+`tf_transformations`, `scipy`, `transforms3d` 모두 Ubuntu 22.04 apt 버전이
+`np.maximum_sctype` (NumPy 2.0에서 제거)를 사용해 동일하게 실패.
+
+**근본 원인:** pip NumPy 2.2.6 + apt Python 패키지(NumPy 1.x 기준 빌드) 혼용.
+어떤 apt 패키지를 써도 같은 문제가 반복된다.
+
+**해결:** `fc_bridge/utils/rotation.py`에 `quat_to_euler_xyz(w, x, y, z)` 구현.
+외부 라이브러리 의존 없이 numpy 수식만 사용. NumPy 버전 무관하게 동작.
+`vehicle_state_bridge.py`에서 import해 사용.
+
+```python
+# fc_bridge/utils/rotation.py 사용법
+from fc_bridge.utils.rotation import quat_to_euler_xyz
+roll, pitch, yaw = quat_to_euler_xyz(q.w, q.x, q.y, q.z)
+```
+
+#### 2. ROS2 파라미터 2D 리스트 미지원
+
+`declare_parameter("waypoints", [[0,0,150], [500,0,150]])` → `TypeError`.
+ROS2 파라미터는 1D flat 배열만 지원한다.
+
+**해결:** flat 배열로 선언 후 reshape.
+
+```python
+tmp.declare_parameter("waypoints", [0.0, 0.0, 150.0, 500.0, 0.0, 150.0])
+raw = np.array(tmp.get_parameter("waypoints").value, dtype=float).reshape(-1, 3)
+```
+
+#### 3. QoS RELIABILITY 불일치
+
+MAVROS는 `BEST_EFFORT`로 발행하는데, 기본 subscriber QoS가 `RELIABLE`이어서
+메시지를 아예 수신하지 못했다.
+
+**해결:** `offboard_node.py`, `telemetry_node.py` 양쪽 MAVROS 구독에 `_MAVROS_QOS` 적용.
+
+```python
+_MAVROS_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+)
+```
+
+#### 4. STREAMING 상태 로직 — ARM 추가 및 타이밍 수정
+
+기존 STREAMING 상태가 1 tick만에 FOLLOWING으로 전환해
+PX4가 요구하는 2초 선발행 조건을 충족하지 못했고, ARM 요청도 없었다.
+
+**해결:** 20 tick(2초) 선발행 → OFFBOARD 전환 요청 → OFFBOARD 확인 → ARM 요청 →
+armed + OFFBOARD 모두 확인 시 FOLLOWING 진입.
+
+```
+STREAMING 상태 흐름:
+  tick 0~19  : setpoint(0,0,0) 발행
+  tick 20    : /mavros/set_mode OFFBOARD 요청
+  mode==OFFBOARD 확인 : /mavros/cmd/arming True 요청
+  armed==True AND mode==OFFBOARD : → FOLLOWING 전환
+```
+
+### 검증 결과
+
+| 항목 | 결과 |
+|------|------|
+| colcon 빌드 | ✅ |
+| offboard_node import 오류 없음 | ✅ |
+| MAVROS QoS 토픽 수신 | ✅ |
+| OFFBOARD 모드 전환 | ✅ |
+| ARM 시퀀스 (20tick → OFFBOARD → ARM 순서) | ✅ |
+| `/mavros/setpoint_velocity/cmd_vel` 10Hz 발행 | ✅ |
+| **경로 추종 (설계 목적)** | ⚠️ 미검증 |
+
+> `commander takeoff` 후 hold 상태에서 offboard_node 실행 → OFFBOARD/ARM 시퀀스 로그 확인.
+> 실제 경로 추종 동작은 별도 검증 필요.
+
+### 미완료
+
+- OffboardNode 설계 목적 검증: 실제 경로 추종 중 L1 guidance + speed profile 동작 확인 필요.
+- 자율 이륙 미구현: 현재 `commander takeoff`로 수동 이륙 후 노드 진입. 경로 시작 고도까지
+  자율 상승하는 TAKEOFF 상태는 추후 필요 시 추가.
+
+---
+
+## 현재 진행 상태 (2026-06-04 기준)
 
 - [x] WSL SITL 환경 구축
 - [x] MAVROS ↔ SITL 연결 확인 (`/mavros/state: connected=true`)
@@ -154,9 +287,11 @@ New-NetFirewallRule -DisplayName "Foxglove Bridge 8765" -Direction Inbound -Prot
 - [x] `fc_ros/` 패키지 뼈대 생성 (본 리포지토리)
 - [x] `docs/fc_ros_migration_plan.md` 작성
 - [x] Foxglove Studio 원격 시각화 환경 구축 (모바일 웹 접속 검증 완료)
-- [ ] **경로 생성 알고리즘 ROS2 노드 통합** ← 현재 위치 (Phase 3)
+- [x] Windows QGC ↔ WSL SITL 연결 (MAVLink 14551 포트, 수동 연결)
+- [x] `commander takeoff` 이륙 검증 완료 (2026-06-04)
+- [x] fc_ros offboard_node 기동 검증 (NumPy/QoS/STREAMING 픽스, OFFBOARD+ARM 시퀀스 확인)
+- [ ] **OffboardNode 설계 목적 검증 (경로 추종)** ← 현재 위치
 - [ ] TelemetryNode 검증
-- [ ] OffboardNode velocity 제어 검증
 - [ ] MissionNode 검증
 - [ ] launch 파일 통합 검증
 - [ ] RPi4 배포

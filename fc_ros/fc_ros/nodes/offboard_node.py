@@ -199,8 +199,8 @@ class OffboardNode(Node):
                 self._arm_requested = True
                 self.get_logger().info("ARM 요청")
 
-            # ARM 확인 후 다음 상태로 전환
-            if state.armed:
+            # OFFBOARD + ARM 모두 확인 후 다음 상태로 전환
+            if state.armed and self._current_mode == "OFFBOARD":
                 self.get_logger().info("ARM 완료 → FOLLOWING")
                 self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
                             else _State.FOLLOWING)
