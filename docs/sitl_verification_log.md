@@ -3,7 +3,7 @@ doc_type: verification_log
 project: suridoksuri-1
 scope: WSL SITL 환경 구축 및 hover 검증 (리포지토리 외부 진행분 기록)
 status: Phase 3 진행 중
-last_updated: 2026-06-04
+last_updated: 2026-06-17
 ---
 
 # WSL SITL 환경 구축 및 검증 로그
@@ -147,33 +147,80 @@ New-NetFirewallRule -DisplayName "Foxglove Bridge 8765" -Direction Inbound -Prot
 
 ---
 
-## Windows QGC ↔ WSL SITL 연결 (2026-06-04)
+## Windows QGC ↔ WSL SITL 연결 (2026-06-15 재검증)
 
-QGC가 Windows에, PX4 SITL이 WSL에 있는 경우 브로드캐스트가 도달하지 않으므로 수동 연결이 필요하다.
+WSL2는 NAT 구조라 PX4 기본 브로드캐스트가 Windows에 도달하지 않는다.
+`-t <windows_ip>` 플래그로 직접 전송하는 커스텀 인스턴스가 필요하다.
 
-### 연결 방법
+### 네트워크 구조
 
-**Step 1 — Windows 호스트 IP 확인 (WSL 터미널)**
+| 변수 | 확인 명령 (WSL) | 예시 값 | 용도 |
+|---|---|---|---|
+| Windows IP | `cat /etc/resolv.conf \| grep nameserver \| awk '{print $2}'` | `172.29.160.1` | PX4 `-t` 플래그 대상 |
+| WSL IP | `hostname -I \| awk '{print $1}'` | `172.29.168.225` | QGC Server Address |
+
+WSL2 재시작마다 두 IP 모두 변경될 수 있으므로 매번 확인한다.
+
+### 연결 절차 (PX4 재시작 후마다 수행)
+
+**Step 1 — IP 확인 (WSL 터미널)**
 
 ```bash
-cat /etc/resolv.conf | grep nameserver | awk '{print $2}'
-# 보통 172.x.x.1 형태
+WIN_IP=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+WSL_IP=$(hostname -I | awk '{print $1}')
+echo "Windows: $WIN_IP  /  WSL: $WSL_IP"
 ```
 
-**Step 2 — PX4에 새 MAVLink 인스턴스 추가 (pxh, 기존 14540/14550 유지)**
+**Step 2 — PX4 커스텀 MAVLink 인스턴스 추가 (PX4 콘솔)**
 
 ```
-pxh> mavlink start -x -u 14551 -r 4000000 -t <windows_ip>
+pxh> mavlink start -x -u 14551 -r 4000000 -t <WIN_IP>
 ```
 
-**Step 3 — QGC 수동 연결 (Windows)**
+14551 포트가 이미 사용 중이면 14552 등 다른 포트로 대체.  
+기존 MAVROS 인스턴스(14540)는 건드리지 않는다.
 
-`Application Settings` → `Comm Links` → `Add` → Type: UDP, Port: `14551` → Connect
+**Step 3 — QGC Comm Link 설정 (Windows, 최초 1회)**
 
-### 주의사항
+`Application Settings` → `Comm Links` → `Add`
 
-- `mavlink start`는 기존 인스턴스를 건드리지 않고 추가만 한다 (14540 MAVROS, 14550 기본 GCS 유지)
-- WSL2 IP는 재시작마다 변경되므로 매번 갱신 필요
+| 항목 | 값 |
+|---|---|
+| 타입 | UDP |
+| Listening Port | `14550` |
+| Server Address | `<WSL_IP>:14551` |
+
+**Step 4 — QGC Connect**
+
+Comm Links 목록에서 해당 링크 선택 → **Connect**.  
+PX4 콘솔에 `INFO [commander] GCS connection regained` 가 뜨면 성공.
+
+QGC에 vehicle이 뜨지 않으면 **QGC를 껐다 켜고** 다시 Connect한다.  
+(포트 14550이 이전 세션에서 해제되지 않은 경우 발생)
+
+### 방화벽 설정 (최초 1회, Windows PowerShell 관리자)
+
+WSL vEthernet 어댑터는 Windows가 Public 프로필로 처리하므로 `-Profile Any` 필수.
+
+```powershell
+New-NetFirewallRule -DisplayName "PX4-QGC-UDP-14550" -Direction Inbound -Protocol UDP -LocalPort 14550 -Action Allow -Profile Any
+```
+
+### 연결 원리
+
+```
+QGC (port 14550) ──[heartbeat]──▶ WSL:14551
+PX4              ──[MAVLink]───▶ Windows:14550  (heartbeat source port 학습)
+```
+
+QGC는 14550에서 heartbeat를 보내고 같은 포트에서 수신한다.  
+PX4는 heartbeat 수신 시 source를 `172.29.160.1:14550`으로 학습해 그곳으로 전송한다.
+
+### 검증된 사실 (2026-06-15)
+
+- WSL→Windows UDP 경로 정상 동작 (`nc` 테스트로 확인)
+- `portproxy` 규칙은 TCP 전용으로 UDP MAVLink에 무관하며 방해하지 않음
+- `partner IP` 필드는 Normal 모드 인스턴스에서 표시되지 않을 수 있으나 정상 동작
 
 ### 아밍 불가 원인 분석 기록
 
@@ -266,20 +313,87 @@ STREAMING 상태 흐름:
 | OFFBOARD 모드 전환 | ✅ |
 | ARM 시퀀스 (20tick → OFFBOARD → ARM 순서) | ✅ |
 | `/mavros/setpoint_velocity/cmd_vel` 10Hz 발행 | ✅ |
-| **경로 추종 (설계 목적)** | ⚠️ 미검증 |
+| **경로 추종 (설계 목적)** | ✅ |
 
-> `commander takeoff` 후 hold 상태에서 offboard_node 실행 → OFFBOARD/ARM 시퀀스 로그 확인.
-> 실제 경로 추종 동작은 별도 검증 필요.
+> QGC 수동 이륙 후 offboard_node 실행. 기본 waypoint `[0,0,150] → [500,0,150]` (단일 직선 세그먼트)
+> 기준으로 +N 방향 직선 이동 → WP1 3m 이내 도달 시 DONE 상태 전환 (속도=0, 제자리 호버) 확인 (2026-06-06).
 
 ### 미완료
 
-- OffboardNode 설계 목적 검증: 실제 경로 추종 중 L1 guidance + speed profile 동작 확인 필요.
-- 자율 이륙 미구현: 현재 `commander takeoff`로 수동 이륙 후 노드 진입. 경로 시작 고도까지
+- 자율 이륙 미구현: 현재 QGC 수동 이륙 후 노드 진입. 경로 시작 고도까지
   자율 상승하는 TAKEOFF 상태는 추후 필요 시 추가.
 
 ---
 
-## 현재 진행 상태 (2026-06-04 기준)
+## TelemetryNode 검증 (2026-06-06)
+
+### 단위 테스트 (로컬, rclpy 불필요)
+
+`fc_ros/test/test_telemetry_node.py` 25개 케이스 전부 PASS (Windows Python 3.10, pytest).
+
+| 테스트 그룹 | 케이스 수 | 결과 |
+|---|---|---|
+| `quat_to_euler_xyz` | 4 | ✅ |
+| `update_from_pose` — 위치 ENU→NED | 4 | ✅ |
+| `update_from_pose` — yaw ENU→NED | 5 | ✅ |
+| `update_from_twist` — 속도 ENU→NED | 4 | ✅ |
+| `update_from_mavros_state` | 2 | ✅ |
+| `update_from_extended_state` | 2 | ✅ |
+| `VehicleState.copy()` 격리 | 3 | ✅ |
+
+검증된 변환 규칙:
+
+| 입력 (ENU) | 출력 (NED/fc_bridge) |
+|---|---|
+| position (x=E, y=N, z=U) | `pos_ned = [y, x, z]` |
+| velocity (vx=vE, vy=vN, vz=vU) | `vel_ned = [vy, vx, -vz]` |
+| yaw_enu | `yaw_ned = π/2 - yaw_enu`, [-π, π] 정규화 |
+
+### TelemetryNode 코드 변경 (2026-06-17)
+
+SITL 통합 검증을 위해 2초 주기 디버그 로거 추가.
+노드가 데이터를 수신하고 ENU→NED 변환을 수행하는지 콘솔에서 직접 관찰하기 위함.
+
+```python
+# 콘솔 출력 예시
+[telemetry_node]: pos_ned=[ 0.02  0.01  0.00]  yaw=1.571  armed=False  vtol=0
+```
+
+확인 포인트:
+- `pos_ned` 값이 0이 아닌 값으로 바뀌면 pose 콜백 정상
+- 드론 이동 시 `pos_ned` 값이 변하면 ENU→NED 변환 정상
+- ARM 후 `armed=True` 가 찍히면 state 콜백 정상
+
+### SITL 통합 검증 (WSL에서 수행)
+
+**준비 — SITL 스택 기동**
+
+```bash
+# T1
+cd ~/PX4-Autopilot && make px4_sitl gz_x500
+# T2
+ros2 launch mavros px4.launch fcu_url:=udp://:14540@localhost:14557
+# T3
+cd ~/drone_ws && source install/setup.bash
+ros2 run fc_ros telemetry_node
+```
+
+**체크리스트**
+
+| 항목 | 확인 방법 | 결과 |
+|---|---|---|
+| 빌드 오류 없음 | `colcon build --packages-select fc_ros` | |
+| 노드 기동 | `ros2 node list` → `/telemetry_node` | |
+| 구독 등록 확인 | `ros2 node info /telemetry_node` → Subscribers 4개 | |
+| 2초 주기 로그 출력 | 콘솔에 `pos_ned / yaw / armed / vtol` 로그 확인 | |
+| pos_ned 변화 확인 | 드론 이동 시 `pos_ned` 값 변경 (ENU→NED 변환 정상) | |
+| armed 반영 확인 | ARM 후 로그에 `armed=True` 반영 | |
+
+> SITL 통합 검증은 WSL에서 별도 수행 후 결과를 이 표에 기록한다.
+
+---
+
+## 현재 진행 상태 (2026-06-06 기준)
 
 - [x] WSL SITL 환경 구축
 - [x] MAVROS ↔ SITL 연결 확인 (`/mavros/state: connected=true`)
@@ -290,8 +404,9 @@ STREAMING 상태 흐름:
 - [x] Windows QGC ↔ WSL SITL 연결 (MAVLink 14551 포트, 수동 연결)
 - [x] `commander takeoff` 이륙 검증 완료 (2026-06-04)
 - [x] fc_ros offboard_node 기동 검증 (NumPy/QoS/STREAMING 픽스, OFFBOARD+ARM 시퀀스 확인)
-- [ ] **OffboardNode 설계 목적 검증 (경로 추종)** ← 현재 위치
-- [ ] TelemetryNode 검증
+- [x] OffboardNode 설계 목적 검증 (L1 경로 추종, DONE 상태 전환, 2026-06-06)
+- [x] **TelemetryNode 단위 테스트 25/25 PASS** (2026-06-06)
+- [ ] TelemetryNode SITL 통합 검증 (WSL) ← 현재 위치
 - [ ] MissionNode 검증
 - [ ] launch 파일 통합 검증
 - [ ] RPi4 배포

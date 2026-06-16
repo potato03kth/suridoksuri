@@ -61,7 +61,7 @@ def plot_simulation_results(sim_result: dict, save_path: str,
     # === (1) Top-down 2D ===
     ax_2d = fig.add_subplot(3, 3, 1)
     ax_2d.plot(planned_pos[:, 1], planned_pos[:, 0], "b--",
-               label="Planned", alpha=0.5, linewidth=1.0)
+               label="Plan path", alpha=0.5, linewidth=1.0)
     # ax_2d.plot(actual_pos[:, 1], actual_pos[:, 0], "r-",
     #            label="Actual", linewidth=1.0)
     ax_2d.scatter(waypoints[:, 1], waypoints[:, 0],
@@ -74,9 +74,9 @@ def plot_simulation_results(sim_result: dict, save_path: str,
     #     if rec is not None and rec.cpa_distance < 50.0:
     #         ax_2d.plot(rec.cpa_position[1], rec.cpa_position[0], "rx",
     #                    markersize=10, markeredgewidth=2)
-    ax_2d.set_xlabel("East (m)")
-    ax_2d.set_ylabel("North (m)")
-    ax_2d.set_title("Top-down (NE plane)")
+    ax_2d.set_xlabel("+ East [m]")
+    ax_2d.set_ylabel("+ North [m]")
+    ax_2d.set_title("est. of 2D phth overview (my NE)")
     ax_2d.legend(fontsize=8)
     ax_2d.grid(True, alpha=0.3)
     ax_2d.set_aspect("equal")
@@ -89,10 +89,10 @@ def plot_simulation_results(sim_result: dict, save_path: str,
                "r-", label="Actual", linewidth=1.0)
     ax_3d.scatter(waypoints[:, 1], waypoints[:, 0], waypoints[:, 2],
                   c="green", s=80, marker="o", edgecolor="black")
-    ax_3d.set_xlabel("East (m)")
-    ax_3d.set_ylabel("North (m)")
-    ax_3d.set_zlabel("Altitude (m)")
-    ax_3d.set_title("3D Trajectory")
+    ax_3d.set_xlabel("+ East [m]")
+    ax_3d.set_ylabel("+ North [m]")
+    ax_3d.set_zlabel("-D (Altitude) [m]")
+    ax_3d.set_title("3D path & trajactory")
     ax_3d.legend(fontsize=8)
 
     # === (3) 고도 시간 ===
@@ -103,9 +103,9 @@ def plot_simulation_results(sim_result: dict, save_path: str,
         if rec is not None:
             ax_h.scatter([rec.cpa_time], [rec.cpa_position[2]],
                          c="green", s=50, zorder=5)
-    ax_h.set_xlabel("Time (s)")
-    ax_h.set_ylabel("Altitude (m)")
-    ax_h.set_title("Altitude vs Time")
+    ax_h.set_xlabel("t[s]")
+    ax_h.set_ylabel("Altitude [m]")
+    ax_h.set_title("est. of Altitude as a function of time of flight")
     ax_h.legend(fontsize=8)
     ax_h.grid(True, alpha=0.3)
 
@@ -126,9 +126,10 @@ def plot_simulation_results(sim_result: dict, save_path: str,
     ct_straight = np.where(~on_curve, ct_errors, np.nan)
     ax_ct.plot(t_arr, ct_straight, "b-", linewidth=1.0, label="Straight")
     ax_ct.plot(t_arr, ct_curve, color="orange", linewidth=1.0, label="Curved")
-    ax_ct.set_xlabel("Time (s)")
-    ax_ct.set_ylabel("Cross-track error (m)")
-    ax_ct.set_title("Cross-track Error (split by segment type)")
+    ax_ct.set_xlabel("t[s]")
+    ax_ct.set_ylabel("track error [|m|]")
+    ax_ct.set_title(
+        "track error of the path between segment type as a function of time of flight")
     ax_ct.legend(fontsize=8)
     ax_ct.grid(True, alpha=0.3)
 
@@ -136,13 +137,13 @@ def plot_simulation_results(sim_result: dict, save_path: str,
     ax_u = fig.add_subplot(3, 3, 5)
     bank_deg = np.rad2deg(arr["bank_cmd"])
     thrust = arr["thrust_cmd"]
-    ax_u.plot(t_arr, bank_deg, "b-", label="bank_cmd (deg)", alpha=0.7)
+    ax_u.plot(t_arr, bank_deg, "b-", label="bank_cmd [deg]", alpha=0.7)
     ax_u2 = ax_u.twinx()
     ax_u2.plot(t_arr, thrust, "g-", label="thrust_cmd", alpha=0.7)
-    ax_u.set_xlabel("Time (s)")
-    ax_u.set_ylabel("Bank cmd (deg)", color="b")
+    ax_u.set_xlabel("t[s]")
+    ax_u.set_ylabel("Bank cmd [deg]", color="b")
     ax_u2.set_ylabel("Thrust cmd", color="g")
-    ax_u.set_title("Control Inputs")
+    ax_u.set_title("Control command as a function of time of flight")
     ax_u.grid(True, alpha=0.3)
 
     # === (6) 가속도 — 실제 + 이상 + 한계 + 위반 음영 ===
@@ -152,15 +153,16 @@ def plot_simulation_results(sim_result: dict, save_path: str,
     a_required_g = a_required_t / g
     violations = arr["accel_violation"]
     ax_a.plot(t_arr, a_required_g, color="green", linestyle=":",
-              label="a_required (path-ideal)", linewidth=1.0)
+              label="a_required (accr to.path)", linewidth=1.0)
     ax_a.plot(t_arr, a_actual, "r-", label="a_actual", linewidth=1.0)
     ax_a.plot(t_arr, a_max, "k--", label="a_max", linewidth=1.0)
     if np.any(violations):
         ax_a.fill_between(t_arr, 0, a_actual, where=violations,
-                          color="red", alpha=0.2, label="violation")
-    ax_a.set_xlabel("Time (s)")
-    ax_a.set_ylabel("Acceleration (g)")
-    ax_a.set_title("Acceleration: Actual vs Path-Required")
+                          color="red", alpha=0.2, label="violation area")
+    ax_a.set_xlabel("t[s]")
+    ax_a.set_ylabel("Acceleration [g]")
+    ax_a.set_title(
+        "Acceleration est. and actual as a function of time of flight")
     ax_a.legend(fontsize=8)
     ax_a.grid(True, alpha=0.3)
 
@@ -180,9 +182,10 @@ def plot_simulation_results(sim_result: dict, save_path: str,
         ax_phi.axhline(phi_practical, color="red", linestyle="--",
                        alpha=0.4, label=f"φ at a_max={a_max_g}g")
         ax_phi.axhline(-phi_practical, color="red", linestyle="--", alpha=0.4)
-    ax_phi.set_xlabel("Time (s)")
-    ax_phi.set_ylabel("Bank angle (deg)")
-    ax_phi.set_title("Bank Angle: Commanded vs Path-Required")
+    ax_phi.set_xlabel("t[s]")
+    ax_phi.set_ylabel("Bank angle [deg]")
+    ax_phi.set_title(
+        "Bank angle est. and actual as a function of time of flight")
     ax_phi.legend(fontsize=8)
     ax_phi.grid(True, alpha=0.3)
 
@@ -195,9 +198,10 @@ def plot_simulation_results(sim_result: dict, save_path: str,
     ax_ex.fill_between(t_arr, 0, excess, where=(excess <= 0),
                        color="blue", alpha=0.5, label="deficit (under-tracking)")
     ax_ex.plot(t_arr, excess, "k-", linewidth=0.5)
-    ax_ex.set_xlabel("Time (s)")
-    ax_ex.set_ylabel("Excess acceleration (g)")
-    ax_ex.set_title("Excess Acceleration (Actual - Path-Required)")
+    ax_ex.set_xlabel("t[s]")
+    ax_ex.set_ylabel("Excess acceleration [g]")
+    ax_ex.set_title(
+        "Acceleration excess amount as a function of time of flight")
     ax_ex.legend(fontsize=8)
     ax_ex.grid(True, alpha=0.3)
 
@@ -232,6 +236,32 @@ def plot_simulation_results(sim_result: dict, save_path: str,
             f"  Total: {m.total_time:.1f} s\n"
             f"  Plan: {m.planning_time_ms:.2f} ms\n"
             f"  Ctrl: {m.mean_compute_time_ms:.3f} ms (avg)\n"
+
+            # f"tot. stage composite score: {m.composite_score:.1f}"
+            # f"  (lower is better)\n"
+            # f"\n"
+            # f"-- WP passthru & Tracking --\n"
+            # f"  Arrived: {m.n_wps_arrived}/{m.n_wps}\n"
+            # f"  steady-error of CTA: {m.mean_cpa:.1f} m^-3\n"
+            # f"  RMS CT: {m.rms_crosstrack:.1f} m\n"
+            # f"    over straight path: {m.rms_crosstrack_straight:.1f} m\n"
+            # f"    and curved:   {m.rms_crosstrack_curved:.1f} m\n"
+            # f"\n"
+            # f"-- Acceleration --\n"
+            # f"  Est. max: {m.path_max_a_required_g:.3f}g\n"
+            # f"  Path feasibility: {m.path_feasibility_ratio*100:.1f}%\n"
+            # f"  Actual max: {m.max_a_actual_g:.3f}g\n"
+            # f"  Violations ratio: {m.violation_time_ratio*100:.1f}% of time of filght\n"
+            # f"  Excess RMS: {m.excess_a_rms_g:.3f}g\n"
+            # f"\n"
+            # f"-- Efficiency --\n"
+            # f"  Path eff(accor to. std.): {m.efficiency_vs_planned:.3f}\n"
+            # f"  Bank rate RMS: {m.bank_rate_rms:.3f} rad/s\n"
+            # f"\n"
+            # f"-- Time --\n"
+            # f"  Total time of filght(Est.): {m.total_time:.1f} s\n"
+            # f"  Est. required: {m.planning_time_ms:.2f} ms\n"
+            # f"  Ctrl RMS: {m.mean_compute_time_ms:.3f} ms (avg)\n"
         )
         ax_summary.text(
             0.0, 1.0, text, fontsize=10, family="monospace",

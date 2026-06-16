@@ -59,6 +59,8 @@ class TelemetryNode(Node):
             "/mavros/extended_state",
             self._cb_extended, _MAVROS_QOS)
 
+        self.create_timer(2.0, self._log_state)
+
     def get_state(self) -> VehicleState:
         """현재 기체 상태의 thread-safe 스냅샷 반환."""
         with self._lock:
@@ -79,6 +81,13 @@ class TelemetryNode(Node):
     def _cb_extended(self, msg: ExtendedState) -> None:
         with self._lock:
             update_from_extended_state(self._state, msg)
+
+    def _log_state(self) -> None:
+        s = self.get_state()
+        self.get_logger().info(
+            f"pos_ned={s.pos_ned}  yaw={s.yaw:.3f}  "
+            f"armed={s.armed}  vtol={s.vtol_state}"
+        )
 
 
 def main(args=None):
