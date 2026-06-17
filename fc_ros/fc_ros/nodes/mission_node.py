@@ -64,7 +64,9 @@ class MissionNode(Node):
                     ned: np.ndarray) -> tuple[float, float, float]:
         """NED [N, E, h_up] → (lat_deg, lon_deg, alt_rel_m)."""
         lat = home_lat + ned[0] / _R_EARTH * (180.0 / np.pi)
-        lon = home_lon + ned[1] / (_R_EARTH * np.cos(np.radians(home_lat))) * (180.0 / np.pi)
+        lon = home_lon + \
+            ned[1] / (_R_EARTH * np.cos(np.radians(home_lat))) * \
+            (180.0 / np.pi)
         return float(lat), float(lon), float(ned[2])
 
     def _upload(self, waypoints: np.ndarray) -> None:
@@ -75,7 +77,8 @@ class MissionNode(Node):
 
         wp_list = []
         for i, wp in enumerate(waypoints):
-            lat, lon, alt = self._ned_to_gps(self._home_lat, self._home_lon, wp)
+            lat, lon, alt = self._ned_to_gps(
+                self._home_lat, self._home_lon, wp)
             m = Waypoint()
             m.frame = _MAV_FRAME_GLOBAL_RELATIVE_ALT
             m.command = _MAV_CMD_NAV_WAYPOINT
@@ -98,7 +101,7 @@ class MissionNode(Node):
             resp = future.result()
             if resp.success:
                 self.get_logger().info(
-                    f"미션 업로드 성공: {resp.wp_transferred}개")
+                    f"미션 업로드 성공: {resp.wp_transfered}개")
             else:
                 self.get_logger().warn("미션 업로드 실패")
         except Exception as e:
