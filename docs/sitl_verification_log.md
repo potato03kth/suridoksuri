@@ -3,7 +3,7 @@ doc_type: verification_log
 project: suridoksuri-1
 scope: WSL SITL 환경 구축 및 hover 검증 (리포지토리 외부 진행분 기록)
 status: Phase 3 진행 중
-last_updated: 2026-06-17
+last_updated: 2026-06-18
 ---
 
 # WSL SITL 환경 구축 및 검증 로그
@@ -382,14 +382,53 @@ ros2 run fc_ros telemetry_node
 
 | 항목 | 확인 방법 | 결과 |
 |---|---|---|
-| 빌드 오류 없음 | `colcon build --packages-select fc_ros` | |
-| 노드 기동 | `ros2 node list` → `/telemetry_node` | |
-| 구독 등록 확인 | `ros2 node info /telemetry_node` → Subscribers 4개 | |
-| 2초 주기 로그 출력 | 콘솔에 `pos_ned / yaw / armed / vtol` 로그 확인 | |
-| pos_ned 변화 확인 | 드론 이동 시 `pos_ned` 값 변경 (ENU→NED 변환 정상) | |
-| armed 반영 확인 | ARM 후 로그에 `armed=True` 반영 | |
+| 빌드 오류 없음 | `colcon build --packages-select fc_ros` | ✅ |
+| 노드 기동 | `ros2 node list` → `/telemetry_node` | ✅ |
+| 구독 등록 확인 | `ros2 node info /telemetry_node` → Subscribers 4개 | ✅ |
+| 2초 주기 로그 출력 | 콘솔에 `pos_ned / yaw / armed / vtol` 로그 확인 | ✅ |
+| pos_ned 변화 확인 | 드론 이동 시 `pos_ned` 값 변경 (ENU→NED 변환 정상) | ✅ |
+| armed 반영 확인 | ARM 후 로그에 `armed=True` 반영 | — |
 
-> SITL 통합 검증은 WSL에서 별도 수행 후 결과를 이 표에 기록한다.
+실제 로그 (2026-06-17):
+
+```
+[telemetry_node]: pos_ned=[-0.01829144 -0.00543481  0.02675617]  yaw=1.660  armed=False  vtol=0
+[telemetry_node]: pos_ned=[ 0.01962453 -0.01534116  0.00549911]  yaw=1.660  armed=False  vtol=0
+```
+
+> `armed` 항목은 이번 검증에서 ARM 미수행으로 확인 생략. pose/twist/state 콜백 모두 정상 동작 확인.
+
+---
+
+## MissionNode 검증 (2026-06-18)
+
+### 코드 수정 사항
+
+SITL 실행 중 파라미터 관련 오류 발생. offboard_node에서 겪은 것과 동일한 ROS2 파라미터 제약.
+
+#### 1. waypoints 파라미터 1D 변환 + reshape 추가
+
+ROS2 `declare_parameter`는 중첩 리스트(2D 배열)를 지원하지 않는다.  
+→ flat 1D 리스트로 선언하고, 코드에서 `(N, 3)`으로 reshape.
+
+고도 150m → 50m, 이동 거리 500m → 100m로 변경 (SITL 검증용 축소).
+
+```python
+# 변경 전 (오류)
+self.declare_parameter("waypoints", [[0.0, 0.0, 150.0], [500.0, 0.0, 150.0]])
+raw = self.get_parameter("waypoints").value
+self._waypoints = np.array(raw, dtype=float)  # 1D array → _upload에서 wp[0]접근 실패
+
+# 변경 후
+self.declare_parameter("waypoints", [0.0, 0.0, 50.0, 100.0, 0.0, 50.0])
+raw = self.get_parameter("waypoints").value
+self._waypoints = np.array(raw, dtype=float).reshape(-1, 3)  # (N, 3)으로 복원
+```
+
+**파라미터 외부 주입 시 형식:**
+```bash
+ros2 run fc_ros mission_node --ros-args -p "waypoints:=[0.0, 0.0, 50.0, 100.0, 0.0, 50.0]"
+```
 
 ---
 
@@ -406,8 +445,9 @@ ros2 run fc_ros telemetry_node
 - [x] fc_ros offboard_node 기동 검증 (NumPy/QoS/STREAMING 픽스, OFFBOARD+ARM 시퀀스 확인)
 - [x] OffboardNode 설계 목적 검증 (L1 경로 추종, DONE 상태 전환, 2026-06-06)
 - [x] **TelemetryNode 단위 테스트 25/25 PASS** (2026-06-06)
-- [ ] TelemetryNode SITL 통합 검증 (WSL) ← 현재 위치
-- [ ] MissionNode 검증
+- [x] **TelemetryNode SITL 통합 검증** (2026-06-17, pose/twist/state 콜백 정상)
+- [x] **MissionNode 코드 수정 완료** (2026-06-18, 파라미터 1D 변환 + reshape 픽스)
+- [ ] MissionNode SITL 검증
 - [ ] launch 파일 통합 검증
 - [ ] RPi4 배포
 

@@ -5,7 +5,8 @@ MissionNode: Phase 1 전용. 경로 생성 후 MAVROS 서비스로 미션 업로
 fallback: LOCAL_NED 프레임 미지원 시 MissionUploader.upload() 직접 호출
 
 필요 파라미터 (params YAML 또는 --ros-args -p):
-  waypoints : [[N, E, h], ...] 2D 리스트  (NED, m)
+  waypoints : [N, E, h, N, E, h, ...] 1D 리스트  (NED, m, 3개씩 묶음)
+  — ROS2 파라미터는 중첩 리스트를 지원하지 않으므로 반드시 1D로 입력한다.
 """
 from __future__ import annotations
 import numpy as np
@@ -27,12 +28,14 @@ class MissionNode(Node):
         super().__init__("mission_node")
 
         self.declare_parameter("waypoints",
-                               [[0.0, 0.0, 150.0], [500.0, 0.0, 150.0]])
+                               [0.0, 0.0, 50.0, 100.0, 0.0, 50.0])
 
         raw = self.get_parameter("waypoints").value
-        self._waypoints = np.array(raw, dtype=float)
+        # ROS2 파라미터는 중첩 리스트 불가 → 1D로 받아 (N, 3)으로 변환
+        self._waypoints = np.array(raw, dtype=float).reshape(-1, 3)
 
-        self._push_cli = self.create_client(WaypointPush, "/mavros/mission/push")
+        self._push_cli = self.create_client(
+            WaypointPush, "/mavros/mission/push")
         self._uploaded = False
 
         # 노드 기동 후 1회 업로드
@@ -57,18 +60,18 @@ class MissionNode(Node):
         wp_list = []
         for i, wp in enumerate(waypoints):
             m = Waypoint()
-            m.frame       = _MAV_FRAME_LOCAL_NED
-            m.command     = _MAV_CMD_NAV_WAYPOINT
-            m.is_current  = (i == 0)
+            m.frame = _MAV_FRAME_LOCAL_NED
+            m.command = _MAV_CMD_NAV_WAYPOINT
+            m.is_current = (i == 0)
             m.autocontinue = True
-            m.x_lat  = float(wp[0])     # N
+            m.x_lat = float(wp[0])     # N
             m.y_long = float(wp[1])     # E
-            m.z_alt  = -float(wp[2])    # LOCAL_NED: z = -h_up
+            m.z_alt = -float(wp[2])    # LOCAL_NED: z = -h_up
             wp_list.append(m)
 
         req = WaypointPush.Request()
         req.start_index = 0
-        req.waypoints   = wp_list
+        req.waypoints = wp_list
 
         future = self._push_cli.call_async(req)
         future.add_done_callback(self._on_push_done)
