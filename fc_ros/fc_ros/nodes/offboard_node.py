@@ -92,6 +92,11 @@ class OffboardNode(Node):
         self.declare_parameter("accel_reduction",   0.9)
         self.declare_parameter("accel_min_frac",    0.3)
         self.declare_parameter("cmd_vel_frame_id",  "base_link")
+        self.declare_parameter("transition_alt",    50.0)
+        self.declare_parameter("d_end_thresh",      10.0)
+        self.declare_parameter("landing_timeout",   60.0)
+        self.declare_parameter("v_terminal",        15.2)
+        self.declare_parameter("decel_dist",        80.0)
 
         control_hz       = self.get_parameter("control_hz").value
         self._dt         = 1.0 / max(control_hz, 2.0)

@@ -544,7 +544,7 @@ def test_arbitrary_wp_path_invariants():
 
 ## 미완료 항목
 
-- [ ] 작업 A: params/YAML 정비 [코드]
+- [x] 작업 A: params/YAML 정비 [코드] — 2026-06-19 완료
 - [ ] 작업 B: 종단 감속 헬퍼 + 배선 [코드]
 - [ ] 작업 C: 상태머신 ① 이륙·상승·천이 [코드]
 - [ ] 작업 D: 상태머신 ② 역천이·착륙 [코드]

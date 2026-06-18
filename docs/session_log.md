@@ -10,6 +10,63 @@ project: suridoksuri-1
 
 ---
 
+## 2026-06-19 — 작업 A 완료 (params/YAML 정비)
+
+**브랜치:** `dev--vision-computing-module`  
+**목적:** flight_plan.md의 작업 A(params/YAML 정비) 자율 실행 및 pytest 합격 기준 통과
+
+### 완료
+- `fc_ros_params.yaml` waypoints 2D → flat 1D 변환 (offboard_node·mission_node 양쪽), 고도 150m → 50m 통일
+- `offboard_node.py` 신규 파라미터 5개 declare_parameter 추가: `transition_alt`(50.0), `d_end_thresh`(10.0), `landing_timeout`(60.0), `v_terminal`(15.2), `decel_dist`(80.0)
+- `fc_ros/test/test_params.py` 신규 작성 — 5개 테스트 케이스 전부 PASS
+- `flight_plan.md` 미완료 목록에서 작업 A 완료 표시
+
+### 결정
+- 없음 (작업 A는 이전 세션에서 설계 확정됨, 이번 세션은 실행만)
+
+### 다음 세션
+1. **작업 B — 종단 감속 헬퍼 `apply_terminal_decel()` 구현** (`fc_bridge/planning/terminal_decel.py` 신규, OffboardNode 배선, `pytest fc_bridge/tests/test_terminal_decel.py`)
+2. **SITL-2** — `ros2 launch fc_ros phase2.launch.py` 통합 기동 (작업 A 선행 완료됨, 사람 수행)
+3. 작업 C(상태머신 이륙·상승·천이)는 작업 A + SITL-1(vtol_state 상수) 선행 후 진입
+
+### 주의
+> 작업 B와 작업 C는 선행 의존이 없어 병행 시작 가능. 단 작업 C는 SITL-1의 vtol_state 상수 실측값이 필요하므로 SITL-1 미완료 상태라면 상수를 플랜 문서 예상값(MC=3, FW=4)으로 임시 사용 후 확인 필요.
+
+---
+
+## 2026-06-19 — flight_plan 정합성 검토 & 작업단위 재구성
+
+**브랜치:** `dev--vision-computing-module`  
+**목적:** "전체 비행 사이클 검증" 계획(flight_plan.md)의 정합성 검토 + 새 컨텍스트에서 "실행하라" 한마디로 진입 가능한 작업단위로 재분할
+
+### 완료
+- 실제 코드와 대조해 정합성 오류 5건 식별·수정 (flight_plan.md 전면 재작성)
+  1. `v_terminal` 경로감속 미동작 확정 (eta3/diterpin이 `v_ref=v_cruise` 고정, v_terminal 미사용 — no-op)
+  2. 튜닝 가이드 자기모순 (폐기된 `d_pre_trans`/`v_transition_max` 참조) 제거
+  3. 기존/신규 상태 미구분 + STREAMING의 ARM 중복 + `_step_following` 하드코딩 3.0 → 명시
+  4. YAML 2D 수정 위치 중복/모호 → 작업 A 단독 소유로 정리
+  5. 운용 고도 50/150m 혼재 → 50m 일원화
+- flight_plan.md를 **[코드] 작업 A~E**(Claude 자율, pytest) + **[SITL] SITL-1~5**(사람 수행, 체크리스트)로 재분할 (구 세션 B를 C/D/E로 분할)
+- 후속 단계 **작업 F + SITL-6**(임의 WP 생성·추종 검증) 추가 — SITL-4 이후, 핵심 범위 밖
+- `session_status.md` 새 구조로 동기화 (구 "세션 A~F" 명칭 전면 폐기)
+- memory `project_sitl_state.md` + MEMORY.md 인덱스 갱신
+
+### 결정
+- **역천이 전 감속은 후처리 헬퍼로 구현하기로 함**: 플래너 수정 대신 `apply_terminal_decel()`(작업 B)로 v_profile 끝 구간을 v_terminal로 ramp-down
+- **작업단위를 [코드](Claude 자율)와 [SITL](사람 수행)로 분리하기로 함**: "실행하라" 진입은 코드단위, SITL은 사람이 트리거하고 Claude가 체크리스트·로그판정 보조
+- 임의 WP 경로 생성·추종 검증은 전체 사이클 검증(SITL-4) **이후**의 후속 작업으로 하기로 함
+
+### 다음 세션
+1. **작업 A — params/YAML 정비** (Claude 자율, WSL 불필요). 새 컨텍스트 트리거: `docs/flight_plan.md 의 "작업 A — params/YAML 정비"를 실행하라.`
+2. (병행) **SITL-1** — VTOL 환경 전환 + vtol_state 상수 확인 (WSL, 사람). 작업 C가 상수 참조
+3. 작업 A 후 → SITL-2(launch 기동) → main 병합 → `dev--fc-vtol-sitl` 분기
+
+### 주의
+> 작업 A는 현재 브랜치에서 수행(SITL-2·병합 선행). 작업 B~E는 main 병합 후 `dev--fc-vtol-sitl`에서.  
+> 작업 C는 vtol_state 상수가 필요하므로 SITL-1을 먼저 돌려두면 매끄럽다.
+
+---
+
 ## 2026-06-18 — 시스템 갭 분석 & 비행 계획 최종 확인
 
 **브랜치:** `dev--vision-computing-module`  
