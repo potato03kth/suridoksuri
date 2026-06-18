@@ -404,7 +404,7 @@ ros2 run fc_ros telemetry_node
 
 ### 코드 수정 사항
 
-SITL 실행 중 파라미터 관련 오류 발생. offboard_node에서 겪은 것과 동일한 ROS2 파라미터 제약.
+SITL 실행 중 발견된 버그 목록과 수정 내용.
 
 #### 1. waypoints 파라미터 1D 변환 + reshape 추가
 
@@ -430,6 +430,76 @@ self._waypoints = np.array(raw, dtype=float).reshape(-1, 3)  # (N, 3)으로 복�
 ros2 run fc_ros mission_node --ros-args -p "waypoints:=[0.0, 0.0, 50.0, 100.0, 0.0, 50.0]"
 ```
 
+#### 2. MAV_FRAME_LOCAL_NED 미지원 → GLOBAL_RELATIVE_ALT + NED→GPS 변환
+
+PX4 미션은 글로벌 프레임(`MAV_FRAME_GLOBAL_RELATIVE_ALT = 3`)만 지원한다.  
+`MAV_FRAME_LOCAL_NED (1)`로 업로드하면 `resp.success == False` 반환.
+
+**해결 (C안):** NED 입력 인터페이스 유지, `home_lat`/`home_lon` 파라미터 추가,  
+`_ned_to_gps()` 변환 후 GLOBAL_RELATIVE_ALT로 업로드.
+
+```python
+# home_lat/home_lon 파라미터 (기본값: SITL gz_x500 기본 홈)
+self.declare_parameter("home_lat", 47.397742)
+self.declare_parameter("home_lon", 8.545594)
+
+@staticmethod
+def _ned_to_gps(home_lat, home_lon, ned):
+    lat = home_lat + ned[0] / _R_EARTH * (180.0 / np.pi)
+    lon = home_lon + ned[1] / (_R_EARTH * np.cos(np.radians(home_lat))) * (180.0 / np.pi)
+    return float(lat), float(lon), float(ned[2])
+```
+
+#### 3. WaypointPush 응답 필드명 오타
+
+MAVROS `WaypointPush.srv` 응답에 `wp_transfered` (r 1개) 필드가 있다.  
+`wp_transferred` (r 2개)로 접근하면 `AttributeError` 발생.
+
+```python
+# 오류
+f"미션 업로드 성공: {resp.wp_transferred}개"
+# 수정
+f"미션 업로드 성공: {resp.wp_transfered}개"  # MAVROS 오타 (r 1개)
+```
+
+### SITL 통합 검증 (WSL에서 수행, 2026-06-18)
+
+**준비 — SITL 스택 기동**
+
+```bash
+# T1
+cd ~/PX4-Autopilot && make px4_sitl gz_x500
+# T2
+ros2 launch mavros px4.launch fcu_url:=udp://:14540@localhost:14557
+# T3
+cd ~/drone_ws && source install/setup.bash
+ros2 run fc_ros mission_node
+```
+
+**체크리스트**
+
+| 항목 | 확인 방법 | 결과 |
+|---|---|---|
+| 빌드 오류 없음 | `colcon build --packages-select fc_ros` | ✅ |
+| 노드 기동 | 터미널 오류 없음 | ✅ |
+| 서비스 연결 | `/mavros/mission/push` 서비스 대기 성공 | ✅ |
+| 미션 업로드 성공 | `미션 업로드 성공: 2개` 로그 출력 | ✅ |
+| 좌표 변환 정확도 | MAVROS 로그에서 GPS 좌표 검증 | ✅ |
+
+**실제 MAVROS 로그 (2026-06-18):**
+
+```
+[mavros.mission]: WP: item #0* F:6 C: 16 p: 0 0 0 0 x: 47.39774 y: 8.545594 z: 50
+[mavros.mission]: WP: item #1  F:6 C: 16 p: 0 0 0 0 x: 47.39864 y: 8.545594 z: 50
+[mavros.mission]: WP: mission received
+```
+
+변환 검증:
+- `#0` x=47.39774: 홈 위도 (N=0) ✅
+- `#1` x=47.39864: 홈 위도 + 100m북 (Δlat≈0.000898°) ✅
+- z=50: 입력 고도 50m ✅
+- F:6: MAVROS 내부 GLOBAL_RELATIVE_ALT_INT 변환 (정상)
+
 ---
 
 ## 현재 진행 상태 (2026-06-06 기준)
@@ -446,8 +516,7 @@ ros2 run fc_ros mission_node --ros-args -p "waypoints:=[0.0, 0.0, 50.0, 100.0, 0
 - [x] OffboardNode 설계 목적 검증 (L1 경로 추종, DONE 상태 전환, 2026-06-06)
 - [x] **TelemetryNode 단위 테스트 25/25 PASS** (2026-06-06)
 - [x] **TelemetryNode SITL 통합 검증** (2026-06-17, pose/twist/state 콜백 정상)
-- [x] **MissionNode 코드 수정 완료** (2026-06-18, 파라미터 1D 변환 + reshape 픽스)
-- [ ] MissionNode SITL 검증
+- [x] **MissionNode SITL 통합 검증** (2026-06-18, NED→GPS 변환 확인, 2개 WP 업로드 성공)
 - [ ] launch 파일 통합 검증
 - [ ] RPi4 배포
 
