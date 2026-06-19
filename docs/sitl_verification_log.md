@@ -15,16 +15,16 @@ last_updated: 2026-06-18
 
 ## 환경 스택
 
-| 항목 | 내용 |
-|------|------|
-| 개발 OS | Windows + WSL Ubuntu 22.04 (ARM64 아님, x86_64) |
-| ROS2 | Humble (apt 바이너리) |
-| MAVROS | apt 바이너리 (`ros-humble-mavros`) |
-| PX4 | PX4-Autopilot (소스, WSL 로컬 빌드) |
-| 시뮬레이터 | Gazebo (HEADLESS=1 모드) |
-| 기체 모델 | gz_x500 |
-| GeographicLib | 데이터셋 설치 완료 |
-| GCS | QGroundControl (Windows, UDP 14551로 수동 연결) |
+| 항목          | 내용                                            |
+| ------------- | ----------------------------------------------- |
+| 개발 OS       | Windows + WSL Ubuntu 22.04 (ARM64 아님, x86_64) |
+| ROS2          | Humble (apt 바이너리)                           |
+| MAVROS        | apt 바이너리 (`ros-humble-mavros`)              |
+| PX4           | PX4-Autopilot (소스, WSL 로컬 빌드)             |
+| 시뮬레이터    | Gazebo (HEADLESS=1 모드)                        |
+| 기체 모델     | gz_x500                                         |
+| GeographicLib | 데이터셋 설치 완료                              |
+| GCS           | QGroundControl (Windows, UDP 14551로 수동 연결) |
 
 ---
 
@@ -69,14 +69,14 @@ ros2 run offboard_hover hover_node
 
 **결과: PASS**
 
-| 검증 항목 | 결과 |
-|-----------|------|
-| MAVROS 연결 확인 후 진행 | ✅ |
-| 2초간 setpoint 선발행 후 ARM | ✅ |
-| Offboard 모드 전환 | ✅ |
-| z=2.0m 호버 유지 | ✅ |
-| `Armed by external command` 로그 | ✅ |
-| `Takeoff detected` 로그 | ✅ |
+| 검증 항목                        | 결과 |
+| -------------------------------- | ---- |
+| MAVROS 연결 확인 후 진행         | ✅   |
+| 2초간 setpoint 선발행 후 ARM     | ✅   |
+| Offboard 모드 전환               | ✅   |
+| z=2.0m 호버 유지                 | ✅   |
+| `Armed by external command` 로그 | ✅   |
+| `Takeoff detected` 로그          | ✅   |
 
 **토픽/설정 상세:**
 
@@ -92,12 +92,12 @@ ros2 run offboard_hover hover_node
 
 ## 원격 접속 환경
 
-| 접속 경로 | 방법 |
-|-----------|------|
-| Android → WSL | Tailscale VPN → Windows Tailscale IP + RemoteCommand jump |
-| RPi → WSL | Tailscale VPN → 직접 SSH + Mosh |
-| 세션 관리 | tmux, `ta()` 함수로 수동 attach (전 Linux 머신 동일) |
-| Windows 재부팅 시 | Task Scheduler가 WSL tmux 세션 자동 생성 |
+| 접속 경로         | 방법                                                      |
+| ----------------- | --------------------------------------------------------- |
+| Android → WSL     | Tailscale VPN → Windows Tailscale IP + RemoteCommand jump |
+| RPi → WSL         | Tailscale VPN → 직접 SSH + Mosh                           |
+| 세션 관리         | tmux, `ta()` 함수로 수동 attach (전 Linux 머신 동일)      |
+| Windows 재부팅 시 | Task Scheduler가 WSL tmux 세션 자동 생성                  |
 
 ---
 
@@ -107,11 +107,11 @@ ros2 run offboard_hover hover_node
 
 ### 스택
 
-| 항목 | 내용 |
-|------|------|
-| bridge | `ros-humble-foxglove-bridge` (apt) |
-| 포트 | TCP 8765 (WebSocket) |
-| 접속 방법 | 모바일/원격 브라우저 → `app.foxglove.dev` → WebSocket |
+| 항목          | 내용                                                                       |
+| ------------- | -------------------------------------------------------------------------- |
+| bridge        | `ros-humble-foxglove-bridge` (apt)                                         |
+| 포트          | TCP 8765 (WebSocket)                                                       |
+| 접속 방법     | 모바일/원격 브라우저 → `app.foxglove.dev` → WebSocket                      |
 | 네트워크 경로 | 원격 단말 → Tailscale → Windows(8765) → WSL2 포트 포워딩 → foxglove_bridge |
 
 ### 실행 명령어
@@ -154,10 +154,10 @@ WSL2는 NAT 구조라 PX4 기본 브로드캐스트가 Windows에 도달하지 �
 
 ### 네트워크 구조
 
-| 변수 | 확인 명령 (WSL) | 예시 값 | 용도 |
-|---|---|---|---|
-| Windows IP | `cat /etc/resolv.conf \| grep nameserver \| awk '{print $2}'` | `172.29.160.1` | PX4 `-t` 플래그 대상 |
-| WSL IP | `hostname -I \| awk '{print $1}'` | `172.29.168.225` | QGC Server Address |
+| 변수       | 확인 명령 (WSL)                                               | 예시 값          | 용도                 |
+| ---------- | ------------------------------------------------------------- | ---------------- | -------------------- |
+| Windows IP | `cat /etc/resolv.conf \| grep nameserver \| awk '{print $2}'` | `172.29.160.1`   | PX4 `-t` 플래그 대상 |
+| WSL IP     | `hostname -I \| awk '{print $1}'`                             | `172.29.168.225` | QGC Server Address   |
 
 WSL2 재시작마다 두 IP 모두 변경될 수 있으므로 매번 확인한다.
 
@@ -184,10 +184,10 @@ pxh> mavlink start -x -u 14551 -r 4000000 -t <WIN_IP>
 
 `Application Settings` → `Comm Links` → `Add`
 
-| 항목 | 값 |
-|---|---|
-| 타입 | UDP |
-| Listening Port | `14550` |
+| 항목           | 값               |
+| -------------- | ---------------- |
+| 타입           | UDP              |
+| Listening Port | `14550`          |
 | Server Address | `<WSL_IP>:14551` |
 
 **Step 4 — QGC Connect**
@@ -226,10 +226,10 @@ PX4는 heartbeat 수신 시 source를 `172.29.160.1:14550`으로 학습해 그�
 
 `commander arm` 직접 실행 시 "Resolve system health failures first" 오류 원인 진단 과정:
 
-| 확인 명령 | 결과 |
-|---|---|
-| `sensors status` | gyro/accel/mag/baro 모두 OK |
-| `ekf2 status` | attitude/local/global position 모두 1 (정상) |
+| 확인 명령                 | 결과                                                         |
+| ------------------------- | ------------------------------------------------------------ |
+| `sensors status`          | gyro/accel/mag/baro 모두 OK                                  |
+| `ekf2 status`             | attitude/local/global position 모두 1 (정상)                 |
 | `listener vehicle_status` | `gcs_connection_lost: True`, `pre_flight_checks_pass: False` |
 
 → **GCS 미연결 상태에서 preflight 실패**가 직접 원인. QGC 연결 후 해소.
@@ -305,15 +305,15 @@ STREAMING 상태 흐름:
 
 ### 검증 결과
 
-| 항목 | 결과 |
-|------|------|
-| colcon 빌드 | ✅ |
-| offboard_node import 오류 없음 | ✅ |
-| MAVROS QoS 토픽 수신 | ✅ |
-| OFFBOARD 모드 전환 | ✅ |
-| ARM 시퀀스 (20tick → OFFBOARD → ARM 순서) | ✅ |
-| `/mavros/setpoint_velocity/cmd_vel` 10Hz 발행 | ✅ |
-| **경로 추종 (설계 목적)** | ✅ |
+| 항목                                          | 결과 |
+| --------------------------------------------- | ---- |
+| colcon 빌드                                   | ✅   |
+| offboard_node import 오류 없음                | ✅   |
+| MAVROS QoS 토픽 수신                          | ✅   |
+| OFFBOARD 모드 전환                            | ✅   |
+| ARM 시퀀스 (20tick → OFFBOARD → ARM 순서)     | ✅   |
+| `/mavros/setpoint_velocity/cmd_vel` 10Hz 발행 | ✅   |
+| **경로 추종 (설계 목적)**                     | ✅   |
 
 > QGC 수동 이륙 후 offboard_node 실행. 기본 waypoint `[0,0,150] → [500,0,150]` (단일 직선 세그먼트)
 > 기준으로 +N 방향 직선 이동 → WP1 3m 이내 도달 시 DONE 상태 전환 (속도=0, 제자리 호버) 확인 (2026-06-06).
@@ -331,23 +331,23 @@ STREAMING 상태 흐름:
 
 `fc_ros/test/test_telemetry_node.py` 25개 케이스 전부 PASS (Windows Python 3.10, pytest).
 
-| 테스트 그룹 | 케이스 수 | 결과 |
-|---|---|---|
-| `quat_to_euler_xyz` | 4 | ✅ |
-| `update_from_pose` — 위치 ENU→NED | 4 | ✅ |
-| `update_from_pose` — yaw ENU→NED | 5 | ✅ |
-| `update_from_twist` — 속도 ENU→NED | 4 | ✅ |
-| `update_from_mavros_state` | 2 | ✅ |
-| `update_from_extended_state` | 2 | ✅ |
-| `VehicleState.copy()` 격리 | 3 | ✅ |
+| 테스트 그룹                        | 케이스 수 | 결과 |
+| ---------------------------------- | --------- | ---- |
+| `quat_to_euler_xyz`                | 4         | ✅   |
+| `update_from_pose` — 위치 ENU→NED  | 4         | ✅   |
+| `update_from_pose` — yaw ENU→NED   | 5         | ✅   |
+| `update_from_twist` — 속도 ENU→NED | 4         | ✅   |
+| `update_from_mavros_state`         | 2         | ✅   |
+| `update_from_extended_state`       | 2         | ✅   |
+| `VehicleState.copy()` 격리         | 3         | ✅   |
 
 검증된 변환 규칙:
 
-| 입력 (ENU) | 출력 (NED/fc_bridge) |
-|---|---|
-| position (x=E, y=N, z=U) | `pos_ned = [y, x, z]` |
-| velocity (vx=vE, vy=vN, vz=vU) | `vel_ned = [vy, vx, -vz]` |
-| yaw_enu | `yaw_ned = π/2 - yaw_enu`, [-π, π] 정규화 |
+| 입력 (ENU)                     | 출력 (NED/fc_bridge)                      |
+| ------------------------------ | ----------------------------------------- |
+| position (x=E, y=N, z=U)       | `pos_ned = [y, x, z]`                     |
+| velocity (vx=vE, vy=vN, vz=vU) | `vel_ned = [vy, vx, -vz]`                 |
+| yaw_enu                        | `yaw_ned = π/2 - yaw_enu`, [-π, π] 정규화 |
 
 ### TelemetryNode 코드 변경 (2026-06-17)
 
@@ -360,6 +360,7 @@ SITL 통합 검증을 위해 2초 주기 디버그 로거 추가.
 ```
 
 확인 포인트:
+
 - `pos_ned` 값이 0이 아닌 값으로 바뀌면 pose 콜백 정상
 - 드론 이동 시 `pos_ned` 값이 변하면 ENU→NED 변환 정상
 - ARM 후 `armed=True` 가 찍히면 state 콜백 정상
@@ -380,14 +381,14 @@ ros2 run fc_ros telemetry_node
 
 **체크리스트**
 
-| 항목 | 확인 방법 | 결과 |
-|---|---|---|
-| 빌드 오류 없음 | `colcon build --packages-select fc_ros` | ✅ |
-| 노드 기동 | `ros2 node list` → `/telemetry_node` | ✅ |
-| 구독 등록 확인 | `ros2 node info /telemetry_node` → Subscribers 4개 | ✅ |
-| 2초 주기 로그 출력 | 콘솔에 `pos_ned / yaw / armed / vtol` 로그 확인 | ✅ |
-| pos_ned 변화 확인 | 드론 이동 시 `pos_ned` 값 변경 (ENU→NED 변환 정상) | ✅ |
-| armed 반영 확인 | ARM 후 로그에 `armed=True` 반영 | — |
+| 항목               | 확인 방법                                          | 결과 |
+| ------------------ | -------------------------------------------------- | ---- |
+| 빌드 오류 없음     | `colcon build --packages-select fc_ros`            | ✅   |
+| 노드 기동          | `ros2 node list` → `/telemetry_node`               | ✅   |
+| 구독 등록 확인     | `ros2 node info /telemetry_node` → Subscribers 4개 | ✅   |
+| 2초 주기 로그 출력 | 콘솔에 `pos_ned / yaw / armed / vtol` 로그 확인    | ✅   |
+| pos_ned 변화 확인  | 드론 이동 시 `pos_ned` 값 변경 (ENU→NED 변환 정상) | ✅   |
+| armed 반영 확인    | ARM 후 로그에 `armed=True` 반영                    | —    |
 
 실제 로그 (2026-06-17):
 
@@ -426,6 +427,7 @@ self._waypoints = np.array(raw, dtype=float).reshape(-1, 3)  # (N, 3)으로 복�
 ```
 
 **파라미터 외부 주입 시 형식:**
+
 ```bash
 ros2 run fc_ros mission_node --ros-args -p "waypoints:=[0.0, 0.0, 50.0, 100.0, 0.0, 50.0]"
 ```
@@ -478,13 +480,13 @@ ros2 run fc_ros mission_node
 
 **체크리스트**
 
-| 항목 | 확인 방법 | 결과 |
-|---|---|---|
-| 빌드 오류 없음 | `colcon build --packages-select fc_ros` | ✅ |
-| 노드 기동 | 터미널 오류 없음 | ✅ |
-| 서비스 연결 | `/mavros/mission/push` 서비스 대기 성공 | ✅ |
-| 미션 업로드 성공 | `미션 업로드 성공: 2개` 로그 출력 | ✅ |
-| 좌표 변환 정확도 | MAVROS 로그에서 GPS 좌표 검증 | ✅ |
+| 항목             | 확인 방법                               | 결과 |
+| ---------------- | --------------------------------------- | ---- |
+| 빌드 오류 없음   | `colcon build --packages-select fc_ros` | ✅   |
+| 노드 기동        | 터미널 오류 없음                        | ✅   |
+| 서비스 연결      | `/mavros/mission/push` 서비스 대기 성공 | ✅   |
+| 미션 업로드 성공 | `미션 업로드 성공: 2개` 로그 출력       | ✅   |
+| 좌표 변환 정확도 | MAVROS 로그에서 GPS 좌표 검증           | ✅   |
 
 **실제 MAVROS 로그 (2026-06-18):**
 
@@ -495,6 +497,7 @@ ros2 run fc_ros mission_node
 ```
 
 변환 검증:
+
 - `#0` x=47.39774: 홈 위도 (N=0) ✅
 - `#1` x=47.39864: 홈 위도 + 100m북 (Δlat≈0.000898°) ✅
 - z=50: 입력 고도 50m ✅
@@ -502,23 +505,89 @@ ros2 run fc_ros mission_node
 
 ---
 
-## 현재 진행 상태 (2026-06-06 기준)
+## SITL-1 — VTOL 환경 전환 + 상수 확인 (2026-06-19)
+
+**결과: 조건부 PASS (COM_RC_OVERRIDE → POSCTL 전환은 실기체 SITL-5로 이월)**
+
+### vtol_state 상수 실측
+
+| 상태            | 예상값 | 실측값 |
+| --------------- | ------ | ------ |
+| MC (지상/호버)  | 3      | 3 ✅   |
+| 천이 중 (MC→FW) | 1      | 1 ✅   |
+| FW 비행 중      | 4      | 4 ✅   |
+| 천이 중 (FW→MC) | 2      | 2 ✅   |
+
+### QGC 수동 이륙 시퀀스
+
+비행준비완료 → 시동됨 → takeoff → 비행중 → hold → land → 비행준비완료 흐름 정상 동작 ✅
+
+### VTOL 천이 서비스 직접 호출
+
+**핵심 발견: param1은 목표 상태를 의미함 (계획 문서가 반대로 기록되어 있었음)**
+
+| 명령                                                                | 결과 |
+| ------------------------------------------------------------------- | ---- |
+| `CommandLong(3000, param1=4.0)` MC 상태에서 → **FW 천이 성공** ✅   |
+| `CommandLong(3000, param1=3.0)` FW 상태에서 → **MC 역천이 성공** ✅ |
+| result=0 항상 반환 → MAV_RESULT_ACCEPTED (정상)                     |
+| param1=1.0, 2.0은 변화 없음 (지상 정지 중엔 무효)                   |
+
+→ `flight_plan.md` 기술 참조 및 작업 C/D의 param1 값 수정 완료.
+
+### AUTO.TAKEOFF 동작
+
+확정 시퀀스:
+
+```
+ros2 service call /mavros/cmd/arming  CommandBool "{value: true}"   # ARM 먼저
+ros2 service call /mavros/set_mode    SetMode "{custom_mode: 'AUTO.TAKEOFF'}"
+```
+
+- PX4 콘솔: `takeoff detected` 출력 ✅
+- QGC: 이륙 확인 ✅
+- **완료 후 전환 모드: HOLD** ✅ (작업 C 설계 입력값 확정)
+- 방식 B (`cmd/takeoff` 서비스)도 동작하나, set_mode 방식과 결과 동일
+- 주의: ARM 없이 AUTO.TAKEOFF 발행하면 모드만 바뀌고 실제 이륙 안 됨
+
+### AUTO.TAKEOFF 완료 후 PX4 모드
+
+ARM → AUTO.TAKEOFF → 목표 고도 도달 → **HOLD 모드로 전환** ✅
+(비행준비완료 → 시동됨(HOLD) → TAKEOFF → 목표고도 도달 → HOLD)
+→ 작업 C: HOLD 모드에서 CommandLong(3000, param1=4.0)으로 FW 천이 가능 (실측 확인).
+
+### COM_RC_OVERRIDE
+
+- PX4 파라미터에서 직접 3으로 변경, 재시작 후에도 유지 ✅
+- rc/override 토픽 발행 → QGC에서 RC 채널 연결 UI 표시, 기체 반응(pitch → 상승) ✅
+- OFFBOARD → POSCTL 자동 전환: SITL 재현 불가
+  - 원인: `/mavros/rc/override`는 `RC_CHANNELS_OVERRIDE` 메시지로 GCS 긴급 명령 경로.
+    COM_RC_OVERRIDE는 실제 RC 송신기(`RC_CHANNELS`)의 입력만 트리거함.
+  - **실기체(SITL-5)에서 물리적 RC로 재확인 예정으로 이월.**
+
+---
+
+## 현재 진행 상태 (2026-06-19 기준)
 
 - [x] WSL SITL 환경 구축
 - [x] MAVROS ↔ SITL 연결 확인 (`/mavros/state: connected=true`)
 - [x] hover_node SITL 검증 (z=2.0m, position 제어)
 - [x] `fc_ros/` 패키지 뼈대 생성 (본 리포지토리)
-- [x] `docs/fc_ros_migration_plan.md` 작성
 - [x] Foxglove Studio 원격 시각화 환경 구축 (모바일 웹 접속 검증 완료)
 - [x] Windows QGC ↔ WSL SITL 연결 (MAVLink 14551 포트, 수동 연결)
-- [x] `commander takeoff` 이륙 검증 완료 (2026-06-04)
 - [x] fc_ros offboard_node 기동 검증 (NumPy/QoS/STREAMING 픽스, OFFBOARD+ARM 시퀀스 확인)
 - [x] OffboardNode 설계 목적 검증 (L1 경로 추종, DONE 상태 전환, 2026-06-06)
-- [x] **TelemetryNode 단위 테스트 25/25 PASS** (2026-06-06)
-- [x] **TelemetryNode SITL 통합 검증** (2026-06-17, pose/twist/state 콜백 정상)
-- [x] **MissionNode SITL 통합 검증** (2026-06-18, NED→GPS 변환 확인, 2개 WP 업로드 성공)
-- [ ] launch 파일 통합 검증
-- [ ] RPi4 배포
+- [x] TelemetryNode 단위 테스트 25/25 PASS (2026-06-06)
+- [x] TelemetryNode SITL 통합 검증 (2026-06-17)
+- [x] MissionNode SITL 통합 검증 (2026-06-18, NED→GPS 변환 확인)
+- [x] **작업 A: params/YAML 정비** (2026-06-19, flat waypoints + 신규 파라미터)
+- [x] **SITL-1: VTOL 환경 전환 + 상수 확인** (2026-06-19, 조건부 PASS)
+- [ ] 작업 B: 종단 감속 헬퍼 + 배선
+- [ ] 작업 C: 상태머신 ① 이륙·상승·천이 (선행 완료 → 진입 가능)
+- [ ] SITL-2: launch 통합 기동 (선행 완료 → 진입 가능)
+- [ ] 작업 D: 상태머신 ② 역천이·착륙
+- [ ] 작업 E: 긴급 수동 override
+- [ ] SITL-3~5, 작업 F, SITL-6
 
 ---
 

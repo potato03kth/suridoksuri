@@ -20,12 +20,13 @@ last_updated: 2026-06-18
 
 이 계획의 작업단위는 두 종류다. 새 컨텍스트에서 **"실행하라"** 한마디로 진입한다.
 
-| 유형 | 실행 주체 | "실행하라"의 의미 | 합격 판정(테스트) |
-|---|---|---|---|
-| **[코드]** | Claude 자율 | 코드 수정 → `pytest` 실행까지 Claude가 완료 (Windows, SITL 불필요) | pytest 통과 |
+| 유형       | 실행 주체                | "실행하라"의 의미                                                                     | 합격 판정(테스트)       |
+| ---------- | ------------------------ | ------------------------------------------------------------------------------------- | ----------------------- |
+| **[코드]** | Claude 자율              | 코드 수정 → `pytest` 실행까지 Claude가 완료 (Windows, SITL 불필요)                    | pytest 통과             |
 | **[SITL]** | 사람 (WSL) + Claude 보조 | Claude가 절차·체크리스트 준비 → 사람이 WSL에서 수행 → 로그를 붙여넣으면 Claude가 판정 | 체크리스트 전 항목 충족 |
 
 규칙:
+
 - **[코드] 단위는 SITL 없이 완결**된다. 순수 로직을 함수로 추출해 `rclpy` 없이 pytest로 검증한다 (기존 `test_offboard_node.py` 패턴).
 - **[SITL] 게이트는 사람이 손으로 수행**한다. Claude는 기동 명령·관찰 포인트·합격 기준을 제시하고, 결과 로그로 PASS/FAIL을 판정한 뒤 `sitl_verification_log.md`에 기록한다.
 - 각 단위는 **선행 조건**을 명시한다. 선행이 끝나지 않았으면 진입하지 않는다.
@@ -34,18 +35,18 @@ last_updated: 2026-06-18
 
 ## 작업단위 목록 및 의존 관계
 
-| 작업단위 | 유형 | 선행 | 테스트 |
-|---|---|---|---|
-| **작업 A** — params/YAML 정비 | [코드] | — | `test_params.py`: flat→(N,3) reshape, 신규 파라미터 기본값 |
-| **작업 B** — 종단 감속 헬퍼 + 배선 | [코드] | — | `test_terminal_decel.py`: 끝점=v_terminal, 단조감소 |
-| **작업 C** — 상태머신 ① 이륙·상승·천이 | [코드] | A · (SITL-1 상수) | `test_offboard_node.py`: 상승/천이 트리거 순수로직 |
-| **작업 D** — 상태머신 ② 역천이·착륙 | [코드] | C | `test_offboard_node.py`: d_end_thresh/착륙 판정 |
-| **작업 E** — 긴급 수동 override | [코드] | C | `test_offboard_node.py`: vtol_state 분기 로직 |
-| **SITL-1** — VTOL 환경 전환 + 상수 확인 | [SITL] | 환경 | 체크리스트 (vtol_state 상수 기록, 수동 천이, RC override) |
-| **SITL-2** — launch 통합 기동 | [SITL] | A | 체크리스트 (phase2 기동, 파라미터 로드) |
-| **SITL-3** — 경로 추종 검증 | [SITL] | B · C · D · SITL-2 | 체크리스트 (cross_track_error, 끝점 감속) |
-| **SITL-4** — 전체 사이클 통합 | [SITL] | E · SITL-3 | 체크리스트 (전체 상태 전이 로그, disarmed, 천이 가속도) |
-| **SITL-5** — RPi4 실기체 배포 | [배포] | SITL-4 | 체크리스트 (배포·튜닝·안전) |
+| 작업단위                                | 유형   | 선행               | 테스트                                                     |
+| --------------------------------------- | ------ | ------------------ | ---------------------------------------------------------- |
+| **작업 A** — params/YAML 정비           | [코드] | —                  | `test_params.py`: flat→(N,3) reshape, 신규 파라미터 기본값 |
+| **작업 B** — 종단 감속 헬퍼 + 배선      | [코드] | —                  | `test_terminal_decel.py`: 끝점=v_terminal, 단조감소        |
+| **작업 C** — 상태머신 ① 이륙·상승·천이  | [코드] | A · (SITL-1 상수)  | `test_offboard_node.py`: 상승/천이 트리거 순수로직         |
+| **작업 D** — 상태머신 ② 역천이·착륙     | [코드] | C                  | `test_offboard_node.py`: d_end_thresh/착륙 판정            |
+| **작업 E** — 긴급 수동 override         | [코드] | C                  | `test_offboard_node.py`: vtol_state 분기 로직              |
+| **SITL-1** — VTOL 환경 전환 + 상수 확인 | [SITL] | 환경               | 체크리스트 (vtol_state 상수 기록, 수동 천이, RC override)  |
+| **SITL-2** — launch 통합 기동           | [SITL] | A                  | 체크리스트 (phase2 기동, 파라미터 로드)                    |
+| **SITL-3** — 경로 추종 검증             | [SITL] | B · C · D · SITL-2 | 체크리스트 (cross_track_error, 끝점 감속)                  |
+| **SITL-4** — 전체 사이클 통합           | [SITL] | E · SITL-3         | 체크리스트 (전체 상태 전이 로그, disarmed, 천이 가속도)    |
+| **SITL-5** — RPi4 실기체 배포           | [배포] | SITL-4             | 체크리스트 (배포·튜닝·안전)                                |
 
 ### 권장 실행 순서
 
@@ -70,15 +71,15 @@ SITL-5 (사람)  ←─ SITL-4
 
 ## 확정된 설계 결정
 
-| 항목 | 결정 |
-|---|---|
-| 이륙/천이 | fc_ros 전부 자동 (ARM + AUTO.TAKEOFF + VTOL_TRANSITION) |
-| Phase1 역할 | 디버그/백업용 (실제 비행은 Phase2 단독) |
-| 착륙 | fc_ros 자동 (역천이 + AUTO.LAND) |
-| 경로 생성기 | eta3 (기본), diterpin (대안) |
-| 경로 추종 | L1 Guidance (OffboardNode, OFFBOARD 모드) |
+| 항목           | 결정                                                                                                                                                                                                |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 이륙/천이      | fc_ros 전부 자동 (ARM + AUTO.TAKEOFF + VTOL_TRANSITION)                                                                                                                                             |
+| Phase1 역할    | 디버그/백업용 (실제 비행은 Phase2 단독)                                                                                                                                                             |
+| 착륙           | fc_ros 자동 (역천이 + AUTO.LAND)                                                                                                                                                                    |
+| 경로 생성기    | eta3 (기본), diterpin (대안)                                                                                                                                                                        |
+| 경로 추종      | L1 Guidance (OffboardNode, OFFBOARD 모드)                                                                                                                                                           |
 | 역천이 전 감속 | **경로 생성 후처리 수준** — `apply_terminal_decel()`(작업 B)가 v_profile 마지막 `decel_dist` 구간을 v_terminal(≥스톨×1.1)로 ramp-down. OffboardNode는 거리 조건(`d_end_thresh`)만으로 역천이 트리거 |
-| 긴급 수동 전환 | RC 모드스위치(COM_RC_OVERRIDE) + ROS2 `/fc_ros/override` 토픽. MC→POSCTL, FW→MANUAL |
+| 긴급 수동 전환 | RC 모드스위치(COM_RC_OVERRIDE) + ROS2 `/fc_ros/override` 토픽. MC→POSCTL, FW→MANUAL                                                                                                                 |
 
 > ⚠ **감속 전략 정정 (2026-06-18 검토):** 당초 "`vehicle_params`에 `v_terminal`을 넣으면 경로 생성기가 끝점을 v_terminal로 수렴"한다는 전제는 **현재 코드에서 동작하지 않는다.** `run_planner()`→eta3/diterpin 플래너는 `v_ref=v_cruise`로 **고정**하며 `v_terminal`을 읽지 않는다(검증 완료). 따라서 감속은 **작업 B의 후처리 헬퍼**가 담당한다. 상세는 [작업 B](#작업-b--종단-감속-헬퍼--배선) 참조.
 
@@ -122,6 +123,7 @@ SITL-5 (사람)  ←─ SITL-4
 ```
 
 > **상태 변경 요약 (기존 코드 대비):**
+>
 > - 신규 상태: `ARM_TAKEOFF`, `CLIMBING`, `TRANSITION_FW`, `TRANSITION_MC`, `LANDING`
 > - 기존 유지: `IDLE`, `STREAMING`, `ENTRY`, `FOLLOWING`, `DONE` (+ `_step_entry`/`_step_following` 핸들러)
 > - **STREAMING 리팩터**: 현재 STREAMING은 OFFBOARD 전환 **+ ARM**을 함께 수행한다. ARM은 `ARM_TAKEOFF`로 이동하므로 **STREAMING에서 ARM 요청을 제거**한다(이중 ARM 방지).
@@ -139,6 +141,7 @@ SITL-5 (사람)  ←─ SITL-4
 **선행:** 없음
 
 **파일:**
+
 - [fc_ros/fc_ros/params/fc_ros_params.yaml](../fc_ros/fc_ros/params/fc_ros_params.yaml)
 - [fc_ros/fc_ros/nodes/offboard_node.py](../fc_ros/fc_ros/nodes/offboard_node.py) (`declare_parameter`)
 
@@ -164,9 +167,11 @@ SITL-5 (사람)  ←─ SITL-4
    self.declare_parameter("v_terminal",      15.2)  # 경로 끝점 도달 속도 (작업 B가 소비)
    self.declare_parameter("decel_dist",      80.0)  # 종단 감속 시작 거리 (작업 B가 소비)
    ```
+
    - `v_terminal = 15.2` 근거: 스톨 13.8 m/s × 1.1 = 15.18 ≈ 15.2 m/s.
 
 **테스트:** `fc_ros/test/test_params.py` (신규, rclpy 불필요)
+
 ```python
 def test_flat_waypoints_reshape():
     raw = [0.0, 0.0, 50.0, 100.0, 0.0, 50.0]
@@ -189,6 +194,7 @@ def test_flat_waypoints_reshape():
 **배경:** `run_planner()`→eta3/diterpin은 `v_ref=v_cruise`로 고정한다([eta3clothoid_v3_1_planner.py:469](../vtol_sim_checkpoint1_1/vtol_sim/path_planning/eta3clothoid_v3_1_planner.py#L469), [D_iterpin_planner.py:346](../vtol_sim_checkpoint1_1/vtol_sim/path_planning/D_iterpin_planner.py#L346)). `v_terminal`을 읽지 않으므로, **플래너 수정이 아니라 결과 v_profile에 후처리**를 적용한다.
 
 **파일:**
+
 - `fc_bridge/planning/terminal_decel.py` (신규)
 - [fc_ros/fc_ros/nodes/offboard_node.py](../fc_ros/fc_ros/nodes/offboard_node.py) (`main()` 배선)
 
@@ -215,6 +221,7 @@ def test_flat_waypoints_reshape():
    ```
 
 **테스트:** `fc_bridge/tests/test_terminal_decel.py` (신규)
+
 ```python
 def test_endpoint_reaches_v_terminal():
     s = np.linspace(0, 200, 201)
@@ -256,16 +263,18 @@ def test_endpoint_reaches_v_terminal():
 3. **상태 핸들러 구현:**
    - `_step_arm_takeoff()`: ARM 요청 + AUTO.TAKEOFF (set_mode `"AUTO.TAKEOFF"` 또는 `/mavros/cmd/takeoff`. 정확한 방식은 SITL-1에서 확정).
    - `_step_climbing()`: `state.pos_ned[2] >= transition_alt` (h_up, 양수=위) 확인 → TRANSITION_FW.
-   - `_step_transition_fw()`: `CommandLong(command=3000, param1=3.0)` 호출 후 `vtol_state == VTOL_STATE_FW` 확인 → STREAMING.
+   - `_step_transition_fw()`: `CommandLong(command=3000, param1=4.0)` 호출 후 `vtol_state == VTOL_STATE_FW` 확인 → STREAMING.
 4. **STREAMING 리팩터:**
    - **ARM 요청 제거** (ARM은 ARM_TAKEOFF에서 1회 완료). STREAMING은 OFFBOARD 전환만 담당.
    - **더미 세트포인트를 전진속도로 변경**: FW 상태에서 속도 0은 스톨 위험. 첫 WP 방향 `v_cruise` 전진 세트포인트를 2초(20 tick) 발행 후 OFFBOARD 전환 → ENTRY/FOLLOWING.
 
 **설계 주의:**
-- AUTO.TAKEOFF 후 PX4 모드가 LOITER/HOLD로 바뀔 수 있다 → OFFBOARD 전환은 **TRANSITION_FW 완료 후 STREAMING**에서만.
-- VTOL 천이는 자동/HOLD 모드에서 동작한다. TRANSITION_FW 시점에 OFFBOARD가 아니어야 함.
+
+- AUTO.TAKEOFF 후 PX4 모드가 **HOLD**로 전환됨 (SITL-1 실측). OFFBOARD 전환은 **TRANSITION_FW 완료 후 STREAMING**에서만.
+- VTOL 천이는 HOLD 모드에서 동작 확인됨 (SITL-1). TRANSITION_FW 시점에 OFFBOARD가 아니어야 함.
 
 **테스트:** [fc_ros/test/test_offboard_node.py](../fc_ros/test/test_offboard_node.py)에 순수 로직 케이스 추가 (기존 `_entry_done` 패턴):
+
 ```python
 def _climb_reached(pos_ned_up, transition_alt):
     return pos_ned_up >= transition_alt
@@ -297,10 +306,11 @@ def test_transition_fw_done(): assert _vtol_is_fw(4) is True
    - 변경: `dist_to_end < self._d_end_thresh` → `TRANSITION_MC` 반환.
    - **감속은 작업 B의 v_profile이 담당**한다. L1 Guidance는 v_profile을 따라 끝점에서 v_terminal로 자연 감속한다. controller-level 속도 clamp를 mid-flight에 적용하지 않는 이유: L1은 속도·기하를 동시에 사용하므로 중간 clamp 시 cross-track error가 증가한다.
 3. **상태 핸들러 구현:**
-   - `_step_transition_mc()`: `CommandLong(command=3000, param1=4.0)` 호출 후 `vtol_state == VTOL_STATE_MC` 확인 → LANDING.
+   - `_step_transition_mc()`: `CommandLong(command=3000, param1=3.0)` 호출 후 `vtol_state == VTOL_STATE_MC` 확인 → LANDING.
    - `_step_landing()`: set_mode `"AUTO.LAND"` → `not state.armed`(disarmed) 확인 → DONE. `landing_timeout` 초과 시 경고 로그.
 
 **테스트:** [fc_ros/test/test_offboard_node.py](../fc_ros/test/test_offboard_node.py)에 추가:
+
 ```python
 def _trans_mc_trigger(dist_to_end, d_end_thresh): return dist_to_end < d_end_thresh
 def test_trans_mc_trigger(): assert _trans_mc_trigger(9.0, 10.0) is True
@@ -325,6 +335,7 @@ def test_landing_done(): assert _landing_done(False) is True
 **작업 목록:**
 
 1. **`/fc_ros/override` (std_msgs/Bool) 구독:**
+
    ```python
    from std_msgs.msg import Bool
    self.create_subscription(Bool, "/fc_ros/override", self._cb_override, 10)
@@ -333,6 +344,7 @@ def test_landing_done(): assert _landing_done(False) is True
        if msg.data:
            self._request_override()
    ```
+
 2. **vtol_state 기반 분기 모드 전환:**
    ```python
    def _request_override(self):
@@ -348,6 +360,7 @@ def test_landing_done(): assert _landing_done(False) is True
 > **RC 레이어와 독립:** PX4 `COM_RC_OVERRIDE`(SITL-1에서 설정)는 ROS2 override와 별개로 동작하는 하드웨어 레이어다. 두 레이어 모두 OFFBOARD 진입 전/후 어느 상태에서도 독립 동작해야 한다. 상세는 [안전 및 긴급 수동 전환](#안전-및-긴급-수동-전환) 참조.
 
 **테스트:** [fc_ros/test/test_offboard_node.py](../fc_ros/test/test_offboard_node.py)에 추가:
+
 ```python
 def _override_mode(vtol_state, MC=3): return "POSCTL" if vtol_state == MC else "MANUAL"
 def test_override_mc(): assert _override_mode(3) == "POSCTL"
@@ -371,6 +384,7 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 **선행:** WSL SITL 환경 정상 (기존 x500 환경과 동일 WSL)
 
 **절차 (사람):**
+
 1. VTOL SITL 기동: `cd ~/PX4-Autopilot && make px4_sitl gz_standard_vtol`
 2. MAVROS + ROS2 실행 (기존과 동일), QGC UDP 연결 확인
 3. `ros2 topic echo /mavros/extended_state` → vtol_state 상수값 기록 (MC / FW / 천이 중)
@@ -383,11 +397,13 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 7. RC 오버라이드 설정 (QGC): `COM_RC_OVERRIDE = 3`, RC 모드 스위치 → POSCTL/LOITER 채널 매핑
 
 **합격 기준 (체크리스트):**
+
 - [ ] vtol_state 상수값 실측 기록 (MC/FW/천이) — 작업 C/D/E가 참조
-- [ ] AUTO.TAKEOFF 후 PX4 전환 모드 확인 (LOITER/HOLD?)
-- [ ] CommandLong(3000, param1=3) 으로 MC→FW 천이 성공
-- [ ] vtol_state == FW 인 상태에서 velocity 세트포인트 수락 여부
-- [ ] COM_RC_OVERRIDE 적용 후 RC 스틱 입력으로 OFFBOARD→POSCTL 전환
+- [x] AUTO.TAKEOFF 후 PX4 전환 모드 = **HOLD** (2026-06-19 실측)
+- [x] CommandLong(3000, param1=4) 으로 MC→FW 천이 성공 (param1 수정됨)
+- [x] vtol_state == FW 인 상태에서 velocity 세트포인트 수락 여부
+- [x] COM_RC_OVERRIDE = 3 설정 + 재시작 유지 확인
+- [ ] RC 스틱 입력으로 OFFBOARD→POSCTL 전환 — SITL 재현 불가, SITL-5(실기체)로 이월
 
 ---
 
@@ -397,6 +413,7 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 **선행:** 작업 A
 
 **절차 (사람):**
+
 1. WSL 동기화 + `colcon build --packages-select fc_ros fc_bridge` + `source install/setup.bash`
 2. `ros2 launch fc_ros phase2.launch.py`
 3. `ros2 node list` → TelemetryNode + OffboardNode 확인
@@ -404,6 +421,7 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 5. (디버그) `phase1.launch.py` 기동 — MissionNode + 파라미터 로드만 확인
 
 **합격 기준 (체크리스트):**
+
 - [ ] TypeError 없이 두 노드 기동
 - [ ] 신규 파라미터(`transition_alt`, `d_end_thresh`, `v_terminal` 등) 로드 확인
 
@@ -415,6 +433,7 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 **선행:** 작업 B · C · D · SITL-2
 
 **절차 (사람 + Claude dry-run 보조):**
+
 1. **dry-run 경로 + 감속 확인** (SITL 없이, Windows): `cd fc_bridge && python run_phase1.py --dry-run --plot --planner eta3`
    - 속도 프로파일 끝점이 v_terminal로 떨어지는지 확인 (작업 B 적용 확인. 필요 시 `v_cruise` 일시 상향)
 2. **테스트 경로 3종** (`fc_ros_params.yaml` 교체 또는 별도 주입):
@@ -424,6 +443,7 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 3. **SITL 추종** (각 경로): `ros2 launch fc_ros phase2.launch.py` → FOLLOWING 로그 + cross_track_error 확인
 
 **합격 기준 (체크리스트):**
+
 - [ ] dry-run 속도 프로파일 끝점 = v_terminal (작업 B 동작 확인)
 - [ ] 3종 경로 모두 FOLLOWING 진입 및 끝점 도달
 - [ ] 각 경로 cross_track_error 기준 이내 (코너 진입 전 감속 확인 — L자)
@@ -436,6 +456,7 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 **선행:** 작업 E · SITL-3
 
 **절차 (사람):**
+
 1. VTOL SITL 기동 → `ros2 launch fc_ros phase2.launch.py`
 2. 전체 상태 전이 로그 수집:
    ```
@@ -453,6 +474,7 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 6. 경로 A/B/C 각각 반복
 
 **합격 기준 (체크리스트):**
+
 - [ ] 전체 상태 전이 로그 순서대로 출력 + disarmed 도달
 - [ ] 역천이 중 가속도 ≤ 0.3g
 - [ ] override 트리거 시 즉시 POSCTL/MANUAL 전환 + setpoint 중단
@@ -466,6 +488,7 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 **선행:** SITL-4
 
 **절차 (사람):**
+
 1. RPi4에 ROS2 Humble + MAVROS apt 설치
 2. `fc_bridge`, `fc_ros` 배포 (colcon build)
 3. 실기체 PX4 연결 테스트 (텔레메트리)
@@ -491,10 +514,12 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 **선행:** 작업 B (`apply_terminal_decel`). SITL-4 완료 후 진입 권장.
 
 **작업 목록:**
+
 1. `fc_bridge/tests/test_arbitrary_wp.py` (신규) — 무작위 유효 WP 세트(레그 수 2~5, 레그 길이 50~300 m, 회전각 가변)를 생성해 `run_planner` + `apply_terminal_decel`을 통과시키고 경로 불변식을 검증.
 2. (선택) **런타임 WP 주입 인터페이스** — `/fc_ros/waypoints` 토픽/서비스로 WP를 받아 재계획. vision→FC 연동의 기반. 본 작업에선 인터페이스 골격 + 단위 테스트만, SITL 통합은 SITL-6.
 
 **테스트:** `fc_bridge/tests/test_arbitrary_wp.py`
+
 ```python
 def test_arbitrary_wp_path_invariants():
     for _ in range(20):
@@ -521,11 +546,13 @@ def test_arbitrary_wp_path_invariants():
 **선행:** 작업 F · SITL-4
 
 **절차 (사람):**
+
 1. 임의/무작위 WP 세트 3~5종을 `-p waypoints:=[...]`로 주입.
 2. 각 세트에 대해 `ros2 launch fc_ros phase2.launch.py` → 이륙~착륙 전체 사이클 추종.
 3. WP 통과 정확도(기체 GPS) + 끝점 감속 로그 확인.
 
 **합격 기준 (체크리스트):**
+
 - [ ] 임의 WP 세트 전부 경로 생성 성공 (런타임 오류 없음)
 - [ ] 전부 FOLLOWING 정상 진입 및 전체 사이클 완료
 - [ ] WP 통과 오차 기준 이내, 끝점 v_terminal 도달 확인
@@ -549,7 +576,7 @@ def test_arbitrary_wp_path_invariants():
 - [ ] 작업 C: 상태머신 ① 이륙·상승·천이 [코드]
 - [ ] 작업 D: 상태머신 ② 역천이·착륙 [코드]
 - [ ] 작업 E: 긴급 수동 override [코드]
-- [ ] SITL-1: VTOL 환경 전환 + 상수 확인 [SITL]
+- [x] SITL-1: VTOL 환경 전환 + 상수 확인 [SITL] — 2026-06-19 조건부 PASS
 - [ ] SITL-2: launch 통합 기동 [SITL]
 - [ ] SITL-3: 경로 추종 검증 [SITL]
 - [ ] SITL-4: 전체 사이클 통합 [SITL]
@@ -562,24 +589,41 @@ def test_arbitrary_wp_path_invariants():
 ## 주요 기술 참조
 
 ### VTOL 천이 MAVLink 명령
+
 ```
 MAV_CMD_DO_VTOL_TRANSITION = 3000
-param1 = 3  (MC → FW)
-param1 = 4  (FW → MC)
+param1 = 4  (MC → FW)   ← 목표 상태 FW(4)로 전환. ✅ SITL-1 실측 확인 (2026-06-19)
+param1 = 3  (FW → MC)   ← 목표 상태 MC(3)로 전환. ✅ SITL-1 실측 확인 (2026-06-19)
 ```
+
 MAVROS 호출: `/mavros/cmd/command` (mavros_msgs/srv/CommandLong)
+응답: `result=0` = MAV_RESULT_ACCEPTED (성공)
 
 ### vtol_state 상수 (mavros_msgs/ExtendedState)
+
 ```python
-VTOL_STATE_UNDEFINED        = 0
-VTOL_STATE_TRANSITION_TO_FW = 1
-VTOL_STATE_TRANSITION_TO_MC = 2
-VTOL_STATE_MC               = 3
-VTOL_STATE_FW               = 4
+VTOL_STATE_UNDEFINED        = 0   # 미사용
+VTOL_STATE_TRANSITION_TO_FW = 1   # ✅ SITL-1 실측 확인
+VTOL_STATE_TRANSITION_TO_MC = 2   # ✅ SITL-1 실측 확인
+VTOL_STATE_MC               = 3   # ✅ SITL-1 실측 확인 — 작업 C/D/E 사용
+VTOL_STATE_FW               = 4   # ✅ SITL-1 실측 확인 — 작업 C/D/E 사용
 ```
-> SITL-1에서 실제 SITL 동작 확인 필요. 작업 C/D/E는 이 값을 사용한다.
+
+> **확정값 (2026-06-19 SITL-1 실측). 작업 C/D/E는 이 값을 그대로 사용한다.**
+
+### AUTO.TAKEOFF 동작 (SITL-1 실측)
+
+```
+ARM (CommandBool true)
+  → set_mode "AUTO.TAKEOFF"
+  → PX4: takeoff detected → 목표 고도까지 자율 상승
+  → 완료 후 HOLD 모드로 전환   ← ✅ 확정 (2026-06-19)
+```
+
+작업 C `_step_arm_takeoff()` → `_step_climbing()` 이후 HOLD 상태에서 VTOL 천이 명령 발행.
 
 ### 고도 판정 주의
+
 ```python
 # VehicleState.pos_ned[2] = h_up (양수 = 고도 증가, NED D축과 반대 부호)
 if state.pos_ned[2] >= self._transition_alt:   # CLIMBING 판정
@@ -598,6 +642,7 @@ if state.pos_ned[2] >= self._transition_alt:   # CLIMBING 판정
 ### 천이 최대 가속도 ≤ 0.3g (≈ 2.94 m/s²)
 
 천이 중 가속도는 두 원인에서 발생한다:
+
 1. MC→FW 천이 시 PX4 내부 자세/추력 전환
 2. FW→MC 역천이 시 고속 상태에서 MC가 제동하는 충격
 
@@ -605,22 +650,22 @@ if state.pos_ned[2] >= self._transition_alt:   # CLIMBING 판정
 
 **조정 순서:**
 
-| 단계 | 작업 | 확인 방법 |
-|---|---|---|
-| 1 | SITL에서 역천이 직전 속도 로그 확인 | `vel_ned` 크기 출력 |
-| 2 | `v_terminal` 조정 (= 스톨 × 1.1 = 15.2 m/s) | v_profile 끝점 속도. 낮출수록 천이 충격 감소, 단 스톨(13.8) 이하 금지 |
-| 3 | `decel_dist` 조정 (기본 80 m → 순항속도 빠를수록 길게) | dry-run 속도 프로파일에서 감속 시작 시점 확인 |
-| 4 | IMU `/mavros/imu/data` 로 천이 중 가속도 측정 | `linear_acceleration` 크기 ≤ 2.94 |
-| 5 | 실기체 동일 측정 후 PX4 파라미터 추가 조정 | QGC 파라미터 편집기 |
+| 단계 | 작업                                                   | 확인 방법                                                             |
+| ---- | ------------------------------------------------------ | --------------------------------------------------------------------- |
+| 1    | SITL에서 역천이 직전 속도 로그 확인                    | `vel_ned` 크기 출력                                                   |
+| 2    | `v_terminal` 조정 (= 스톨 × 1.1 = 15.2 m/s)            | v_profile 끝점 속도. 낮출수록 천이 충격 감소, 단 스톨(13.8) 이하 금지 |
+| 3    | `decel_dist` 조정 (기본 80 m → 순항속도 빠를수록 길게) | dry-run 속도 프로파일에서 감속 시작 시점 확인                         |
+| 4    | IMU `/mavros/imu/data` 로 천이 중 가속도 측정          | `linear_acceleration` 크기 ≤ 2.94                                     |
+| 5    | 실기체 동일 측정 후 PX4 파라미터 추가 조정             | QGC 파라미터 편집기                                                   |
 
 **관련 PX4 파라미터 (QGC):**
 
-| PX4 파라미터 | 기본값 | 역할 |
-|---|---|---|
-| `VT_ARSP_TRANS` | 10 m/s | MC→FW 천이 시작 에어스피드 |
-| `VT_TRANS_TIMEOUT` | 15 s | 천이 타임아웃 |
-| `VT_B_TRANS_DUR` | 4 s | 역천이 최대 지속 시간 |
-| `VT_B_DEC_MSS` | 1.0 m/s² | 역천이 중 목표 감속도 |
+| PX4 파라미터       | 기본값   | 역할                       |
+| ------------------ | -------- | -------------------------- |
+| `VT_ARSP_TRANS`    | 10 m/s   | MC→FW 천이 시작 에어스피드 |
+| `VT_TRANS_TIMEOUT` | 15 s     | 천이 타임아웃              |
+| `VT_B_TRANS_DUR`   | 4 s      | 역천이 최대 지속 시간      |
+| `VT_B_DEC_MSS`     | 1.0 m/s² | 역천이 중 목표 감속도      |
 
 > `VT_B_DEC_MSS`를 줄이면 역천이가 부드러워지지만 고도 손실이 커진다. 실기체에서 교환관계 확인.
 
@@ -631,15 +676,31 @@ if state.pos_ned[2] >= self._transition_alt:   # CLIMBING 판정
 평가가 기체 GPS 값 기준이라 GPS 절대 편향은 상쇄되어 RTK 불필요.
 실질 오차 원인: L1 Guidance lookahead(`l1_dist`)와 코너 통과 속도.
 
-| 단계 | 작업 | 비고 |
-|---|---|---|
-| 1 | SITL-3에서 cross_track_error 로그 수집 | FOLLOWING 중 `cte` |
-| 2 | `l1_dist` 감소 (기본 20 m → 10~15 m) | 너무 낮으면 진동 |
-| 3 | `v_cruise` 감소 테스트 | 느릴수록 오차↓ 시간↑ |
-| 4 | eta3 WP 통과 반경 확인 | `fc_bridge/planning/` |
-| 5 | 코너 WP 감속 프로파일 확인 | v_profile 코너 속도 |
+| 단계 | 작업                                   | 비고                  |
+| ---- | -------------------------------------- | --------------------- |
+| 1    | SITL-3에서 cross_track_error 로그 수집 | FOLLOWING 중 `cte`    |
+| 2    | `l1_dist` 감소 (기본 20 m → 10~15 m)   | 너무 낮으면 진동      |
+| 3    | `v_cruise` 감소 테스트                 | 느릴수록 오차↓ 시간↑  |
+| 4    | eta3 WP 통과 반경 확인                 | `fc_bridge/planning/` |
+| 5    | 코너 WP 감속 프로파일 확인             | v_profile 코너 속도   |
 
 **L1 동적 lookahead (향후 개선):** WP 직전 N m 이내에서 `l1_dist`를 속도 비례로 줄이면 정밀도 향상. 위치: `fc_bridge/guidance/l1_guidance.py` 또는 `_step_following()`. 현재 계획 미포함 — SITL-3 결과 보고 결정.
+
+---
+
+### 첫 비행 전 지상 안전 테스트 (SITL-5, 비행 직전)
+
+> 프로펠러 제거 또는 기체를 고정한 상태에서 수행. Layer 1/2 동시 검증.
+
+```
+[ ] COM_RC_OVERRIDE = 3 QGC 파라미터 확인
+[ ] ARM → setpoint 20Hz 발행 → OFFBOARD 진입 확인 (QGC 모드 표시)
+[ ] RC 스틱 중립 이탈 → QGC에서 POSCTL 즉시 전환 확인 (Layer 1)
+[ ] OFFBOARD 재진입 → /fc_ros/override 발행 → POSCTL/MANUAL 전환 + setpoint 중단 확인 (Layer 2)
+[ ] 두 레이어 동시 트리거 → 충돌 없음 확인
+```
+
+> **이 테스트 통과 전 이륙 금지.**
 
 ---
 
@@ -696,11 +757,11 @@ Layer 2 (ROS2 소프트웨어): /fc_ros/override 토픽
 
 ### 동작 정의
 
-| 상황 | 트리거 | 결과 |
-|---|---|---|
-| MC 모드 중 | RC 모드스위치 또는 /fc_ros/override | POSCTL — 제자리 hover hold |
-| FW 모드 중 | RC 모드스위치 또는 /fc_ros/override | MANUAL — 조종사 직접 조작 |
-| 어느 상태든 | RC 스틱 입력 (COM_RC_OVERRIDE) | PX4가 즉시 POSCTL/RC 모드 전환 |
+| 상황        | 트리거                              | 결과                           |
+| ----------- | ----------------------------------- | ------------------------------ |
+| MC 모드 중  | RC 모드스위치 또는 /fc_ros/override | POSCTL — 제자리 hover hold     |
+| FW 모드 중  | RC 모드스위치 또는 /fc_ros/override | MANUAL — 조종사 직접 조작      |
+| 어느 상태든 | RC 스틱 입력 (COM_RC_OVERRIDE)      | PX4가 즉시 POSCTL/RC 모드 전환 |
 
 ### MC 모드 POSCTL hold 확인 항목 (SITL-1에서 검증)
 

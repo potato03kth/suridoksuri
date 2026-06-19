@@ -10,6 +10,40 @@ project: suridoksuri-1
 
 ---
 
+## 2026-06-19 — SITL-1 완료 + 확정값 반영
+
+**브랜치:** `dev--vision-computing-module`  
+**목적:** SITL-1(VTOL 환경 전환 + 상수 확인) 수행, 결과 판정 및 문서 반영
+
+### 완료
+- SITL-1 절차 수행 (사람) + Claude 판정
+  - vtol_state 상수 실측: MC=3, FW=4, 천이→FW=1, 천이→MC=2 (예상값과 동일)
+  - QGC 수동이륙 시퀀스 확인 (HOLD → TAKEOFF → HOLD 흐름)
+  - VTOL 천이 서비스 직접 호출 확인 (MC→FW param1=4, FW→MC param1=3)
+  - AUTO.TAKEOFF 확인: ARM 선행 필수, 완료 후 HOLD 모드 전환
+  - COM_RC_OVERRIDE = 3 설정 및 PX4 재시작 후 유지 확인
+- `flight_plan.md` 오류 수정: param1 매핑이 반대로 기록되어 있었음 → 전면 수정
+  - 기술 참조, 작업 C `_step_transition_fw()`, 작업 D `_step_transition_mc()` 모두 수정
+- `flight_plan.md` 확정값 및 SITL-1 실측 근거 주석 추가
+- `flight_plan.md` 실기체 첫 비행 전 지상 안전 테스트 프로토콜 추가
+- `sitl_verification_log.md` SITL-1 결과 기록 및 진행 상태 갱신
+
+### 결정
+- **VTOL 천이 param1 확정**: MC→FW = `param1=4.0`, FW→MC = `param1=3.0` (목표 상태 값임)
+- **AUTO.TAKEOFF 완료 후 모드 = HOLD** (작업 C 설계 입력값)
+- **COM_RC_OVERRIDE → POSCTL 전환**: SITL에서 물리 RC 없이 재현 불가 → 실기체 지상 테스트로 이월 (비행 전 필수 체크리스트에 추가)
+- **SITL-1: 조건부 PASS** — RC override → POSCTL 전환만 이월, 나머지 전 항목 PASS
+
+### 다음 세션
+1. **작업 B** — `apply_terminal_decel()` 헬퍼 구현 (`fc_bridge/planning/terminal_decel.py` 신규, pytest)
+2. **작업 C** — 상태머신 ① 이륙·상승·천이 구현 (선행: A ✅, SITL-1 ✅ → 진입 가능)
+3. 작업 B/C 완료 후 SITL-2 진행 (사람 수행)
+
+### 주의
+> 작업 C에서 사용할 vtol_state 상수와 param1 값이 이번 세션에서 확정됨. flight_plan.md 기술 참조 섹션 참고. 이전 세션 기록에 나오는 "param1=3 (MC→FW)" 는 오류였으며 수정 완료.
+
+---
+
 ## 2026-06-19 — 작업 A 완료 (params/YAML 정비)
 
 **브랜치:** `dev--vision-computing-module`  
