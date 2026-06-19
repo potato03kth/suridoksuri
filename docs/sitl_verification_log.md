@@ -567,7 +567,7 @@ ARM → AUTO.TAKEOFF → 목표 고도 도달 → **HOLD 모드로 전환** ✅
 
 ---
 
-## 현재 진행 상태 (2026-06-19 기준)
+## 현재 진행 상태 (2026-06-20 기준)
 
 - [x] WSL SITL 환경 구축
 - [x] MAVROS ↔ SITL 연결 확인 (`/mavros/state: connected=true`)
@@ -582,11 +582,11 @@ ARM → AUTO.TAKEOFF → 목표 고도 도달 → **HOLD 모드로 전환** ✅
 - [x] MissionNode SITL 통합 검증 (2026-06-18, NED→GPS 변환 확인)
 - [x] **작업 A: params/YAML 정비** (2026-06-19, flat waypoints + 신규 파라미터)
 - [x] **SITL-1: VTOL 환경 전환 + 상수 확인** (2026-06-19, 조건부 PASS)
-- [ ] 작업 B: 종단 감속 헬퍼 + 배선
-- [ ] 작업 C: 상태머신 ① 이륙·상승·천이 (선행 완료 → 진입 가능)
+- [x] **작업 B: 종단 감속 헬퍼 + 배선** (2026-06-20, `apply_terminal_decel()` + `offboard_node.py` main() 배선, pytest 5/5 PASS)
+- [x] **작업 C: 상태머신 ① 이륙·상승·천이** (2026-06-20, ARM_TAKEOFF/CLIMBING/TRANSITION_FW 구현, pytest 13/13 PASS)
+- [x] **작업 D: 상태머신 ② 역천이·착륙** (2026-06-20, TRANSITION_MC/LANDING 구현, pytest 21/21 PASS → 전체 31/31)
 - [ ] SITL-2: launch 통합 기동 (선행 완료 → 진입 가능)
-- [ ] 작업 D: 상태머신 ② 역천이·착륙
-- [ ] 작업 E: 긴급 수동 override
+- [ ] 작업 E: 긴급 수동 override (선행: C/D ✅ → 진입 가능)
 - [ ] SITL-3~5, 작업 F, SITL-6
 
 ---

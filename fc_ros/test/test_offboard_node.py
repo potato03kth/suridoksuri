@@ -2,9 +2,17 @@
 OffboardNode 순수 로직 테스트.
 
 rclpy 없이 실행 가능한 수학적 로직만 검증한다.
+
+판정 함수는 fc_bridge.execution.state_logic 에서 import 한다.
+offboard_node.py 와 이 테스트가 동일 함수를 참조하므로 코드 변경이 즉시 검출된다.
 """
 import numpy as np
 import pytest
+
+from fc_bridge.execution.state_logic import (
+    climbing_reached, vtol_is_fw,
+    trans_mc_trigger, vtol_is_mc, landing_done,
+)
 
 
 def _wrap(a: float) -> float:
@@ -64,3 +72,70 @@ def test_entry_not_done_heading_misaligned():
     pos2 = np.array([98.0,  0.0])   # dist=2 < 5
     yaw  = np.pi / 2                # 동쪽 헤딩 (WP0는 북쪽)
     assert _entry_done(wp0, pos2, yaw) is False
+
+
+# ── 작업 C: CLIMBING 판정 (climbing_reached) ────────────────────
+
+def test_climb_reached():
+    assert climbing_reached(50.1, 50.0) is True
+
+
+def test_climb_not_reached():
+    assert climbing_reached(49.9, 50.0) is False
+
+
+def test_climb_exact_alt():
+    assert climbing_reached(50.0, 50.0) is True
+
+
+# ── 작업 C: TRANSITION_FW 완료 판정 (vtol_is_fw) ────────────────
+
+def test_transition_fw_done():
+    assert vtol_is_fw(4) is True
+
+
+def test_transition_fw_not_done_mc():
+    assert vtol_is_fw(3) is False
+
+
+def test_transition_fw_not_done_in_progress():
+    assert vtol_is_fw(1) is False  # VTOL_STATE_TRANSITION_TO_FW
+
+
+# ── 작업 D: TRANSITION_MC 트리거 (trans_mc_trigger) ─────────────
+
+def test_trans_mc_trigger():
+    assert trans_mc_trigger(9.0, 10.0) is True
+
+
+def test_trans_mc_not_yet():
+    assert trans_mc_trigger(11.0, 10.0) is False
+
+
+def test_trans_mc_exact_thresh():
+    # 경계값: dist_to_end == d_end_thresh 는 미트리거 (strict <)
+    assert trans_mc_trigger(10.0, 10.0) is False
+
+
+# ── 작업 D: vtol_state == MC 판정 (vtol_is_mc) ──────────────────
+
+def test_vtol_is_mc():
+    assert vtol_is_mc(3) is True
+
+
+def test_vtol_is_mc_fw():
+    assert vtol_is_mc(4) is False
+
+
+def test_vtol_is_mc_transition():
+    assert vtol_is_mc(2) is False  # VTOL_STATE_TRANSITION_TO_MC
+
+
+# ── 작업 D: 착륙 완료 판정 (landing_done) ───────────────────────
+
+def test_landing_done_disarmed():
+    assert landing_done(False) is True
+
+
+def test_landing_done_still_armed():
+    assert landing_done(True) is False

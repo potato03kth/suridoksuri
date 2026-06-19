@@ -10,6 +10,114 @@ project: suridoksuri-1
 
 ---
 
+## 2026-06-20 — 전체 테스트 재실행 + 31/31 PASS 확인
+
+**브랜치:** `dev--vision-computing-module`  
+**목적:** 사용자가 수정한 테스트를 전부 재실행해 flight_plan.md 기준 합격 여부 확인
+
+### 완료
+- 사용자가 테스트 파일을 대폭 수정한 후 전체 재실행 요청
+- flight_plan.md에 명시된 3개 테스트 파일 전부 실행 → **31/31 PASS**
+
+| 테스트 파일 | 케이스 수 | 결과 |
+|---|---|---|
+| `fc_ros/test/test_params.py` | 5 | 5/5 PASS |
+| `fc_bridge/tests/test_terminal_decel.py` | 5 | 5/5 PASS |
+| `fc_ros/test/test_offboard_node.py` | 21 | 21/21 PASS |
+
+- 커버 범위: 작업 A(파라미터 정비) · 작업 B(종단 감속) · 작업 C(이륙·천이) · 작업 D(역천이·착륙) 전부 통과
+
+### 다음 세션
+1. **작업 E** — 긴급 수동 override (`/fc_ros/override` Bool 토픽, vtol_state 분기, `test_offboard_node.py`에 `test_override_mc`/`test_override_fw` 추가)
+2. 작업 E 완료 → 코드 단위 A~E 전부 완료 → **SITL-3 진입 조건 충족**
+3. SITL-2(phase2 launch 통합 기동)는 사람이 언제든 WSL에서 수행 가능 (선행: 작업 A ✅)
+
+---
+
+## 2026-06-20 — 작업 D 완료 (상태머신 ② 역천이·착륙)
+
+**브랜치:** `dev--vision-computing-module`  
+**목적:** flight_plan.md 작업 D(상태머신 ② 역천이·착륙) 자율 실행 + 테스트 품질 점검
+
+### 완료
+
+- **테스트 품질 구조 개선** — 기존 작업 C 테스트의 "로직 복사" 문제 수정
+  - 문제: `_climb_reached`, `_vtol_is_fw` 등 판정 로직이 테스트 파일 안에 복사되어 있었음. `offboard_node.py`가 바뀌어도 테스트는 통과할 수 있는 구조 (코드와 단절된 스펙 테스트).
+  - 원인: `offboard_node.py`가 최상단에 `rclpy` import → 테스트에서 직접 import 불가.
+  - **해결**: `fc_bridge/execution/state_logic.py` 신규 생성 (rclpy 의존 없는 순수 판정 함수 5개). `offboard_node.py`와 테스트 양쪽이 동일 함수를 참조 → 코드 변경이 즉시 테스트 실패로 이어짐.
+  - `test_offboard_node.py`의 기존 작업 C 테스트도 import 방식으로 전환.
+
+- **작업 D** — `offboard_node.py` 상태머신 확장
+  - `_State` enum에 `TRANSITION_MC`, `LANDING` 추가
+  - `__init__`에 `_d_end_thresh`, `_landing_timeout` 파라미터 읽기 추가 (이미 선언됨, 읽기만 추가)
+  - `_step_following()` 종료조건: `dist_to_end < 3.0` (하드코딩) → `trans_mc_trigger(dist_to_end, self._d_end_thresh)`. 전환 대상: `DONE` → `TRANSITION_MC`
+  - `_step_transition_mc()`: `CommandLong(3000, param1=3.0)` 역천이 명령 → `vtol_is_mc(state.vtol_state)` 확인 → LANDING
+  - `_step_landing()`: `set_mode "AUTO.LAND"` → `landing_done(state.armed)` 확인 → DONE. `landing_timeout` 초과 시 경고 1회.
+  - 기존 `_step_climbing`, `_step_transition_fw`도 `state_logic` 함수 사용으로 통일
+  - `test_offboard_node.py`에 케이스 8개 추가: `trans_mc_trigger`×3, `vtol_is_mc`×3, `landing_done`×2
+
+### 결과
+
+| 테스트 파일 | PASS |
+|---|---|
+| `fc_ros/test/test_offboard_node.py` | 21/21 |
+| `fc_bridge/tests/test_terminal_decel.py` | 5/5 |
+| `fc_ros/test/test_params.py` | 5/5 |
+| **합계** | **31/31** |
+
+### 결정
+
+- 판정 순수 함수는 `fc_bridge/execution/state_logic.py`에 집중 관리. 향후 추가 판정 로직도 이곳에.
+- `_landing_timeout_warned` 플래그로 타임아웃 경고 1회만 출력 (스팸 방지).
+- `_entry_done` (ENTRY 판정) 은 numpy 로직이 복잡하고 작업 D 범위 밖이므로 현행 유지.
+
+### 다음 세션
+
+1. **작업 E** — 긴급 수동 override (`/fc_ros/override` Bool 토픽, vtol_state 분기, 선행: C ✅ D ✅)
+2. 작업 E 완료 후 → **SITL-3** 진입 가능 (선행: B·C·D·SITL-2 전부 충족)
+3. SITL-2(launch 통합 기동)는 A 완료 후 진입 가능이었으나 아직 사람 미수행
+
+### 주의
+
+> 작업 E 완료 시 코드 단위 작업(A~E) 전부 완료 → SITL-3(경로 추종 검증) 진입 조건 충족.  
+> SITL-2(phase2 launch 기동)는 작업 A 선행이 완료된 상태이므로 언제든 사람이 WSL에서 수행 가능.
+
+---
+
+## 2026-06-20 — 작업 B·C 완료 (종단 감속 헬퍼 + 상태머신 이륙·천이)
+
+**브랜치:** `dev--vision-computing-module`  
+**목적:** flight_plan.md 작업 B(종단 감속 헬퍼) + 작업 C(상태머신 ① 이륙·상승·천이) 자율 실행
+
+### 완료
+- **작업 B** — `fc_bridge/planning/terminal_decel.py` 신규 생성: `apply_terminal_decel(v_profile, s_arc, v_terminal, decel_dist)` 구현
+  - `offboard_node.py` `main()` 배선: `run_planner` 직후 `v_terminal`/`decel_dist`를 tmp 노드에서 읽어 적용
+  - `fc_bridge/tests/test_terminal_decel.py` 신규 작성 — 5/5 PASS
+- **작업 C** — `offboard_node.py` 상태머신 확장
+  - `_State` enum에 `ARM_TAKEOFF`, `CLIMBING`, `TRANSITION_FW` 추가, 초기 상태 → `ARM_TAKEOFF`
+  - `CommandLong` 서비스 클라이언트 추가 (`/mavros/cmd/command`)
+  - `_step_arm_takeoff()`: ARM 요청 → `state.armed` 확인 → `AUTO.TAKEOFF` 요청 → CLIMBING 전환
+  - `_step_climbing()`: `pos_ned[2] >= transition_alt` → TRANSITION_FW 전환
+  - `_step_transition_fw()`: `CommandLong(3000, param1=4.0)` → `vtol_state==FW` 확인 → STREAMING 전환
+  - STREAMING 리팩터: ARM 제거, 속도 0 → 첫 WP 방향 전진속도 발행, `mode==OFFBOARD` 조건만으로 전환
+  - `fc_ros/test/test_offboard_node.py`에 케이스 6개 추가 — 13/13 PASS (기존 7 + 신규 6)
+
+### 결정
+- `main()`의 `v_terminal`/`decel_dist`는 tmp 노드에서 읽어 처리 (OffboardNode 생성 전 경로 계획 필요 구조 유지)
+- STREAMING에서 ARM 제거: ARM은 `ARM_TAKEOFF`에서 1회 완료되어 중복 불필요
+- `VTOL_STATE_MC = 3`, `VTOL_STATE_FW = 4` 모듈 상수로 추출 (작업 D·E도 사용)
+
+### 다음 세션
+1. **작업 D** — 상태머신 ② 역천이·착륙 (`TRANSITION_MC`, `LANDING` 구현, 선행: C ✅)
+2. **작업 E** — 긴급 수동 override (`/fc_ros/override` 토픽, 선행: C ✅)
+3. 작업 D·E 완료 후 → SITL-2(launch 통합 기동, 사람 수행) → SITL-3
+
+### 주의
+> 작업 D에서 `dist_to_end < self._d_end_thresh` 조건 변경 시 `_step_following()`의 하드코딩 `3.0` 제거 필요.
+> `_d_end_thresh`는 `__init__`에서 `declare_parameter("d_end_thresh", 10.0)`로 이미 선언됨 — 읽기만 하면 됨.
+
+---
+
 ## 2026-06-19 — SITL-1 완료 + 확정값 반영
 
 **브랜치:** `dev--vision-computing-module`  

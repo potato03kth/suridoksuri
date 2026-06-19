@@ -3,13 +3,19 @@ OffboardNode: create_timer 기반 상태머신으로 Offboard 경로 추종.
 
 기존 OffboardFollower의 while + time.sleep 루프를 ROS2 타이머 콜백으로 변환.
 
-상태 머신: IDLE → STREAMING → ENTRY → FOLLOWING → DONE
-  STREAMING : 더미 세트포인트(속도=0) 발행 후 OFFBOARD 모드 전환 요청
-  ENTRY     : entry_mode="mid_flight" 시에만 통과; WP0 진입 + 헤딩 정렬 대기
-  FOLLOWING : L1Guidance 기반 경로 추종
-  DONE      : 경로 끝 도달 시 진입 (타이머 계속 동작, 속도=0 유지)
+상태 머신:
+  ARM_TAKEOFF   : ARM + AUTO.TAKEOFF 명령
+  CLIMBING      : 천이 고도 도달 대기
+  TRANSITION_FW : MC→FW 천이 명령 + vtol_state==FW 대기
+  STREAMING     : FW 더미 세트포인트(전진속도) 발행 후 OFFBOARD 전환 요청
+  ENTRY         : entry_mode="mid_flight" 시에만 통과; WP0 진입 + 헤딩 정렬 대기
+  FOLLOWING     : L1Guidance 기반 경로 추종
+  TRANSITION_MC : FW→MC 역천이 명령 + vtol_state==MC 대기
+  LANDING       : AUTO.LAND 명령 + disarmed 대기
+  DONE          : 착륙 완료 (타이머 계속 동작, 속도=0 유지)
 
 MAVROS 토픽을 직접 구독해 TelemetryNode에 의존하지 않는다.
+판정 순수 함수: fc_bridge.execution.state_logic (rclpy 없이 테스트 가능).
 """
 from __future__ import annotations
 import enum
@@ -22,7 +28,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State, ExtendedState
-from mavros_msgs.srv import CommandBool, SetMode
+from mavros_msgs.srv import CommandBool, CommandLong, SetMode
 
 _MAVROS_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -31,6 +37,10 @@ _MAVROS_QOS = QoSProfile(
 )
 
 from fc_bridge.comm.vehicle_state import VehicleState
+from fc_bridge.execution.state_logic import (
+    climbing_reached, vtol_is_fw,
+    trans_mc_trigger, vtol_is_mc, landing_done,
+)
 from fc_bridge.guidance.l1_guidance import L1Guidance
 from fc_ros.adapters.vehicle_state_bridge import (
     update_from_pose,
@@ -45,12 +55,21 @@ def _wrap(a: float) -> float:
     return (a + np.pi) % (2 * np.pi) - np.pi
 
 
+VTOL_STATE_MC = 3
+VTOL_STATE_FW = 4
+
+
 class _State(enum.Enum):
-    IDLE      = "idle"
-    STREAMING = "streaming"
-    ENTRY     = "entry"
-    FOLLOWING = "following"
-    DONE      = "done"
+    IDLE          = "idle"
+    ARM_TAKEOFF   = "arm_takeoff"
+    CLIMBING      = "climbing"
+    TRANSITION_FW = "transition_fw"
+    STREAMING     = "streaming"
+    ENTRY         = "entry"
+    FOLLOWING     = "following"
+    TRANSITION_MC = "transition_mc"
+    LANDING       = "landing"
+    DONE          = "done"
 
 
 class OffboardNode(Node):
@@ -98,18 +117,21 @@ class OffboardNode(Node):
         self.declare_parameter("v_terminal",        15.2)
         self.declare_parameter("decel_dist",        80.0)
 
-        control_hz       = self.get_parameter("control_hz").value
-        self._dt         = 1.0 / max(control_hz, 2.0)
-        self._entry_mode = self.get_parameter("entry_mode").value
-        self._wp0_r      = self.get_parameter("wp0_entry_radius").value
-        self._wp0_htol   = self.get_parameter("wp0_heading_tol").value
-        self._v_approach = self.get_parameter("v_approach").value
-        self._a_max      = self.get_parameter("a_max").value
-        self._a_max_init = self._a_max
+        control_hz        = self.get_parameter("control_hz").value
+        self._dt          = 1.0 / max(control_hz, 2.0)
+        self._entry_mode  = self.get_parameter("entry_mode").value
+        self._wp0_r       = self.get_parameter("wp0_entry_radius").value
+        self._wp0_htol    = self.get_parameter("wp0_heading_tol").value
+        self._v_approach  = self.get_parameter("v_approach").value
+        self._a_max       = self.get_parameter("a_max").value
+        self._a_max_init  = self._a_max
         self._stall_steps = int(self.get_parameter("error_stall_steps").value)
-        self._accel_red  = self.get_parameter("accel_reduction").value
-        self._accel_min  = self._a_max * self.get_parameter("accel_min_frac").value
-        frame_id         = self.get_parameter("cmd_vel_frame_id").value
+        self._accel_red   = self.get_parameter("accel_reduction").value
+        self._accel_min   = self._a_max * self.get_parameter("accel_min_frac").value
+        frame_id          = self.get_parameter("cmd_vel_frame_id").value
+        self._transition_alt  = float(self.get_parameter("transition_alt").value)
+        self._d_end_thresh    = float(self.get_parameter("d_end_thresh").value)
+        self._landing_timeout = float(self.get_parameter("landing_timeout").value)
 
         # ── 경로 데이터 ──────────────────────────────────────
         self._pts = np.asarray(path_pts, dtype=float)
@@ -123,12 +145,21 @@ class OffboardNode(Node):
         self._vs_lock       = threading.Lock()
         self._guidance      = L1Guidance(
             self.get_parameter("l1_dist").value, self._pts, self._v)
-        self._sm            = _State.STREAMING
+        self._sm            = _State.ARM_TAKEOFF
         self._prev_errors: list[float] = []
-        self._offboard_requested = False
-        self._arm_requested      = False
-        self._stream_ticks       = 0
-        self._current_mode       = ""
+        self._offboard_requested  = False
+        self._stream_ticks        = 0
+        self._current_mode        = ""
+        # ARM_TAKEOFF 시퀀스 플래그
+        self._arm_sent            = False
+        self._takeoff_sent        = False
+        # TRANSITION_FW 시퀀스 플래그
+        self._fw_transition_sent  = False
+        # TRANSITION_MC / LANDING 시퀀스 플래그
+        self._mc_transition_sent    = False
+        self._landing_sent          = False
+        self._landing_elapsed       = 0.0
+        self._landing_timeout_warned = False
 
         # ── MAVROS 토픽 구독 ─────────────────────────────────
         self.create_subscription(
@@ -152,8 +183,9 @@ class OffboardNode(Node):
         pub = self.create_publisher(
             TwistStamped, "/mavros/setpoint_velocity/cmd_vel", 10)
         self._setpoint      = SetpointPublisher(pub, frame_id=frame_id)
-        self._set_mode_cli  = self.create_client(SetMode, "/mavros/set_mode")
-        self._arm_cli       = self.create_client(CommandBool, "/mavros/cmd/arming")
+        self._set_mode_cli  = self.create_client(SetMode,      "/mavros/set_mode")
+        self._arm_cli       = self.create_client(CommandBool,  "/mavros/cmd/arming")
+        self._cmd_cli       = self.create_client(CommandLong,  "/mavros/cmd/command")
 
         # ── 제어 타이머 ──────────────────────────────────────
         self.create_timer(self._dt, self._control_callback)
@@ -186,8 +218,25 @@ class OffboardNode(Node):
     def _control_callback(self) -> None:
         state = self._get_state()
 
-        if self._sm == _State.STREAMING:
-            self._setpoint.publish(np.zeros(3))
+        if self._sm == _State.ARM_TAKEOFF:
+            self._step_arm_takeoff(state)
+
+        elif self._sm == _State.CLIMBING:
+            self._step_climbing(state)
+
+        elif self._sm == _State.TRANSITION_FW:
+            self._step_transition_fw(state)
+
+        elif self._sm == _State.STREAMING:
+            # FW 상태이므로 속도 0 금지 — 첫 WP 방향 전진 세트포인트 발행
+            if len(self._pts) > 1:
+                seg = self._pts[1] - self._pts[0]
+                seg /= (float(np.linalg.norm(seg)) + 1e-9)
+            else:
+                seg = np.array([1.0, 0.0])
+            v_fwd = float(self._v[0]) if len(self._v) > 0 else 15.0
+            fwd_vel = np.array([seg[0] * v_fwd, seg[1] * v_fwd, 0.0])
+            self._setpoint.publish(fwd_vel)
             self._stream_ticks += 1
 
             # 20 tick(2초) 후 OFFBOARD 전환 요청
@@ -196,17 +245,9 @@ class OffboardNode(Node):
                 self._offboard_requested = True
                 self.get_logger().info("OFFBOARD 전환 요청")
 
-            # OFFBOARD 확인 후 ARM 요청
-            if (self._offboard_requested
-                    and self._current_mode == "OFFBOARD"
-                    and not self._arm_requested):
-                self._request_arm()
-                self._arm_requested = True
-                self.get_logger().info("ARM 요청")
-
-            # OFFBOARD + ARM 모두 확인 후 다음 상태로 전환
-            if state.armed and self._current_mode == "OFFBOARD":
-                self.get_logger().info("ARM 완료 → FOLLOWING")
+            # OFFBOARD 확인 후 다음 상태로 전환 (ARM은 ARM_TAKEOFF에서 완료됨)
+            if self._offboard_requested and self._current_mode == "OFFBOARD":
+                self.get_logger().info("OFFBOARD 전환 완료 → 경로 추종")
                 self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
                             else _State.FOLLOWING)
 
@@ -217,11 +258,75 @@ class OffboardNode(Node):
 
         elif self._sm == _State.FOLLOWING:
             if self._step_following(state):
-                self.get_logger().info("경로 추종 완료 → DONE")
-                self._sm = _State.DONE
+                self.get_logger().info("경로 추종 완료 → TRANSITION_MC")
+                self._sm = _State.TRANSITION_MC
+
+        elif self._sm == _State.TRANSITION_MC:
+            self._step_transition_mc(state)
+
+        elif self._sm == _State.LANDING:
+            self._step_landing(state)
 
         elif self._sm == _State.DONE:
             self._setpoint.publish(np.zeros(3))
+
+    # ── ARM_TAKEOFF ──────────────────────────────────────────
+
+    def _step_arm_takeoff(self, state: VehicleState) -> None:
+        """ARM 요청 → armed 확인 → AUTO.TAKEOFF 요청 → CLIMBING 전환."""
+        if not self._arm_sent:
+            if not self._arm_cli.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn("/mavros/cmd/arming 서비스 없음")
+                return
+            req = CommandBool.Request()
+            req.value = True
+            self._arm_cli.call_async(req)
+            self._arm_sent = True
+            self.get_logger().info("ARM 요청")
+            return
+
+        if not state.armed:
+            return  # ARM 완료 대기
+
+        if not self._takeoff_sent:
+            if not self._set_mode_cli.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn("/mavros/set_mode 서비스 없음")
+                return
+            req = SetMode.Request()
+            req.custom_mode = "AUTO.TAKEOFF"
+            self._set_mode_cli.call_async(req)
+            self._takeoff_sent = True
+            self.get_logger().info("AUTO.TAKEOFF 요청 → CLIMBING")
+            self._sm = _State.CLIMBING
+
+    # ── CLIMBING ─────────────────────────────────────────────
+
+    def _step_climbing(self, state: VehicleState) -> None:
+        """천이 고도 도달 확인 → TRANSITION_FW 전환."""
+        if climbing_reached(state.pos_ned[2], self._transition_alt):
+            self.get_logger().info(
+                f"천이 고도 {self._transition_alt:.1f}m 도달 → TRANSITION_FW")
+            self._sm = _State.TRANSITION_FW
+
+    # ── TRANSITION_FW ─────────────────────────────────────────
+
+    def _step_transition_fw(self, state: VehicleState) -> None:
+        """MC→FW 천이 명령 발행 → vtol_state==FW 확인 → STREAMING 전환."""
+        if vtol_is_fw(state.vtol_state):
+            self.get_logger().info("FW 전환 완료 → STREAMING")
+            self._sm = _State.STREAMING
+            return
+
+        if not self._fw_transition_sent:
+            if not self._cmd_cli.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn("/mavros/cmd/command 서비스 없음")
+                return
+            req = CommandLong.Request()
+            req.command = 3000   # MAV_CMD_DO_VTOL_TRANSITION
+            req.param1  = 4.0   # 목표 상태 FW(4)
+            self._cmd_cli.call_async(req)
+            self._fw_transition_sent = True
+            self.get_logger().info("MC→FW 천이 명령 요청")
 
     # ── STREAMING ────────────────────────────────────────────
 
@@ -240,6 +345,52 @@ class OffboardNode(Node):
         req = CommandBool.Request()
         req.value = True
         self._arm_cli.call_async(req)
+
+    # ── TRANSITION_MC ─────────────────────────────────────────
+
+    def _step_transition_mc(self, state: VehicleState) -> None:
+        """FW→MC 역천이 명령 발행 → vtol_state==MC 확인 → LANDING 전환."""
+        if vtol_is_mc(state.vtol_state):
+            self.get_logger().info("MC 전환 완료 → LANDING")
+            self._sm = _State.LANDING
+            return
+
+        if not self._mc_transition_sent:
+            if not self._cmd_cli.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn("/mavros/cmd/command 서비스 없음")
+                return
+            req = CommandLong.Request()
+            req.command = 3000   # MAV_CMD_DO_VTOL_TRANSITION
+            req.param1  = 3.0   # 목표 상태 MC(3)
+            self._cmd_cli.call_async(req)
+            self._mc_transition_sent = True
+            self.get_logger().info("FW→MC 역천이 명령 요청")
+
+    # ── LANDING ───────────────────────────────────────────────
+
+    def _step_landing(self, state: VehicleState) -> None:
+        """AUTO.LAND 명령 발행 → disarmed 확인 → DONE 전환."""
+        if landing_done(state.armed):
+            self.get_logger().info("착륙 완료 (disarmed) → DONE")
+            self._sm = _State.DONE
+            return
+
+        if not self._landing_sent:
+            if not self._set_mode_cli.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn("/mavros/set_mode 서비스 없음")
+                return
+            req = SetMode.Request()
+            req.custom_mode = "AUTO.LAND"
+            self._set_mode_cli.call_async(req)
+            self._landing_sent = True
+            self.get_logger().info("AUTO.LAND 요청")
+
+        self._landing_elapsed += self._dt
+        if (not self._landing_timeout_warned
+                and self._landing_elapsed > self._landing_timeout):
+            self.get_logger().warn(
+                f"AUTO.LAND 타임아웃 {self._landing_timeout:.0f}s 초과")
+            self._landing_timeout_warned = True
 
     # ── ENTRY ────────────────────────────────────────────────
 
@@ -297,7 +448,7 @@ class OffboardNode(Node):
 
         last_pt      = self._pts[-1]
         dist_to_end  = float(np.linalg.norm(pos[:2] - last_pt))
-        return dist_to_end < 3.0
+        return trans_mc_trigger(dist_to_end, self._d_end_thresh)
 
 
 def main(args=None):
@@ -318,11 +469,13 @@ def main(args=None):
 
     # 파라미터 읽기용 임시 노드
     tmp = rclpy.create_node("_offboard_param_reader")
-    tmp.declare_parameter("waypoints", [0.0, 0.0, 150.0, 500.0, 0.0, 150.0])
-    tmp.declare_parameter("planner",   "eta3")
-    tmp.declare_parameter("v_cruise",  15.0)
-    tmp.declare_parameter("a_max_g",   0.3)
-    tmp.declare_parameter("gravity",   9.81)
+    tmp.declare_parameter("waypoints",  [0.0, 0.0, 50.0, 100.0, 0.0, 50.0])
+    tmp.declare_parameter("planner",    "eta3")
+    tmp.declare_parameter("v_cruise",   15.0)
+    tmp.declare_parameter("a_max_g",    0.3)
+    tmp.declare_parameter("gravity",    9.81)
+    tmp.declare_parameter("v_terminal", 15.2)
+    tmp.declare_parameter("decel_dist", 80.0)
 
     raw_wps      = np.array(tmp.get_parameter("waypoints").value, dtype=float).reshape(-1, 3)
     planner_name = tmp.get_parameter("planner").value
@@ -331,16 +484,21 @@ def main(args=None):
         "a_max_g":  tmp.get_parameter("a_max_g").value,
         "gravity":  tmp.get_parameter("gravity").value,
     }
+    v_terminal = float(tmp.get_parameter("v_terminal").value)
+    decel_dist = float(tmp.get_parameter("decel_dist").value)
     tmp.destroy_node()
 
     waypoints = raw_wps
 
     from fc_bridge.planning.planner_runner import run_planner
+    from fc_bridge.planning.terminal_decel import apply_terminal_decel
     path = run_planner(planner_name, waypoints, vehicle_params)
 
-    path_pts      = np.array([pt.pos[:2] for pt in path.points])
-    v_profile     = np.array([pt.v_ref   for pt in path.points])
-    gamma_profile = np.array([pt.gamma_ref for pt in path.points])
+    path_pts      = np.array([pt.pos[:2]    for pt in path.points])
+    v_profile     = np.array([pt.v_ref      for pt in path.points])
+    s_arc         = np.array([pt.s          for pt in path.points])
+    gamma_profile = np.array([pt.gamma_ref  for pt in path.points])
+    v_profile = apply_terminal_decel(v_profile, s_arc, v_terminal, decel_dist)
 
     node = OffboardNode(path_pts=path_pts,
                         v_profile=v_profile,
