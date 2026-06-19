@@ -88,17 +88,14 @@ class OffboardNode(Node):
       accel_reduction    (float, 0.9)   — 오차 정체 시 a_max 감소 비율
       accel_min_frac     (float, 0.3)   — a_max 최솟값 비율 (원래 값 대비)
       cmd_vel_frame_id   (str,  "base_link") — TwistStamped frame_id (MAVROS 버전에 따라 다름)
-
-    생성자 파라미터 (런타임 주입):
-      path_pts    : np.ndarray (N, 2)  — 2D NE 경로 점 [N, E]
-      v_profile   : np.ndarray (N,)   — 각 경로점 목표 속도 (m/s)
-      gamma_profile : np.ndarray (N,) 또는 None — 상승각 (rad)
+      waypoints          (float[], [0,0,50, 100,0,50]) — flat 1D, 코드에서 reshape(-1,3)
+      planner            (str,  "eta3") — "eta3" | "diterpin"
+      v_cruise           (float, 15.0)  — 순항 속도 (m/s)
+      a_max_g            (float, 0.3)   — 횡방향 가속도 상한 (g)
+      gravity            (float, 9.81)  — 중력 가속도 (m/s²)
     """
 
-    def __init__(self,
-                 path_pts: np.ndarray,
-                 v_profile: np.ndarray,
-                 gamma_profile: np.ndarray | None = None):
+    def __init__(self):
         super().__init__("offboard_node")
 
         # ── ROS2 파라미터 ────────────────────────────────────
@@ -118,6 +115,11 @@ class OffboardNode(Node):
         self.declare_parameter("landing_timeout",   60.0)
         self.declare_parameter("v_terminal",        15.2)
         self.declare_parameter("decel_dist",        80.0)
+        self.declare_parameter("waypoints",  [0.0, 0.0, 50.0, 100.0, 0.0, 50.0])
+        self.declare_parameter("planner",    "eta3")
+        self.declare_parameter("v_cruise",   15.0)
+        self.declare_parameter("a_max_g",    0.3)
+        self.declare_parameter("gravity",    9.81)
 
         control_hz        = self.get_parameter("control_hz").value
         self._dt          = 1.0 / max(control_hz, 2.0)
@@ -135,12 +137,31 @@ class OffboardNode(Node):
         self._d_end_thresh    = float(self.get_parameter("d_end_thresh").value)
         self._landing_timeout = float(self.get_parameter("landing_timeout").value)
 
+        # ── 경로 계획 ─────────────────────────────────────────
+        from fc_bridge.planning.planner_runner import run_planner
+        from fc_bridge.planning.terminal_decel import apply_terminal_decel
+
+        raw_wps = np.array(self.get_parameter("waypoints").value, dtype=float).reshape(-1, 3)
+        planner_name   = self.get_parameter("planner").value
+        vehicle_params = {
+            "v_cruise": self.get_parameter("v_cruise").value,
+            "a_max_g":  self.get_parameter("a_max_g").value,
+            "gravity":  self.get_parameter("gravity").value,
+        }
+        v_terminal = float(self.get_parameter("v_terminal").value)
+        decel_dist = float(self.get_parameter("decel_dist").value)
+
+        path          = run_planner(planner_name, raw_wps, vehicle_params)
+        path_pts      = np.array([pt.pos[:2]   for pt in path.points])
+        v_profile     = np.array([pt.v_ref     for pt in path.points])
+        s_arc         = np.array([pt.s         for pt in path.points])
+        gamma_profile = np.array([pt.gamma_ref for pt in path.points])
+        v_profile     = apply_terminal_decel(v_profile, s_arc, v_terminal, decel_dist)
+
         # ── 경로 데이터 ──────────────────────────────────────
         self._pts = np.asarray(path_pts, dtype=float)
         self._v   = np.asarray(v_profile, dtype=float)
-        self._gamma = (np.asarray(gamma_profile, dtype=float)
-                       if gamma_profile is not None
-                       else np.zeros(len(path_pts)))
+        self._gamma = np.asarray(gamma_profile, dtype=float)
 
         # ── 내부 상태 ────────────────────────────────────────
         self._vehicle_state = VehicleState()
@@ -472,57 +493,8 @@ class OffboardNode(Node):
 
 
 def main(args=None):
-    """
-    entry_point 실행 예시.
-
-    실제 배포에서는 launch 파일에서 경로를 계획한 뒤 OffboardNode를 생성한다.
-    여기서는 ROS2 파라미터로 waypoints를 받아 run_planner로 경로를 생성한다.
-
-    필요 파라미터 (params YAML 또는 --ros-args -p):
-      waypoints  : [[N, E, h], ...] 2D 리스트
-      planner    : "eta3" | "diterpin"
-      v_cruise   : float (m/s)
-      a_max_g    : float (g)
-      gravity    : float (m/s²)
-    """
     rclpy.init(args=args)
-
-    # 파라미터 읽기용 임시 노드
-    tmp = rclpy.create_node("_offboard_param_reader")
-    tmp.declare_parameter("waypoints",  [0.0, 0.0, 50.0, 100.0, 0.0, 50.0])
-    tmp.declare_parameter("planner",    "eta3")
-    tmp.declare_parameter("v_cruise",   15.0)
-    tmp.declare_parameter("a_max_g",    0.3)
-    tmp.declare_parameter("gravity",    9.81)
-    tmp.declare_parameter("v_terminal", 15.2)
-    tmp.declare_parameter("decel_dist", 80.0)
-
-    raw_wps      = np.array(tmp.get_parameter("waypoints").value, dtype=float).reshape(-1, 3)
-    planner_name = tmp.get_parameter("planner").value
-    vehicle_params = {
-        "v_cruise": tmp.get_parameter("v_cruise").value,
-        "a_max_g":  tmp.get_parameter("a_max_g").value,
-        "gravity":  tmp.get_parameter("gravity").value,
-    }
-    v_terminal = float(tmp.get_parameter("v_terminal").value)
-    decel_dist = float(tmp.get_parameter("decel_dist").value)
-    tmp.destroy_node()
-
-    waypoints = raw_wps
-
-    from fc_bridge.planning.planner_runner import run_planner
-    from fc_bridge.planning.terminal_decel import apply_terminal_decel
-    path = run_planner(planner_name, waypoints, vehicle_params)
-
-    path_pts      = np.array([pt.pos[:2]    for pt in path.points])
-    v_profile     = np.array([pt.v_ref      for pt in path.points])
-    s_arc         = np.array([pt.s          for pt in path.points])
-    gamma_profile = np.array([pt.gamma_ref  for pt in path.points])
-    v_profile = apply_terminal_decel(v_profile, s_arc, v_terminal, decel_dist)
-
-    node = OffboardNode(path_pts=path_pts,
-                        v_profile=v_profile,
-                        gamma_profile=gamma_profile)
+    node = OffboardNode()
     try:
         rclpy.spin(node)
     finally:
