@@ -28,3 +28,8 @@ def vtol_is_mc(vtol_state: int, MC: int = 3) -> bool:
 def landing_done(armed: bool) -> bool:
     """착륙 완료 여부: disarmed 이면 True."""
     return not armed
+
+
+def override_mode(vtol_state: int, MC: int = 3) -> str:
+    """긴급 override 전환 모드 결정: MC 상태이면 POSCTL, FW 상태이면 MANUAL."""
+    return "POSCTL" if vtol_state == MC else "MANUAL"

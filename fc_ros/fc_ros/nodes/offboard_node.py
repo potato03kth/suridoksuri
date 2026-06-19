@@ -29,6 +29,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State, ExtendedState
 from mavros_msgs.srv import CommandBool, CommandLong, SetMode
+from std_msgs.msg import Bool
 
 _MAVROS_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -40,6 +41,7 @@ from fc_bridge.comm.vehicle_state import VehicleState
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
+    override_mode,
 )
 from fc_bridge.guidance.l1_guidance import L1Guidance
 from fc_ros.adapters.vehicle_state_bridge import (
@@ -178,6 +180,10 @@ class OffboardNode(Node):
             ExtendedState,
             "/mavros/extended_state",
             self._cb_extended, _MAVROS_QOS)
+        self.create_subscription(
+            Bool,
+            "/fc_ros/override",
+            self._cb_override, 10)
 
         # ── 발행 / 서비스 ────────────────────────────────────
         pub = self.create_publisher(
@@ -345,6 +351,20 @@ class OffboardNode(Node):
         req = CommandBool.Request()
         req.value = True
         self._arm_cli.call_async(req)
+
+    # ── OVERRIDE ─────────────────────────────────────────────
+
+    def _cb_override(self, msg: Bool) -> None:
+        if msg.data:
+            self._request_override()
+
+    def _request_override(self) -> None:
+        state = self._get_state()
+        req = SetMode.Request()
+        req.custom_mode = override_mode(state.vtol_state)
+        self._set_mode_cli.call_async(req)
+        self._sm = _State.DONE
+        self.get_logger().warn("긴급 수동 전환 실행")
 
     # ── TRANSITION_MC ─────────────────────────────────────────
 

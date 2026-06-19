@@ -12,6 +12,7 @@ import pytest
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
+    override_mode,
 )
 
 
@@ -139,3 +140,23 @@ def test_landing_done_disarmed():
 
 def test_landing_done_still_armed():
     assert landing_done(True) is False
+
+
+# ── 작업 E: 긴급 override 모드 분기 (override_mode) ─────────────
+
+def test_override_mc():
+    assert override_mode(3) == "POSCTL"
+
+
+def test_override_fw():
+    assert override_mode(4) == "MANUAL"
+
+
+def test_override_transition_to_fw():
+    # 천이 중(1)은 MC가 아니므로 MANUAL
+    assert override_mode(1) == "MANUAL"
+
+
+def test_override_transition_to_mc():
+    # 천이 중(2)은 MC가 아니므로 MANUAL
+    assert override_mode(2) == "MANUAL"
