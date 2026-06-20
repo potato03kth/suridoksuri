@@ -370,8 +370,8 @@ class Eta3ClothoidPlannerV3(BasePlanner):
             print(
                 f"[Stage 1] pos_max={pos_res:.3e}m head_max={head_res:.3e}rad")
         if pos_res > 0.5:
-            print(f"[Eta3ClothoidPlannerV3] ⚠ NR 위치 잔차 {pos_res:.3f}m가 큽니다. "
-                  f"affine 보정으로 WP 통과는 보장하지만 곡선이 변형될 수 있습니다.")
+            print(f"[Eta3ClothoidPlannerV3] WARNING: NR pos residual {pos_res:.3f}m is large. "
+                  f"affine correction guarantees WP passage but curve may be deformed.")
 
         all_pts:  list[np.ndarray] = []
         wp_marks: dict[int, int] = {}
