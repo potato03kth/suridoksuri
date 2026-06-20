@@ -302,7 +302,7 @@ class OffboardNode(Node):
     def _step_arm_takeoff(self, state: VehicleState) -> None:
         """ARM 요청 → armed 확인 → AUTO.TAKEOFF 요청 → CLIMBING 전환."""
         if not self._arm_sent:
-            if not self._arm_cli.wait_for_service(timeout_sec=1.0):
+            if not self._arm_cli.service_is_ready():
                 self.get_logger().warn("/mavros/cmd/arming 서비스 없음")
                 return
             req = CommandBool.Request()
@@ -316,7 +316,7 @@ class OffboardNode(Node):
             return  # ARM 완료 대기
 
         if not self._takeoff_sent:
-            if not self._set_mode_cli.wait_for_service(timeout_sec=1.0):
+            if not self._set_mode_cli.service_is_ready():
                 self.get_logger().warn("/mavros/set_mode 서비스 없음")
                 return
             req = SetMode.Request()
@@ -345,7 +345,7 @@ class OffboardNode(Node):
             return
 
         if not self._fw_transition_sent:
-            if not self._cmd_cli.wait_for_service(timeout_sec=1.0):
+            if not self._cmd_cli.service_is_ready():
                 self.get_logger().warn("/mavros/cmd/command 서비스 없음")
                 return
             req = CommandLong.Request()
@@ -358,7 +358,7 @@ class OffboardNode(Node):
     # ── STREAMING ────────────────────────────────────────────
 
     def _request_offboard(self) -> None:
-        if not self._set_mode_cli.wait_for_service(timeout_sec=1.0):
+        if not self._set_mode_cli.service_is_ready():
             self.get_logger().warn("/mavros/set_mode 서비스 없음")
             return
         req = SetMode.Request()
@@ -397,7 +397,7 @@ class OffboardNode(Node):
             return
 
         if not self._mc_transition_sent:
-            if not self._cmd_cli.wait_for_service(timeout_sec=1.0):
+            if not self._cmd_cli.service_is_ready():
                 self.get_logger().warn("/mavros/cmd/command 서비스 없음")
                 return
             req = CommandLong.Request()
@@ -417,7 +417,7 @@ class OffboardNode(Node):
             return
 
         if not self._landing_sent:
-            if not self._set_mode_cli.wait_for_service(timeout_sec=1.0):
+            if not self._set_mode_cli.service_is_ready():
                 self.get_logger().warn("/mavros/set_mode 서비스 없음")
                 return
             req = SetMode.Request()
