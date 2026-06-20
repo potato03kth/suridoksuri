@@ -422,8 +422,8 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 
 **합격 기준 (체크리스트):**
 
-- [ ] TypeError 없이 두 노드 기동
-- [ ] 신규 파라미터(`transition_alt`, `d_end_thresh`, `v_terminal` 등) 로드 확인
+- [x] TypeError 없이 두 노드 기동 (2026-06-20 실측)
+- [x] 신규 파라미터(`transition_alt`, `d_end_thresh`, `v_terminal` 등) 로드 확인 (2026-06-20 실측)
 
 ---
 
@@ -577,7 +577,7 @@ def test_arbitrary_wp_path_invariants():
 - [x] 작업 D: 상태머신 ② 역천이·착륙 [코드] — 2026-06-20 완료
 - [x] 작업 E: 긴급 수동 override [코드] — 2026-06-20 완료
 - [x] SITL-1: VTOL 환경 전환 + 상수 확인 [SITL] — 2026-06-19 조건부 PASS
-- [ ] SITL-2: launch 통합 기동 [SITL]
+- [x] SITL-2: launch 통합 기동 [SITL] — 2026-06-20 완료
 - [ ] SITL-3: 경로 추종 검증 [SITL]
 - [ ] SITL-4: 전체 사이클 통합 [SITL]
 - [ ] SITL-5: RPi4 배포 [배포]
