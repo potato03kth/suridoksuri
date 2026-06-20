@@ -274,18 +274,18 @@ class OffboardNode(Node):
 
             # OFFBOARD 확인 후 다음 상태로 전환 (ARM은 ARM_TAKEOFF에서 완료됨)
             if self._offboard_requested and self._current_mode == "OFFBOARD":
-                self.get_logger().info("OFFBOARD 전환 완료 → 경로 추종")
+                self.get_logger().info("OFFBOARD 전환 완료 -> 경로 추종")
                 self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
                             else _State.FOLLOWING)
 
         elif self._sm == _State.ENTRY:
             if self._step_entry(state):
-                self.get_logger().info("ENTRY 완료 → FOLLOWING")
+                self.get_logger().info("ENTRY 완료 -> FOLLOWING")
                 self._sm = _State.FOLLOWING
 
         elif self._sm == _State.FOLLOWING:
             if self._step_following(state):
-                self.get_logger().info("경로 추종 완료 → TRANSITION_MC")
+                self.get_logger().info("경로 추종 완료 -> TRANSITION_MC")
                 self._sm = _State.TRANSITION_MC
 
         elif self._sm == _State.TRANSITION_MC:
@@ -323,7 +323,7 @@ class OffboardNode(Node):
             req.custom_mode = "AUTO.TAKEOFF"
             self._set_mode_cli.call_async(req)
             self._takeoff_sent = True
-            self.get_logger().info("AUTO.TAKEOFF 요청 → CLIMBING")
+            self.get_logger().info("AUTO.TAKEOFF 요청 -> CLIMBING")
             self._sm = _State.CLIMBING
 
     # ── CLIMBING ─────────────────────────────────────────────
@@ -340,7 +340,7 @@ class OffboardNode(Node):
     def _step_transition_fw(self, state: VehicleState) -> None:
         """MC→FW 천이 명령 발행 → vtol_state==FW 확인 → STREAMING 전환."""
         if vtol_is_fw(state.vtol_state):
-            self.get_logger().info("FW 전환 완료 → STREAMING")
+            self.get_logger().info("FW 전환 완료 -> STREAMING")
             self._sm = _State.STREAMING
             return
 
@@ -353,7 +353,7 @@ class OffboardNode(Node):
             req.param1  = 4.0   # 목표 상태 FW(4)
             self._cmd_cli.call_async(req)
             self._fw_transition_sent = True
-            self.get_logger().info("MC→FW 천이 명령 요청")
+            self.get_logger().info("MC->FW 천이 명령 요청")
 
     # ── STREAMING ────────────────────────────────────────────
 
@@ -392,7 +392,7 @@ class OffboardNode(Node):
     def _step_transition_mc(self, state: VehicleState) -> None:
         """FW→MC 역천이 명령 발행 → vtol_state==MC 확인 → LANDING 전환."""
         if vtol_is_mc(state.vtol_state):
-            self.get_logger().info("MC 전환 완료 → LANDING")
+            self.get_logger().info("MC 전환 완료 -> LANDING")
             self._sm = _State.LANDING
             return
 
@@ -405,14 +405,14 @@ class OffboardNode(Node):
             req.param1  = 3.0   # 목표 상태 MC(3)
             self._cmd_cli.call_async(req)
             self._mc_transition_sent = True
-            self.get_logger().info("FW→MC 역천이 명령 요청")
+            self.get_logger().info("FW->MC 역천이 명령 요청")
 
     # ── LANDING ───────────────────────────────────────────────
 
     def _step_landing(self, state: VehicleState) -> None:
         """AUTO.LAND 명령 발행 → disarmed 확인 → DONE 전환."""
         if landing_done(state.armed):
-            self.get_logger().info("착륙 완료 (disarmed) → DONE")
+            self.get_logger().info("착륙 완료 (disarmed) -> DONE")
             self._sm = _State.DONE
             return
 

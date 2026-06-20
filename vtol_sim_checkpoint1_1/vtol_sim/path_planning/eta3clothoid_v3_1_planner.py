@@ -356,10 +356,10 @@ class Eta3ClothoidPlannerV3(BasePlanner):
         N = len(wps_2d)
         if self.verbose:
             n_ins = sum(1 for x in orig_indices if x < 0)
-            print(f"[Stage 0] WP 삽입 {n_ins}개 (총 {N}개)")
+            print(f"[Stage 0] WP inserted {n_ins} (total {N})")
 
         if self.verbose:
-            print("[Stage 1] 단일 통합 G2 NR")
+            print("[Stage 1] unified G2 NR")
         thetas, kappas, seg_Ls, pos_res, head_res = _solve_g2_nr(
             wps_2d, kappa_max, theta0, kappa0, theta_N, kappa_N,
             th_init_full=th_after_insert,

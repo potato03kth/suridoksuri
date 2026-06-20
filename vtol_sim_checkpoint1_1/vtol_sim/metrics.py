@@ -430,7 +430,7 @@ def print_metrics(m: MetricsResult, label: str = "") -> None:
     if label:
         print(f"  {label}")
     print(f"{'='*60}")
-    print(f"  성공 여부: {'✓ 성공' if m.success else '✗ 실패'}")
+    print(f"  성공 여부: {'OK 성공' if m.success else 'FAIL 실패'}")
     print(f"  도달 WP: {m.n_wps_arrived}/{m.n_wps}")
     print(f"  종합 점수 (낮을수록 좋음): {m.composite_score:.2f}")
 
@@ -446,8 +446,8 @@ def print_metrics(m: MetricsResult, label: str = "") -> None:
     print(f"\n  [경로 추종 오차]")
     print(
         f"    RMS cross-track: {m.rms_crosstrack:.2f} m, max: {m.max_crosstrack:.2f} m")
-    print(f"      └ 직선 구간 RMS: {m.rms_crosstrack_straight:.2f} m")
-    print(f"      └ 곡선 구간 RMS: {m.rms_crosstrack_curved:.2f} m "
+    print(f"      |- 직선 구간 RMS: {m.rms_crosstrack_straight:.2f} m")
+    print(f"      |- 곡선 구간 RMS: {m.rms_crosstrack_curved:.2f} m "
           f"(시간 비율 {m.frac_time_curved*100:.1f}%)")
     print(
         f"    RMS 고도 오차:   {m.rms_altitude_err:.2f} m, max: {m.max_altitude_err:.2f} m")
@@ -455,12 +455,12 @@ def print_metrics(m: MetricsResult, label: str = "") -> None:
     print(f"\n  [경로 자체의 이상 프로파일 (planner 평가)]")
     print(f"    경로 요구 가속도: max {m.path_max_a_required_g:.3f}g, "
           f"RMS {m.path_rms_a_required_g:.3f}g")
-    print(f"    경로 요구 뱅크각: max {m.path_max_phi_required_deg:.2f}°, "
-          f"RMS {m.path_rms_phi_required_deg:.2f}°")
+    print(f"    경로 요구 뱅크각: max {m.path_max_phi_required_deg:.2f}deg, "
+          f"RMS {m.path_rms_phi_required_deg:.2f}deg")
     print(f"    경로 feasibility: {m.path_feasibility_ratio*100:.1f}% "
           f"(한계 내 점 비율, 1=완전 가능)")
     if m.path_max_excess_g > 0.001:
-        print(f"    ⚠ 경로 자체가 한계 초과 — 최대 {m.path_max_excess_g:.3f}g 만큼 초과")
+        print(f"    [WARN] 경로 자체가 한계 초과 -- 최대 {m.path_max_excess_g:.3f}g 만큼 초과")
 
     print(f"\n  [가속도 한계 위반 (controller 명령 결과)]")
     print(
@@ -478,7 +478,7 @@ def print_metrics(m: MetricsResult, label: str = "") -> None:
     print(f"\n  [제어 평활도]")
     print(f"    bank_cmd 변화율 RMS: {m.bank_rate_rms:.3f} rad/s")
     print(f"    thrust_cmd 변화율 RMS: {m.thrust_rate_rms:.3f} /s")
-    print(f"    |φ_cmd| − φ_required RMS: {m.phi_cmd_rms_excess_deg:.2f}° "
+    print(f"    |phi_cmd| - phi_required RMS: {m.phi_cmd_rms_excess_deg:.2f}deg "
           f"(0에 가까울수록 이상 명령)")
 
     print(f"\n  [경로 효율]")
