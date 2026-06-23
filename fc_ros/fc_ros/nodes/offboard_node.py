@@ -60,7 +60,7 @@ VTOL_STATE_MC = 3
 VTOL_STATE_FW = 4
 
 # TRANSITION_FW 헤딩 정렬: 연속 안정 요구 틱 수
-_FW_STABLE_REQ = 5
+_FW_STABLE_REQ = 20
 
 
 class _State(enum.Enum):
