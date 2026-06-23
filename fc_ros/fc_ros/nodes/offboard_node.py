@@ -178,6 +178,9 @@ class OffboardNode(Node):
         self._takeoff_sent        = False
         # TRANSITION_FW 시퀀스 플래그
         self._fw_transition_sent  = False
+        self._fw_prime_ticks        = 0     # OFFBOARD 프라이밍 틱 수
+        self._fw_offboard_requested = False # 천이 전 MC OFFBOARD 요청 여부
+        self._fw_heading_aligned    = False # WP 방향 헤딩 정렬 완료 여부
         # TRANSITION_MC / LANDING 시퀀스 플래그
         self._mc_transition_sent    = False
         self._landing_sent          = False
@@ -264,15 +267,21 @@ class OffboardNode(Node):
             v_fwd = float(self._v[0]) if len(self._v) > 0 else 15.0
             fwd_vel = np.array([seg[0] * v_fwd, seg[1] * v_fwd, 0.0])
             self._setpoint.publish(fwd_vel)
-            self._stream_ticks += 1
 
-            # 20 tick(2초) 후 OFFBOARD 전환 요청
+            # 천이 전 MC OFFBOARD에서 유입된 경우: 이미 OFFBOARD → 즉시 전환
+            if self._current_mode == "OFFBOARD":
+                self.get_logger().info("OFFBOARD 확인 -> 경로 추종")
+                self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
+                            else _State.FOLLOWING)
+                return
+
+            # 폴백: OFFBOARD 미활성 상태에서 유입된 경우 20 tick 후 요청
+            self._stream_ticks += 1
             if self._stream_ticks == 20 and not self._offboard_requested:
                 self._request_offboard()
                 self._offboard_requested = True
-                self.get_logger().info("OFFBOARD 전환 요청")
+                self.get_logger().info("OFFBOARD 전환 요청 (폴백)")
 
-            # OFFBOARD 확인 후 다음 상태로 전환 (ARM은 ARM_TAKEOFF에서 완료됨)
             if self._offboard_requested and self._current_mode == "OFFBOARD":
                 self.get_logger().info("OFFBOARD 전환 완료 -> 경로 추종")
                 self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
@@ -338,12 +347,65 @@ class OffboardNode(Node):
     # ── TRANSITION_FW ─────────────────────────────────────────
 
     def _step_transition_fw(self, state: VehicleState) -> None:
-        """MC→FW 천이 명령 발행 → vtol_state==FW 확인 → STREAMING 전환."""
+        """
+        헤딩 정렬 후 MC→FW 직선 천이.
+
+        Phase 1: MC+HOLD에서 OFFBOARD 프라이밍 (20 tick 세트포인트 발행)
+        Phase 2: OFFBOARD 확인 + WP 방향 헤딩 정렬
+        Phase 3: 헤딩 정렬 완료 → MC→FW 천이 명령
+        Phase 4: vtol_state==FW 대기 → STREAMING
+        """
+        # Phase 4: FW 전환 완료 확인
         if vtol_is_fw(state.vtol_state):
             self.get_logger().info("FW 전환 완료 -> STREAMING")
             self._sm = _State.STREAMING
             return
 
+        # 경로 시작 방향 (WP0→WP1 단위벡터)
+        if len(self._pts) > 1:
+            seg = self._pts[1] - self._pts[0]
+            seg_norm = float(np.linalg.norm(seg))
+            seg = seg / (seg_norm + 1e-9)
+        else:
+            seg = np.array([1.0, 0.0])
+        chi_wp = float(np.arctan2(seg[1], seg[0]))
+
+        v_align = float(self._v[0]) if len(self._v) > 0 else 15.0
+        vel_cmd = np.array([seg[0] * v_align, seg[1] * v_align, 0.0])
+
+        # Phase 1: OFFBOARD 프라이밍 (20 tick 동안 세트포인트 발행 후 요청)
+        if not self._fw_offboard_requested:
+            self._setpoint.publish(vel_cmd)
+            self._fw_prime_ticks += 1
+            if self._fw_prime_ticks >= 20:
+                if not self._set_mode_cli.service_is_ready():
+                    self.get_logger().warn("/mavros/set_mode 서비스 없음")
+                    return
+                req = SetMode.Request()
+                req.custom_mode = "OFFBOARD"
+                self._set_mode_cli.call_async(req)
+                self._fw_offboard_requested = True
+                self.get_logger().info("천이 전 MC OFFBOARD 요청 (헤딩 정렬 모드)")
+            return
+
+        # OFFBOARD keepalive (Phase 2, 3 공통)
+        self._setpoint.publish(vel_cmd)
+
+        # Phase 2: OFFBOARD 확인 + 헤딩 정렬
+        if self._current_mode != "OFFBOARD":
+            return  # OFFBOARD 미확인, 대기
+
+        if not self._fw_heading_aligned:
+            heading_err = abs(_wrap(chi_wp - state.yaw))
+            if heading_err < self._wp0_htol:
+                self._fw_heading_aligned = True
+                self.get_logger().info(
+                    f"헤딩 정렬 완료 err={heading_err:.3f} rad → 천이 명령 발행")
+            else:
+                self.get_logger().debug(f"헤딩 정렬 중 err={heading_err:.3f} rad")
+                return
+
+        # Phase 3: MC→FW 천이 명령 발행 (헤딩 정렬 완료 후 직선 천이)
         if not self._fw_transition_sent:
             if not self._cmd_cli.service_is_ready():
                 self.get_logger().warn("/mavros/cmd/command 서비스 없음")
@@ -353,7 +415,7 @@ class OffboardNode(Node):
             req.param1  = 4.0   # 목표 상태 FW(4)
             self._cmd_cli.call_async(req)
             self._fw_transition_sent = True
-            self.get_logger().info("MC->FW 천이 명령 요청")
+            self.get_logger().info("MC→FW 천이 명령 요청 (직선 천이)")
 
     # ── STREAMING ────────────────────────────────────────────
 

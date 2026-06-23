@@ -23,7 +23,7 @@ offboard_node:
 
     # TwistStamped frame_id — CC 환경의 MAVROS 버전에 따라 변경
     # "base_link" 또는 "local_origin"
-    cmd_vel_frame_id: "base_link"
+    cmd_vel_frame_id: "local_origin"
 
     # 경로 계획 (main() entry_point 전용)
     planner: "eta3"
