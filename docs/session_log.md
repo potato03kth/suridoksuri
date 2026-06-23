@@ -10,6 +10,43 @@ project: suridoksuri-1
 
 ---
 
+## 2026-06-24 — SITL-3 Bug 2 재수정 (MC yaw rate 헤딩 정렬)
+
+**브랜치:** `dev--vision-computing-module`  
+**목적:** 이전 세션 Bug 2 수정이 동작하지 않아 재수정 — MC OFFBOARD에서 yaw가 바뀌지 않는 근본 원인 해결
+
+### 완료
+
+- **Bug 2 초기 수정 실패 원인 확인** — velocity 세트포인트만으로는 PX4 MC가 yaw를 변경하지 않음 (MC 위치 제어기에서 yaw는 독립 축)
+- **`SetpointPublisher.publish(yaw_rate=0.0)` 파라미터 추가** — `fc_ros/fc_ros/adapters/setpoint_publisher.py`: `twist.angular.z` 활성화
+- **`_step_transition_fw` Phase 2 yaw rate P제어 추가**
+  - Phase 1: hover 세트포인트 20틱으로 OFFBOARD 프라이밍 (HOLD에서는 무시됨)
+  - Phase 2: MC OFFBOARD hover(`np.zeros(3)`) + yaw rate P제어(`-heading_err * 1.0`, 포화 ±1 rad/s)로 헤딩 정렬
+  - Phase 3: 헤딩 정렬 완료 → WP 방향 전진 + MC→FW 천이 명령
+  - Phase 4: vtol_state==FW 대기 → STREAMING
+- **`v_cruise` 임시 20.0 m/s** — terminal 속도 반영 확인용 (검증 후 복구 필요)
+- **메모리 저장** — `project_sitl_state.md` 업데이트, `feedback_px4_mc_offboard_yaw.md` 신규 작성
+- **pytest 25/25 PASS**
+
+### 결정
+
+- PX4 MC OFFBOARD에서 헤딩 정렬은 반드시 `twist.angular.z` yaw rate를 함께 보내야 한다 (velocity만으로는 불가)
+- yaw rate 부호 규칙: `heading_err` 양수(NED CW 필요) → ENU `angular.z` 음수 (`-heading_err`) — SITL에서 반전 가능성 있음
+
+### 다음 세션
+
+1. **WSL 재빌드** — `colcon build --packages-select fc_ros && source install/setup.bash`
+2. **SITL-3 재실행** — Bug 2 yaw 정렬 동작 확인 (드론이 WP 방향으로 회전 후 직선 천이하는지 관측)
+3. yaw_rate 부호 검증 — 반대로 돌면 `setpoint_publisher.py` 37번째 줄 `-heading_err` → `+heading_err` 수정
+4. terminal 속도 확인 완료 후 `v_cruise: 20.0` → `15.0` 복구
+
+### 주의
+
+> **`v_cruise: 20.0` 임시 변경 중** — `fc_ros/fc_ros/params/fc_ros_params.yaml` 복구 필요  
+> **yaw_rate 부호 SITL 미검증** — 드론이 WP 반대 방향으로 돌면 `setpoint_publisher.py:37`에서 부호 반전
+
+---
+
 ## 2026-06-20 — SITL-3 버그 3종 수정 (FW 천이·방향·추종)
 
 **브랜치:** `dev--vision-computing-module`  

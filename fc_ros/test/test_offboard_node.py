@@ -12,7 +12,7 @@ import pytest
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
-    override_mode,
+    override_mode, vel_aligned_with_path,
 )
 
 
@@ -160,3 +160,79 @@ def test_override_transition_to_fw():
 def test_override_transition_to_mc():
     # 천이 중(2)은 MC가 아니므로 MANUAL
     assert override_mode(2) == "MANUAL"
+
+
+# ── TRANSITION_FW 헤딩 안정 카운터 ───────────────────────────
+# offboard_node._fw_stable_ticks 카운터 로직을 미러링해 검증한다.
+
+def _heading_stable(err_history: list, tol: float, req_ticks: int) -> bool:
+    """최근 req_ticks 개가 전부 |err| < tol 이면 True."""
+    if len(err_history) < req_ticks:
+        return False
+    return all(abs(e) < tol for e in err_history[-req_ticks:])
+
+
+def test_heading_stable_after_req_ticks():
+    errors = [0.5, 0.3, 0.1, 0.08, 0.05]   # 마지막 3개가 0.2 이내
+    assert _heading_stable(errors, 0.2, 3) is True
+
+
+def test_heading_not_stable_insufficient_ticks():
+    errors = [0.1, 0.08]                    # 2개뿐, req=3
+    assert _heading_stable(errors, 0.2, 3) is False
+
+
+def test_heading_not_stable_oscillating():
+    errors = [0.05, 0.25, 0.05]             # 중간에 이탈
+    assert _heading_stable(errors, 0.2, 3) is False
+
+
+def test_heading_stable_reset_on_exceedance():
+    # 이탈 후 재진입: 이탈 직후 카운터 리셋되므로 다시 req_ticks 필요
+    errors = [0.05, 0.3, 0.05, 0.05, 0.05]
+    # 인덱스 1(0.3)이 이탈이므로 마지막 3개 [0.05, 0.05, 0.05]만 유효
+    assert _heading_stable(errors, 0.2, 3) is True
+
+
+# ── STREAMING 속도 정렬 판정 (vel_aligned_with_path) ────────────
+
+def test_vel_aligned_north():
+    vel = np.array([10.0, 0.0])             # 북쪽 속도
+    pts = np.array([[0.0, 0.0], [100.0, 0.0]])  # 북쪽 경로
+    assert vel_aligned_with_path(vel, pts) is True
+
+
+def test_vel_aligned_northeast():
+    vel = np.array([7.0, 7.0])              # 북동 45°
+    pts = np.array([[0.0, 0.0], [100.0, 100.0]])
+    assert vel_aligned_with_path(vel, pts) is True
+
+
+def test_vel_not_aligned_perpendicular():
+    vel = np.array([0.0, 10.0])             # 동쪽 속도, 경로는 북쪽
+    pts = np.array([[0.0, 0.0], [100.0, 0.0]])
+    assert vel_aligned_with_path(vel, pts) is False
+
+
+def test_vel_not_aligned_opposite():
+    vel = np.array([-10.0, 0.0])            # 남쪽 (역방향)
+    pts = np.array([[0.0, 0.0], [100.0, 0.0]])
+    assert vel_aligned_with_path(vel, pts) is False
+
+
+def test_vel_not_aligned_low_speed():
+    vel = np.array([0.5, 0.0])              # 속도 1.0 m/s 미만 → 방향 불신뢰
+    pts = np.array([[0.0, 0.0], [100.0, 0.0]])
+    assert vel_aligned_with_path(vel, pts) is False
+
+
+def test_vel_aligned_3d_ned():
+    vel3 = np.array([10.0, 0.0, -2.0])     # 3D NED — 처음 2원소만 사용
+    pts = np.array([[0.0, 0.0], [100.0, 0.0]])
+    assert vel_aligned_with_path(vel3, pts) is True
+
+
+def test_vel_aligned_single_point_path():
+    vel = np.array([5.0, 0.0])
+    pts = np.array([[0.0, 0.0]])            # WP 1개 → 방향 불명 → True 반환
+    assert vel_aligned_with_path(vel, pts) is True

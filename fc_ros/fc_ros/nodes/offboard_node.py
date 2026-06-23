@@ -29,7 +29,7 @@ from fc_bridge.guidance.l1_guidance import L1Guidance
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
-    override_mode,
+    override_mode, vel_aligned_with_path,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 import enum
@@ -58,6 +58,9 @@ def _wrap(a: float) -> float:
 
 VTOL_STATE_MC = 3
 VTOL_STATE_FW = 4
+
+# TRANSITION_FW 헤딩 정렬: 연속 안정 요구 틱 수
+_FW_STABLE_REQ = 5
 
 
 class _State(enum.Enum):
@@ -186,6 +189,7 @@ class OffboardNode(Node):
         self._fw_prime_ticks = 0     # OFFBOARD 프라이밍 틱 수
         self._fw_offboard_requested = False  # 천이 전 MC OFFBOARD 요청 여부
         self._fw_heading_aligned = False  # WP 방향 헤딩 정렬 완료 여부
+        self._fw_stable_ticks = 0        # 헤딩 오차가 허용 범위 내 연속 틱 수
         # TRANSITION_MC / LANDING 시퀀스 플래그
         self._mc_transition_sent = False
         self._landing_sent = False
@@ -274,11 +278,15 @@ class OffboardNode(Node):
             fwd_vel = np.array([seg[0] * v_fwd, seg[1] * v_fwd, 0.0])
             self._setpoint.publish(fwd_vel)
 
-            # 천이 전 MC OFFBOARD에서 유입된 경우: 이미 OFFBOARD → 즉시 전환
+            # OFFBOARD 확인: 속도 방향이 경로와 정렬(60° 이내)된 후에만 추종 진입.
+            # 헤딩 진동으로 방향이 틀어진 채 FW 천이가 완료된 경우 곡선 경로 방지.
             if self._current_mode == "OFFBOARD":
-                self.get_logger().info("OFFBOARD 확인 -> 경로 추종")
-                self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
-                            else _State.FOLLOWING)
+                if vel_aligned_with_path(state.vel_ned, self._pts):
+                    self.get_logger().info("OFFBOARD + 속도 정렬 확인 -> 경로 추종")
+                    self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
+                                else _State.FOLLOWING)
+                else:
+                    self.get_logger().debug("OFFBOARD 대기 중: 속도 방향 정렬 미달")
                 return
 
             # 폴백: OFFBOARD 미활성 상태에서 유입된 경우 20 tick 후 요청
@@ -287,11 +295,6 @@ class OffboardNode(Node):
                 self._request_offboard()
                 self._offboard_requested = True
                 self.get_logger().info("OFFBOARD 전환 요청 (폴백)")
-
-            if self._offboard_requested and self._current_mode == "OFFBOARD":
-                self.get_logger().info("OFFBOARD 전환 완료 -> 경로 추종")
-                self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
-                            else _State.FOLLOWING)
 
         elif self._sm == _State.ENTRY:
             if self._step_entry(state):
@@ -399,17 +402,30 @@ class OffboardNode(Node):
             return
 
         # Phase 2: MC OFFBOARD — hover + yaw rate P제어로 헤딩 정렬
+        # gain 0.3 rad/s per rad, 포화 ±0.5 rad/s.
+        # _FW_STABLE_REQ 틱 연속으로 |heading_err| < wp0_htol 이어야 Phase 3 진입.
+        # (P gain 1.0은 overshoot 후 진동을 유발함 — 0.3으로 낮추고 정착 확인)
         if not self._fw_heading_aligned:
             heading_err = _wrap(chi_wp - state.yaw)  # 부호 있는 오차 (NED)
             if abs(heading_err) < self._wp0_htol:
-                self._fw_heading_aligned = True
-                self.get_logger().info(
-                    f"헤딩 정렬 완료 err={heading_err:.3f} rad → 전진 + 천이 명령")
-                # fall-through to Phase 3
+                self._fw_stable_ticks += 1
+                self._setpoint.publish(np.zeros(3), yaw_rate=0.0)  # 회전 정지
+                if self._fw_stable_ticks >= _FW_STABLE_REQ:
+                    self._fw_heading_aligned = True
+                    self.get_logger().info(
+                        f"헤딩 정렬 완료 err={heading_err:.3f} rad "
+                        f"({_FW_STABLE_REQ}틱 안정) → 전진 + 천이 명령")
+                    # fall-through to Phase 3
+                else:
+                    self.get_logger().debug(
+                        f"헤딩 안정 대기 {self._fw_stable_ticks}/{_FW_STABLE_REQ} "
+                        f"err={heading_err:.3f} rad")
+                    return
             else:
-                # heading_err 양수(NED CW 필요) → ENU angular.z 음수(ENU CCW=양수이므로 반대)
-                # 부호 검증: 잘못 돌면 -1.0을 +1.0으로 바꿀 것
-                yaw_rate = float(np.clip(-heading_err * 1.0, -1.0, 1.0))
+                self._fw_stable_ticks = 0  # 이탈 시 카운터 초기화
+                # heading_err 양수(NED CW 필요) → ENU angular.z 음수
+                # 부호 검증: 잘못 돌면 -0.3을 +0.3으로 바꿀 것
+                yaw_rate = float(np.clip(-heading_err * 0.3, -0.5, 0.5))
                 self._setpoint.publish(np.zeros(3), yaw_rate=yaw_rate)
                 self.get_logger().debug(
                     f"헤딩 정렬 중 err={heading_err:.3f} rad yaw_rate={yaw_rate:.2f}")
