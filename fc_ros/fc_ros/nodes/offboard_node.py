@@ -18,6 +18,20 @@ MAVROS 토픽을 직접 구독해 TelemetryNode에 의존하지 않는다.
 판정 순수 함수: fc_bridge.execution.state_logic (rclpy 없이 테스트 가능).
 """
 from __future__ import annotations
+from fc_ros.adapters.setpoint_publisher import SetpointPublisher
+from fc_ros.adapters.vehicle_state_bridge import (
+    update_from_pose,
+    update_from_twist,
+    update_from_mavros_state,
+    update_from_extended_state,
+)
+from fc_bridge.guidance.l1_guidance import L1Guidance
+from fc_bridge.execution.state_logic import (
+    climbing_reached, vtol_is_fw,
+    trans_mc_trigger, vtol_is_mc, landing_done,
+    override_mode,
+)
+from fc_bridge.comm.vehicle_state import VehicleState
 import enum
 import threading
 
@@ -37,21 +51,6 @@ _MAVROS_QOS = QoSProfile(
     depth=10,
 )
 
-from fc_bridge.comm.vehicle_state import VehicleState
-from fc_bridge.execution.state_logic import (
-    climbing_reached, vtol_is_fw,
-    trans_mc_trigger, vtol_is_mc, landing_done,
-    override_mode,
-)
-from fc_bridge.guidance.l1_guidance import L1Guidance
-from fc_ros.adapters.vehicle_state_bridge import (
-    update_from_pose,
-    update_from_twist,
-    update_from_mavros_state,
-    update_from_extended_state,
-)
-from fc_ros.adapters.setpoint_publisher import SetpointPublisher
-
 
 def _wrap(a: float) -> float:
     return (a + np.pi) % (2 * np.pi) - np.pi
@@ -62,16 +61,16 @@ VTOL_STATE_FW = 4
 
 
 class _State(enum.Enum):
-    IDLE          = "idle"
-    ARM_TAKEOFF   = "arm_takeoff"
-    CLIMBING      = "climbing"
+    IDLE = "idle"
+    ARM_TAKEOFF = "arm_takeoff"
+    CLIMBING = "climbing"
     TRANSITION_FW = "transition_fw"
-    STREAMING     = "streaming"
-    ENTRY         = "entry"
-    FOLLOWING     = "following"
+    STREAMING = "streaming"
+    ENTRY = "entry"
+    FOLLOWING = "following"
     TRANSITION_MC = "transition_mc"
-    LANDING       = "landing"
-    DONE          = "done"
+    LANDING = "landing"
+    DONE = "done"
 
 
 class OffboardNode(Node):
@@ -115,34 +114,39 @@ class OffboardNode(Node):
         self.declare_parameter("landing_timeout",   60.0)
         self.declare_parameter("v_terminal",        15.2)
         self.declare_parameter("decel_dist",        80.0)
-        self.declare_parameter("waypoints",  [0.0, 0.0, 50.0, 100.0, 0.0, 50.0])
+        self.declare_parameter(
+            "waypoints",  [0.0, 0.0, 50.0, 100.0, 0.0, 50.0])
         self.declare_parameter("planner",    "eta3")
         self.declare_parameter("v_cruise",   15.0)
         self.declare_parameter("a_max_g",    0.3)
         self.declare_parameter("gravity",    9.81)
 
-        control_hz        = self.get_parameter("control_hz").value
-        self._dt          = 1.0 / max(control_hz, 2.0)
-        self._entry_mode  = self.get_parameter("entry_mode").value
-        self._wp0_r       = self.get_parameter("wp0_entry_radius").value
-        self._wp0_htol    = self.get_parameter("wp0_heading_tol").value
-        self._v_approach  = self.get_parameter("v_approach").value
-        self._a_max       = self.get_parameter("a_max").value
-        self._a_max_init  = self._a_max
+        control_hz = self.get_parameter("control_hz").value
+        self._dt = 1.0 / max(control_hz, 2.0)
+        self._entry_mode = self.get_parameter("entry_mode").value
+        self._wp0_r = self.get_parameter("wp0_entry_radius").value
+        self._wp0_htol = self.get_parameter("wp0_heading_tol").value
+        self._v_approach = self.get_parameter("v_approach").value
+        self._a_max = self.get_parameter("a_max").value
+        self._a_max_init = self._a_max
         self._stall_steps = int(self.get_parameter("error_stall_steps").value)
-        self._accel_red   = self.get_parameter("accel_reduction").value
-        self._accel_min   = self._a_max * self.get_parameter("accel_min_frac").value
-        frame_id          = self.get_parameter("cmd_vel_frame_id").value
-        self._transition_alt  = float(self.get_parameter("transition_alt").value)
-        self._d_end_thresh    = float(self.get_parameter("d_end_thresh").value)
-        self._landing_timeout = float(self.get_parameter("landing_timeout").value)
+        self._accel_red = self.get_parameter("accel_reduction").value
+        self._accel_min = self._a_max * \
+            self.get_parameter("accel_min_frac").value
+        frame_id = self.get_parameter("cmd_vel_frame_id").value
+        self._transition_alt = float(
+            self.get_parameter("transition_alt").value)
+        self._d_end_thresh = float(self.get_parameter("d_end_thresh").value)
+        self._landing_timeout = float(
+            self.get_parameter("landing_timeout").value)
 
         # ── 경로 계획 ─────────────────────────────────────────
         from fc_bridge.planning.planner_runner import run_planner
         from fc_bridge.planning.terminal_decel import apply_terminal_decel
 
-        raw_wps = np.array(self.get_parameter("waypoints").value, dtype=float).reshape(-1, 3)
-        planner_name   = self.get_parameter("planner").value
+        raw_wps = np.array(self.get_parameter(
+            "waypoints").value, dtype=float).reshape(-1, 3)
+        planner_name = self.get_parameter("planner").value
         vehicle_params = {
             "v_cruise": self.get_parameter("v_cruise").value,
             "a_max_g":  self.get_parameter("a_max_g").value,
@@ -151,40 +155,41 @@ class OffboardNode(Node):
         v_terminal = float(self.get_parameter("v_terminal").value)
         decel_dist = float(self.get_parameter("decel_dist").value)
 
-        path          = run_planner(planner_name, raw_wps, vehicle_params)
-        path_pts      = np.array([pt.pos[:2]   for pt in path.points])
-        v_profile     = np.array([pt.v_ref     for pt in path.points])
-        s_arc         = np.array([pt.s         for pt in path.points])
+        path = run_planner(planner_name, raw_wps, vehicle_params)
+        path_pts = np.array([pt.pos[:2] for pt in path.points])
+        v_profile = np.array([pt.v_ref for pt in path.points])
+        s_arc = np.array([pt.s for pt in path.points])
         gamma_profile = np.array([pt.gamma_ref for pt in path.points])
-        v_profile     = apply_terminal_decel(v_profile, s_arc, v_terminal, decel_dist)
+        v_profile = apply_terminal_decel(
+            v_profile, s_arc, v_terminal, decel_dist)
 
         # ── 경로 데이터 ──────────────────────────────────────
         self._pts = np.asarray(path_pts, dtype=float)
-        self._v   = np.asarray(v_profile, dtype=float)
+        self._v = np.asarray(v_profile, dtype=float)
         self._gamma = np.asarray(gamma_profile, dtype=float)
 
         # ── 내부 상태 ────────────────────────────────────────
         self._vehicle_state = VehicleState()
-        self._vs_lock       = threading.Lock()
-        self._guidance      = L1Guidance(
+        self._vs_lock = threading.Lock()
+        self._guidance = L1Guidance(
             self.get_parameter("l1_dist").value, self._pts, self._v)
-        self._sm            = _State.ARM_TAKEOFF
+        self._sm = _State.ARM_TAKEOFF
         self._prev_errors: list[float] = []
-        self._offboard_requested  = False
-        self._stream_ticks        = 0
-        self._current_mode        = ""
+        self._offboard_requested = False
+        self._stream_ticks = 0
+        self._current_mode = ""
         # ARM_TAKEOFF 시퀀스 플래그
-        self._arm_sent            = False
-        self._takeoff_sent        = False
+        self._arm_sent = False
+        self._takeoff_sent = False
         # TRANSITION_FW 시퀀스 플래그
-        self._fw_transition_sent  = False
-        self._fw_prime_ticks        = 0     # OFFBOARD 프라이밍 틱 수
-        self._fw_offboard_requested = False # 천이 전 MC OFFBOARD 요청 여부
-        self._fw_heading_aligned    = False # WP 방향 헤딩 정렬 완료 여부
+        self._fw_transition_sent = False
+        self._fw_prime_ticks = 0     # OFFBOARD 프라이밍 틱 수
+        self._fw_offboard_requested = False  # 천이 전 MC OFFBOARD 요청 여부
+        self._fw_heading_aligned = False  # WP 방향 헤딩 정렬 완료 여부
         # TRANSITION_MC / LANDING 시퀀스 플래그
-        self._mc_transition_sent    = False
-        self._landing_sent          = False
-        self._landing_elapsed       = 0.0
+        self._mc_transition_sent = False
+        self._landing_sent = False
+        self._landing_elapsed = 0.0
         self._landing_timeout_warned = False
 
         # ── MAVROS 토픽 구독 ─────────────────────────────────
@@ -212,10 +217,11 @@ class OffboardNode(Node):
         # ── 발행 / 서비스 ────────────────────────────────────
         pub = self.create_publisher(
             TwistStamped, "/mavros/setpoint_velocity/cmd_vel", 10)
-        self._setpoint      = SetpointPublisher(pub, frame_id=frame_id)
-        self._set_mode_cli  = self.create_client(SetMode,      "/mavros/set_mode")
-        self._arm_cli       = self.create_client(CommandBool,  "/mavros/cmd/arming")
-        self._cmd_cli       = self.create_client(CommandLong,  "/mavros/cmd/command")
+        self._setpoint = SetpointPublisher(pub, frame_id=frame_id)
+        self._set_mode_cli = self.create_client(
+            SetMode,      "/mavros/set_mode")
+        self._arm_cli = self.create_client(CommandBool,  "/mavros/cmd/arming")
+        self._cmd_cli = self.create_client(CommandLong,  "/mavros/cmd/command")
 
         # ── 제어 타이머 ──────────────────────────────────────
         self.create_timer(self._dt, self._control_callback)
@@ -350,9 +356,10 @@ class OffboardNode(Node):
         """
         헤딩 정렬 후 MC→FW 직선 천이.
 
-        Phase 1: MC+HOLD에서 OFFBOARD 프라이밍 (20 tick 세트포인트 발행)
-        Phase 2: OFFBOARD 확인 + WP 방향 헤딩 정렬
-        Phase 3: 헤딩 정렬 완료 → MC→FW 천이 명령
+        Phase 1: MC+HOLD에서 hover 세트포인트 20 tick → OFFBOARD 요청
+        Phase 2: MC OFFBOARD hover + yaw rate P제어로 WP 방향 헤딩 정렬
+                 (twist.angular.z 없으면 PX4 MC는 yaw를 바꾸지 않음)
+        Phase 3: 헤딩 정렬 완료 → WP 방향 전진 + MC→FW 천이 명령
         Phase 4: vtol_state==FW 대기 → STREAMING
         """
         # Phase 4: FW 전환 완료 확인
@@ -361,21 +368,19 @@ class OffboardNode(Node):
             self._sm = _State.STREAMING
             return
 
-        # 경로 시작 방향 (WP0→WP1 단위벡터)
+        # 경로 시작 방향 (WP0→WP1 단위벡터, NED)
         if len(self._pts) > 1:
             seg = self._pts[1] - self._pts[0]
             seg_norm = float(np.linalg.norm(seg))
             seg = seg / (seg_norm + 1e-9)
         else:
             seg = np.array([1.0, 0.0])
+        # chi_wp: NED 기준 (arctan2(E,N)), 0=North, 양수=East(CW)
         chi_wp = float(np.arctan2(seg[1], seg[0]))
 
-        v_align = float(self._v[0]) if len(self._v) > 0 else 15.0
-        vel_cmd = np.array([seg[0] * v_align, seg[1] * v_align, 0.0])
-
-        # Phase 1: OFFBOARD 프라이밍 (20 tick 동안 세트포인트 발행 후 요청)
+        # Phase 1: hover 세트포인트로 OFFBOARD 프라이밍 (HOLD 중에는 무시됨)
         if not self._fw_offboard_requested:
-            self._setpoint.publish(vel_cmd)
+            self._setpoint.publish(np.zeros(3))  # hover — 방향 무관
             self._fw_prime_ticks += 1
             if self._fw_prime_ticks >= 20:
                 if not self._set_mode_cli.service_is_ready():
@@ -385,34 +390,43 @@ class OffboardNode(Node):
                 req.custom_mode = "OFFBOARD"
                 self._set_mode_cli.call_async(req)
                 self._fw_offboard_requested = True
-                self.get_logger().info("천이 전 MC OFFBOARD 요청 (헤딩 정렬 모드)")
+                self.get_logger().info("천이 전 MC OFFBOARD 요청 (헤딩 정렬 대기)")
             return
 
-        # OFFBOARD keepalive (Phase 2, 3 공통)
-        self._setpoint.publish(vel_cmd)
-
-        # Phase 2: OFFBOARD 확인 + 헤딩 정렬
+        # OFFBOARD 미확인: keepalive 후 대기
         if self._current_mode != "OFFBOARD":
-            return  # OFFBOARD 미확인, 대기
+            self._setpoint.publish(np.zeros(3))
+            return
 
+        # Phase 2: MC OFFBOARD — hover + yaw rate P제어로 헤딩 정렬
         if not self._fw_heading_aligned:
-            heading_err = abs(_wrap(chi_wp - state.yaw))
-            if heading_err < self._wp0_htol:
+            heading_err = _wrap(chi_wp - state.yaw)  # 부호 있는 오차 (NED)
+            if abs(heading_err) < self._wp0_htol:
                 self._fw_heading_aligned = True
                 self.get_logger().info(
-                    f"헤딩 정렬 완료 err={heading_err:.3f} rad → 천이 명령 발행")
+                    f"헤딩 정렬 완료 err={heading_err:.3f} rad → 전진 + 천이 명령")
+                # fall-through to Phase 3
             else:
-                self.get_logger().debug(f"헤딩 정렬 중 err={heading_err:.3f} rad")
+                # heading_err 양수(NED CW 필요) → ENU angular.z 음수(ENU CCW=양수이므로 반대)
+                # 부호 검증: 잘못 돌면 -1.0을 +1.0으로 바꿀 것
+                yaw_rate = float(np.clip(-heading_err * 1.0, -1.0, 1.0))
+                self._setpoint.publish(np.zeros(3), yaw_rate=yaw_rate)
+                self.get_logger().debug(
+                    f"헤딩 정렬 중 err={heading_err:.3f} rad yaw_rate={yaw_rate:.2f}")
                 return
 
-        # Phase 3: MC→FW 천이 명령 발행 (헤딩 정렬 완료 후 직선 천이)
+        # Phase 3: 헤딩 정렬 완료 — WP 방향 전진 + 천이 명령
+        v_fwd = float(self._v[0]) if len(self._v) > 0 else 15.0
+        fwd_vel = np.array([seg[0] * v_fwd, seg[1] * v_fwd, 0.0])
+        self._setpoint.publish(fwd_vel)  # OFFBOARD keepalive + 전진
+
         if not self._fw_transition_sent:
             if not self._cmd_cli.service_is_ready():
                 self.get_logger().warn("/mavros/cmd/command 서비스 없음")
                 return
             req = CommandLong.Request()
             req.command = 3000   # MAV_CMD_DO_VTOL_TRANSITION
-            req.param1  = 4.0   # 목표 상태 FW(4)
+            req.param1 = 4.0   # 목표 상태 FW(4)
             self._cmd_cli.call_async(req)
             self._fw_transition_sent = True
             self.get_logger().info("MC→FW 천이 명령 요청 (직선 천이)")
@@ -464,7 +478,7 @@ class OffboardNode(Node):
                 return
             req = CommandLong.Request()
             req.command = 3000   # MAV_CMD_DO_VTOL_TRANSITION
-            req.param1  = 3.0   # 목표 상태 MC(3)
+            req.param1 = 3.0   # 목표 상태 MC(3)
             self._cmd_cli.call_async(req)
             self._mc_transition_sent = True
             self.get_logger().info("FW->MC 역천이 명령 요청")
@@ -499,7 +513,7 @@ class OffboardNode(Node):
 
     def _step_entry(self, state: VehicleState) -> bool:
         """WP0 방향 접근. 도달 + 헤딩 정렬 완료 시 True."""
-        wp0  = self._pts[0]
+        wp0 = self._pts[0]
         pos2 = state.pos_ned[:2]
         dist = float(np.linalg.norm(wp0 - pos2))
 
@@ -508,13 +522,13 @@ class OffboardNode(Node):
             to_wp0 = np.array([1.0, 0.0])
         to_wp0 /= np.linalg.norm(to_wp0)
 
-        chi_to_wp0  = float(np.arctan2(to_wp0[1], to_wp0[0]))
+        chi_to_wp0 = float(np.arctan2(to_wp0[1], to_wp0[0]))
         heading_err = abs(_wrap(chi_to_wp0 - state.yaw))
 
         if dist < self._wp0_r and heading_err < self._wp0_htol:
             return True
 
-        v_cmd   = min(self._v_approach, dist * 0.5)
+        v_cmd = min(self._v_approach, dist * 0.5)
         vel_cmd = np.array([v_cmd * to_wp0[0], v_cmd * to_wp0[1], 0.0])
         self._setpoint.publish(vel_cmd)
         return False
@@ -526,7 +540,7 @@ class OffboardNode(Node):
         pos = state.pos_ned
         vel = state.vel_ned
 
-        seg   = self._guidance.current_segment
+        seg = self._guidance.current_segment
         gamma = float(self._gamma[min(seg, len(self._gamma) - 1)])
 
         vel_cmd = self._guidance.ned_velocity_cmd(pos, vel, gamma_ref=gamma)
@@ -539,7 +553,7 @@ class OffboardNode(Node):
             self._prev_errors.pop(0)
             if len(self._prev_errors) >= self._stall_steps:
                 recent = self._prev_errors[-self._stall_steps // 2:]
-                older  = self._prev_errors[:self._stall_steps // 2]
+                older = self._prev_errors[:self._stall_steps // 2]
                 if np.mean(recent) >= np.mean(older) - 0.05:
                     self._a_max = max(self._a_max * self._accel_red,
                                       self._accel_min)
@@ -549,8 +563,8 @@ class OffboardNode(Node):
 
         self._setpoint.publish(vel_cmd)
 
-        last_pt      = self._pts[-1]
-        dist_to_end  = float(np.linalg.norm(pos[:2] - last_pt))
+        last_pt = self._pts[-1]
+        dist_to_end = float(np.linalg.norm(pos[:2] - last_pt))
         return trans_mc_trigger(dist_to_end, self._d_end_thresh)
 
 
