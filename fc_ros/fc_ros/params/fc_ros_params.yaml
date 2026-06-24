@@ -12,7 +12,7 @@ offboard_node:
 
     # mid_flight WP0 진입 기준
     wp0_entry_radius: 5.0     # WP0 도달 판정 반경 (m)
-    wp0_heading_tol: 0.2      # 헤딩 허용 오차 (rad)
+    wp0_heading_tol: 0.05     # 헤딩 허용 오차 (rad) ≈ 2.9°
     v_approach: 5.0           # ENTRY 접근 속도 (m/s)
 
     # 가속도 제한 및 적응 감소

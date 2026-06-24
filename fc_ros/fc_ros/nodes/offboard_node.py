@@ -29,7 +29,7 @@ from fc_bridge.guidance.l1_guidance import L1Guidance
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
-    override_mode,
+    override_mode, vel_aligned_with_path,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 import enum
@@ -180,6 +180,7 @@ class OffboardNode(Node):
         self._prev_errors: list[float] = []
         self._offboard_requested = False
         self._stream_ticks = 0
+        self._follow_ticks = 0
         self._current_mode = ""
         # ARM_TAKEOFF 시퀀스 플래그
         self._arm_sent = False
@@ -277,9 +278,18 @@ class OffboardNode(Node):
             self._setpoint.publish(vel_cmd)
 
             if self._current_mode == "OFFBOARD":
-                self.get_logger().info("OFFBOARD 확인 → L1 위치 기반 추종")
-                self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
-                            else _State.FOLLOWING)
+                # FW 천이 후 헤딩 드리프트 보정 대기: 실제 속도 방향이
+                # 경로 15° 이내 정렬될 때 FOLLOWING 진입 (cos 0.966 ≈ 15°).
+                # L1이 매 틱 경로 방향 속도를 명령하므로 FW가 전환하는 동안 대기.
+                if vel_aligned_with_path(state.vel_ned, self._pts, cos_thresh=0.966):
+                    self.get_logger().info("OFFBOARD + 속도 정렬(15°) → FOLLOWING")
+                    self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
+                                else _State.FOLLOWING)
+                else:
+                    chi_v = float(np.degrees(
+                        np.arctan2(state.vel_ned[1], state.vel_ned[0])))
+                    self.get_logger().debug(
+                        f"속도 정렬 대기 vel_heading={chi_v:.1f}°")
                 return
 
             # 폴백: OFFBOARD 미활성 상태에서 20 tick 후 재요청
@@ -402,7 +412,10 @@ class OffboardNode(Node):
             heading_err = _wrap(chi_wp - state.yaw)  # 부호 있는 오차 (NED)
             if abs(heading_err) < self._wp0_htol:
                 self._fw_stable_ticks += 1
-                self._setpoint.publish(np.zeros(3), yaw_rate=0.0)  # 회전 정지
+                # yaw_rate=0 으로 멈추면 잔류 오차(~11°)에서 고착됨.
+                # 안정 구간에서도 소량 P제어를 유지해 0° 쪽으로 계속 수렴.
+                yaw_rate_fine = float(np.clip(-heading_err * 0.1, -0.1, 0.1))
+                self._setpoint.publish(np.zeros(3), yaw_rate=yaw_rate_fine)
                 if self._fw_stable_ticks >= _FW_STABLE_REQ:
                     self._fw_heading_aligned = True
                     self.get_logger().info(
@@ -555,10 +568,33 @@ class OffboardNode(Node):
         seg = self._guidance.current_segment
         gamma = float(self._gamma[min(seg, len(self._gamma) - 1)])
 
-        vel_cmd = self._guidance.ned_velocity_cmd(pos, vel, gamma_ref=gamma)
+        chi_cmd, v_cmd, cte = self._guidance.compute(pos, vel)
+        vel_cmd = np.array([
+            v_cmd * np.cos(chi_cmd),
+            v_cmd * np.sin(chi_cmd),
+            -v_cmd * np.sin(gamma),
+        ])
+
+        # 진입 첫 틱 및 20틱마다 진단 로그 (L1 작동 여부 / OFFBOARD 유지 확인)
+        if self._follow_ticks == 0:
+            self.get_logger().info(
+                f"FOLLOWING 시작 pos=[{pos[0]:.1f},{pos[1]:.1f}] "
+                f"chi={np.degrees(chi_cmd):.1f}° cte={cte:.1f}m "
+                f"mode={self._current_mode}")
+        self._follow_ticks += 1
+        if self._follow_ticks % 20 == 0:
+            self.get_logger().info(
+                f"FOLLOWING tick={self._follow_ticks} "
+                f"mode={self._current_mode} "
+                f"chi={np.degrees(chi_cmd):.1f}° "
+                f"cte={cte:.1f}m "
+                f"pos=[{pos[0]:.1f},{pos[1]:.1f}]")
+        if self._current_mode != "OFFBOARD":
+            self.get_logger().warn(
+                f"FOLLOWING 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})")
+            self._request_offboard()
 
         # 오차 추적 및 a_max 적응 감소 (OffboardFollower 로직 그대로 이식)
-        _, _, cte = self._guidance.compute(pos, vel)
         cross_err = abs(cte)
         self._prev_errors.append(cross_err)
         if len(self._prev_errors) > self._stall_steps:
@@ -578,6 +614,7 @@ class OffboardNode(Node):
         last_pt = self._pts[-1]
         dist_to_end = float(np.linalg.norm(pos[:2] - last_pt))
         return trans_mc_trigger(dist_to_end, self._d_end_thresh)
+
 
 
 def main(args=None):
