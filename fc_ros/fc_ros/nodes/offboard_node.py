@@ -384,6 +384,26 @@ class OffboardNode(Node):
         # chi_wp: NED 기준 (arctan2(E,N)), 0=North, 양수=East(CW)
         chi_wp = float(np.arctan2(seg[1], seg[0]))
 
+        # Phase "ACTIVE TRANSITION": 천이 명령 발행 완료 → vtol_state==FW 대기 구간
+        # OFFBOARD 이탈 여부와 무관하게 항상 전진 + 헤딩 유지 명령 발행.
+        # 기존 "OFFBOARD 미확인 → zeros 후 return" 분기에 걸려 방향 명령이 끊기는 버그를 막는다.
+        if self._fw_heading_aligned and self._fw_transition_sent:
+            heading_err = _wrap(chi_wp - state.yaw)
+            yaw_rate_hold = float(np.clip(-heading_err * 0.5, -0.5, 0.5))
+            v_fwd = float(self._v[0]) if len(self._v) > 0 else 15.0
+            fwd_vel = np.array([seg[0] * v_fwd, seg[1] * v_fwd, 0.0])
+            self._setpoint.publish(fwd_vel, yaw_rate=yaw_rate_hold)
+            if self._current_mode != "OFFBOARD":
+                self._request_offboard()
+                self.get_logger().warn(
+                    f"천이 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode}) "
+                    f"heading_err={np.degrees(heading_err):.1f}°")
+            else:
+                self.get_logger().debug(
+                    f"천이 진행 중 heading_err={np.degrees(heading_err):.1f}° "
+                    f"yaw_rate_hold={yaw_rate_hold:.2f}")
+            return
+
         # Phase 1: hover 세트포인트로 OFFBOARD 프라이밍 (HOLD 중에는 무시됨)
         if not self._fw_offboard_requested:
             self._setpoint.publish(np.zeros(3))  # hover — 방향 무관
