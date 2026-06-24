@@ -95,3 +95,50 @@ def test_path_end_does_not_crash():
     )
     assert np.isfinite(chi_cmd)
     assert np.isfinite(v_cmd)
+
+
+# ── FW 위치 setpoint lookahead (target_point_ned) ────────────────
+# FW 오프보드는 위치 setpoint만 추종하므로, 이 목표점이 경로 위 전방에
+# 위치해야 직선 추종이 된다. (목표점이 잘못되면 SITL에서 flower-pattern 발생)
+
+def test_target_point_ahead_on_path():
+    """경로 위에서 lookahead 만큼 전방의 점을 경로 위에 반환."""
+    pts, v = _straight_path(length=200.0, n=200, direction="north")
+    guide = L1Guidance(l1_dist=20.0, path_pts=pts, v_profile=v)
+    tgt = guide.target_point_ned(np.array([50.0, 0.0, 30.0]), lookahead=70.0)
+    assert tgt.shape == (2,)
+    assert tgt[0] == pytest.approx(120.0, abs=2.0)   # N=50 → 70m 전방
+    assert abs(tgt[1]) < 0.5                          # 경로(E=0) 위
+
+
+def test_target_point_clamps_to_path_end():
+    """lookahead가 경로 끝을 넘으면 끝점으로 클램프."""
+    pts, v = _straight_path(length=100.0, n=100, direction="north")
+    guide = L1Guidance(l1_dist=20.0, path_pts=pts, v_profile=v)
+    tgt = guide.target_point_ned(np.array([60.0, 0.0, 30.0]), lookahead=70.0)
+    assert tgt[0] == pytest.approx(100.0, abs=1.0)   # 60+70=130 > 100 → 끝점
+    assert abs(tgt[1]) < 0.5
+
+
+def test_target_point_pulls_back_to_path_when_offset():
+    """경로에서 옆으로 벗어나도 목표점은 경로 위(전방)에 놓인다.
+
+    이것이 FW를 경로로 복귀시키는 핵심 — 목표가 현재 진행방향이 아닌
+    경로 위에 있어야 GPS 경로를 따라간다."""
+    pts, v = _straight_path(length=200.0, n=200, direction="north")
+    guide = L1Guidance(l1_dist=20.0, path_pts=pts, v_profile=v)
+    # 경로(N축)에서 동쪽 30m 벗어남
+    tgt = guide.target_point_ned(np.array([50.0, 30.0, 30.0]), lookahead=70.0)
+    assert abs(tgt[1]) < 1.0     # 목표는 경로 위(E≈0), 현재 E=30 이 아님
+    assert tgt[0] > 50.0         # 전방(북)
+
+
+def test_target_point_lookahead_exceeds_turn_radius():
+    """기본 _FW_LOOKAHEAD(70m)는 선회반경(~37m)보다 커야 한다(orbit 방지)."""
+    pts, v = _straight_path(length=300.0, n=300, direction="north")
+    guide = L1Guidance(l1_dist=20.0, path_pts=pts, v_profile=v)
+    pos = np.array([50.0, 0.0, 30.0])
+    tgt = guide.target_point_ned(pos, lookahead=70.0)
+    dist = float(np.linalg.norm(tgt - pos[:2]))
+    assert dist == pytest.approx(70.0, abs=2.0)
+    assert dist > 37.0

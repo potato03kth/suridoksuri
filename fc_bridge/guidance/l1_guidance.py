@@ -147,6 +147,33 @@ class L1Guidance:
         vD = -v_cmd * np.sin(gamma_ref)   # D축은 아래가 양수
         return np.array([vN, vE, vD])
 
+    def target_point_ned(self,
+                         pos_ned: np.ndarray,
+                         lookahead: float,
+                         ) -> np.ndarray:
+        """현재 위치에서 경로를 따라 lookahead(m) 전방의 위치 [N, E]를 반환.
+
+        FW 오프보드는 위치 setpoint만 추종하므로, 이 점을 위치 목표로 발행한다.
+        lookahead는 기체 선회반경보다 충분히 커야(목표점을 반경 밖에 둬야) FW가
+        목표점을 orbit하는 flower-pattern을 피한다.
+
+        Parameters
+        ----------
+        pos_ned : np.ndarray, shape (3,) or (2,)
+            현재 위치 [N, E, (h)].
+        lookahead : float
+            경로 투영점으로부터의 전방 거리 (m).
+
+        Returns
+        -------
+        np.ndarray, shape (2,)  [N, E]
+        """
+        p2 = np.asarray(pos_ned[:2], dtype=float)
+        seg = self._find_segment(p2)
+        self._seg_idx = seg
+        lh_pt, _ = self._lookahead_point(p2, seg, lookahead)
+        return lh_pt.copy()
+
     @property
     def current_segment(self) -> int:
         return self._seg_idx
@@ -183,12 +210,14 @@ class L1Guidance:
     def _lookahead_point(self,
                          p2: np.ndarray,
                          start_seg: int,
+                         dist: float | None = None,
                          ) -> tuple[np.ndarray, int]:
         """
-        start_seg 이후 경로 위에서 p2로부터 L1 거리만큼 떨어진 점을 반환.
+        start_seg 이후 경로 위에서 p2의 투영점으로부터 dist(기본 L1)만큼
+        전방의 점을 반환.
         """
         N = len(self._pts)
-        remain = self._l1
+        remain = self._l1 if dist is None else float(dist)
 
         for i in range(start_seg, N - 1):
             a = self._pts[i]

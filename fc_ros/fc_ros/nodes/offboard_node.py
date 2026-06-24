@@ -29,7 +29,7 @@ from fc_bridge.guidance.l1_guidance import L1Guidance
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
-    override_mode, vel_aligned_with_path,
+    override_mode,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 import enum
@@ -61,6 +61,11 @@ VTOL_STATE_FW = 4
 
 # TRANSITION_FW 헤딩 정렬: 연속 안정 요구 틱 수
 _FW_STABLE_REQ = 20
+
+# FW 위치 setpoint lookahead 거리 (m).
+# PX4 FW 오프보드는 속도 setpoint를 무시하고 위치만 추종한다(미달 시 flower-pattern 선회).
+# 목표점을 선회반경(SITL 로그상 ~37m)보다 충분히 멀리 둬 FW가 목표점을 orbit하지 않게 한다.
+_FW_LOOKAHEAD = 70.0
 
 
 class _State(enum.Enum):
@@ -170,6 +175,8 @@ class OffboardNode(Node):
         self._pts = np.asarray(path_pts, dtype=float)
         self._v = np.asarray(v_profile, dtype=float)
         self._gamma = np.asarray(gamma_profile, dtype=float)
+        # FW 위치 setpoint 순항 고도 (h_up, 양수=위). WP 고도 사용.
+        self._cruise_alt = float(raw_wps[-1, 2])
 
         # ── 내부 상태 ────────────────────────────────────────
         self._vehicle_state = VehicleState()
@@ -223,6 +230,9 @@ class OffboardNode(Node):
         pub = self.create_publisher(
             TwistStamped, "/mavros/setpoint_velocity/cmd_vel", 10)
         self._setpoint = SetpointPublisher(pub, frame_id=frame_id)
+        # FW 구간 위치 setpoint (PoseStamped, ENU). MC 속도 setpoint와 별개 채널.
+        self._pos_pub = self.create_publisher(
+            PoseStamped, "/mavros/setpoint_position/local", _MAVROS_QOS)
         self._set_mode_cli = self.create_client(
             SetMode,      "/mavros/set_mode")
         self._arm_cli = self.create_client(CommandBool,  "/mavros/cmd/arming")
@@ -269,27 +279,16 @@ class OffboardNode(Node):
             self._step_transition_fw(state)
 
         elif self._sm == _State.STREAMING:
-            # FW 천이 직후부터 L1 guidance 적용.
-            # 고정 방향 명령 대신 현재 위치 기반 속도 명령 → 천이 후 헤딩 드리프트 즉시 보정.
-            seg_i = min(self._guidance.current_segment, len(self._gamma) - 1)
-            gamma = float(self._gamma[seg_i])
-            vel_cmd = self._guidance.ned_velocity_cmd(
-                state.pos_ned, state.vel_ned, gamma_ref=gamma)
-            self._setpoint.publish(vel_cmd)
+            # FW 위치 setpoint로 lookahead 추종 (속도 setpoint는 FW가 무시 → flower-pattern).
+            tgt = self._guidance.target_point_ned(state.pos_ned, _FW_LOOKAHEAD)
+            self._publish_pos_setpoint(
+                np.array([tgt[0], tgt[1], self._cruise_alt]))
 
             if self._current_mode == "OFFBOARD":
-                # FW 천이 후 헤딩 드리프트 보정 대기: 실제 속도 방향이
-                # 경로 15° 이내 정렬될 때 FOLLOWING 진입 (cos 0.966 ≈ 15°).
-                # L1이 매 틱 경로 방향 속도를 명령하므로 FW가 전환하는 동안 대기.
-                if vel_aligned_with_path(state.vel_ned, self._pts, cos_thresh=0.966):
-                    self.get_logger().info("OFFBOARD + 속도 정렬(15°) → FOLLOWING")
-                    self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
-                                else _State.FOLLOWING)
-                else:
-                    chi_v = float(np.degrees(
-                        np.arctan2(state.vel_ned[1], state.vel_ned[0])))
-                    self.get_logger().debug(
-                        f"속도 정렬 대기 vel_heading={chi_v:.1f}°")
+                self.get_logger().info("OFFBOARD 확인 → FOLLOWING")
+                self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
+                            else _State.FOLLOWING)
+                self._follow_ticks = 0
                 return
 
             # 폴백: OFFBOARD 미활성 상태에서 20 tick 후 재요청
@@ -384,24 +383,16 @@ class OffboardNode(Node):
         # chi_wp: NED 기준 (arctan2(E,N)), 0=North, 양수=East(CW)
         chi_wp = float(np.arctan2(seg[1], seg[0]))
 
-        # Phase "ACTIVE TRANSITION": 천이 명령 발행 완료 → vtol_state==FW 대기 구간
-        # OFFBOARD 이탈 여부와 무관하게 항상 전진 + 헤딩 유지 명령 발행.
-        # 기존 "OFFBOARD 미확인 → zeros 후 return" 분기에 걸려 방향 명령이 끊기는 버그를 막는다.
+        # Phase "ACTIVE TRANSITION": 천이 명령 발행 완료 → vtol_state==FW 대기 구간.
+        # FW는 속도 setpoint를 무시하므로(꽃잎 선회) WP1을 위치 setpoint로 발행한다.
+        # OFFBOARD 이탈 여부와 무관하게 위치 명령을 끊지 않는다.
         if self._fw_heading_aligned and self._fw_transition_sent:
-            heading_err = _wrap(chi_wp - state.yaw)
-            yaw_rate_hold = float(np.clip(-heading_err * 0.5, -0.5, 0.5))
-            v_fwd = float(self._v[0]) if len(self._v) > 0 else 15.0
-            fwd_vel = np.array([seg[0] * v_fwd, seg[1] * v_fwd, 0.0])
-            self._setpoint.publish(fwd_vel, yaw_rate=yaw_rate_hold)
+            self._publish_pos_setpoint(
+                np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]))
             if self._current_mode != "OFFBOARD":
                 self._request_offboard()
                 self.get_logger().warn(
-                    f"천이 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode}) "
-                    f"heading_err={np.degrees(heading_err):.1f}°")
-            else:
-                self.get_logger().debug(
-                    f"천이 진행 중 heading_err={np.degrees(heading_err):.1f}° "
-                    f"yaw_rate_hold={yaw_rate_hold:.2f}")
+                    f"천이 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})")
             return
 
         # Phase 1: hover 세트포인트로 OFFBOARD 프라이밍 (HOLD 중에는 무시됨)
@@ -460,10 +451,11 @@ class OffboardNode(Node):
                     f"헤딩 정렬 중 err={heading_err:.3f} rad yaw_rate={yaw_rate:.2f}")
                 return
 
-        # Phase 3: 헤딩 정렬 완료 — WP 방향 전진 + 천이 명령
-        v_fwd = float(self._v[0]) if len(self._v) > 0 else 15.0
-        fwd_vel = np.array([seg[0] * v_fwd, seg[1] * v_fwd, 0.0])
-        self._setpoint.publish(fwd_vel)  # OFFBOARD keepalive + 전진
+        # Phase 3: 헤딩 정렬 완료 — WP1 위치 setpoint(직선) + 천이 명령.
+        # 위치 setpoint는 MC·FW 양쪽에서 작동: MC가 WP1 방향으로 가속하며 전이 →
+        # FW가 동일 위치 setpoint로 직선 추종한다. (사전가속 불필요)
+        self._publish_pos_setpoint(
+            np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]))
 
         if not self._fw_transition_sent:
             if not self._cmd_cli.service_is_ready():
@@ -474,9 +466,23 @@ class OffboardNode(Node):
             req.param1 = 4.0   # 목표 상태 FW(4)
             self._cmd_cli.call_async(req)
             self._fw_transition_sent = True
-            self.get_logger().info("MC→FW 천이 명령 요청 (직선 천이)")
+            self.get_logger().info("MC→FW 천이 명령 요청 (위치 setpoint 직선 천이)")
 
     # ── STREAMING ────────────────────────────────────────────
+
+    def _publish_pos_setpoint(self, pos_ned: np.ndarray) -> None:
+        """NED [N, E, h_up] → ENU PoseStamped 발행 (/mavros/setpoint_position/local).
+
+        PX4 FW 오프보드는 위치 setpoint만 추종한다(속도/가속도 무시). PoseStamped는
+        MAVROS가 위치 type_mask를 설정하므로 flower-pattern 선회를 피한다.
+        local_position/pose와 동일 프레임이므로 GPS(EKF) 기준 경로를 따른다.
+        """
+        msg = PoseStamped()
+        msg.header.frame_id = "map"               # LOCAL_NED ↔ ENU world 프레임
+        msg.pose.position.x = float(pos_ned[1])   # E → x_enu
+        msg.pose.position.y = float(pos_ned[0])   # N → y_enu
+        msg.pose.position.z = float(pos_ned[2])   # h_up = z_enu
+        self._pos_pub.publish(msg)
 
     def _request_offboard(self) -> None:
         if not self._set_mode_cli.service_is_ready():
@@ -581,55 +587,36 @@ class OffboardNode(Node):
     # ── FOLLOWING ────────────────────────────────────────────
 
     def _step_following(self, state: VehicleState) -> bool:
-        """L1 guidance 경로 추종. 경로 끝 도달 시 True."""
+        """FW 위치 setpoint 경로 추종. 경로 끝 도달 시 True.
+
+        FW는 위치 setpoint만 추종하므로 lookahead 위치를 발행한다.
+        속도는 PX4 TECS가, 고도는 위치 setpoint z가 제어한다.
+        cte는 진단용으로만 계산(조향엔 미사용).
+        """
         pos = state.pos_ned
-        vel = state.vel_ned
 
-        seg = self._guidance.current_segment
-        gamma = float(self._gamma[min(seg, len(self._gamma) - 1)])
+        tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)
+        _, _, cte = self._guidance.compute(pos, state.vel_ned)  # 진단용 cte
+        self._publish_pos_setpoint(np.array([tgt[0], tgt[1], self._cruise_alt]))
 
-        chi_cmd, v_cmd, cte = self._guidance.compute(pos, vel)
-        vel_cmd = np.array([
-            v_cmd * np.cos(chi_cmd),
-            v_cmd * np.sin(chi_cmd),
-            -v_cmd * np.sin(gamma),
-        ])
-
-        # 진입 첫 틱 및 20틱마다 진단 로그 (L1 작동 여부 / OFFBOARD 유지 확인)
+        # 진입 첫 틱 및 20틱마다 진단 로그 (경로 추종 / OFFBOARD 유지 확인)
         if self._follow_ticks == 0:
             self.get_logger().info(
                 f"FOLLOWING 시작 pos=[{pos[0]:.1f},{pos[1]:.1f}] "
-                f"chi={np.degrees(chi_cmd):.1f}° cte={cte:.1f}m "
+                f"tgt=[{tgt[0]:.1f},{tgt[1]:.1f}] cte={cte:.1f}m "
                 f"mode={self._current_mode}")
         self._follow_ticks += 1
         if self._follow_ticks % 20 == 0:
             self.get_logger().info(
                 f"FOLLOWING tick={self._follow_ticks} "
                 f"mode={self._current_mode} "
-                f"chi={np.degrees(chi_cmd):.1f}° "
                 f"cte={cte:.1f}m "
-                f"pos=[{pos[0]:.1f},{pos[1]:.1f}]")
+                f"pos=[{pos[0]:.1f},{pos[1]:.1f}] "
+                f"tgt=[{tgt[0]:.1f},{tgt[1]:.1f}]")
         if self._current_mode != "OFFBOARD":
             self.get_logger().warn(
                 f"FOLLOWING 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})")
             self._request_offboard()
-
-        # 오차 추적 및 a_max 적응 감소 (OffboardFollower 로직 그대로 이식)
-        cross_err = abs(cte)
-        self._prev_errors.append(cross_err)
-        if len(self._prev_errors) > self._stall_steps:
-            self._prev_errors.pop(0)
-            if len(self._prev_errors) >= self._stall_steps:
-                recent = self._prev_errors[-self._stall_steps // 2:]
-                older = self._prev_errors[:self._stall_steps // 2]
-                if np.mean(recent) >= np.mean(older) - 0.05:
-                    self._a_max = max(self._a_max * self._accel_red,
-                                      self._accel_min)
-                    self.get_logger().debug(
-                        f"오차 정체 → a_max={self._a_max:.2f}")
-                    self._prev_errors.clear()
-
-        self._setpoint.publish(vel_cmd)
 
         last_pt = self._pts[-1]
         dist_to_end = float(np.linalg.norm(pos[:2] - last_pt))
