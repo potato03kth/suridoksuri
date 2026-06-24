@@ -29,7 +29,7 @@ from fc_bridge.guidance.l1_guidance import L1Guidance
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
-    override_mode, vel_aligned_with_path,
+    override_mode,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 import enum
@@ -268,28 +268,21 @@ class OffboardNode(Node):
             self._step_transition_fw(state)
 
         elif self._sm == _State.STREAMING:
-            # FW 상태이므로 속도 0 금지 — 첫 WP 방향 전진 세트포인트 발행
-            if len(self._pts) > 1:
-                seg = self._pts[1] - self._pts[0]
-                seg /= (float(np.linalg.norm(seg)) + 1e-9)
-            else:
-                seg = np.array([1.0, 0.0])
-            v_fwd = float(self._v[0]) if len(self._v) > 0 else 15.0
-            fwd_vel = np.array([seg[0] * v_fwd, seg[1] * v_fwd, 0.0])
-            self._setpoint.publish(fwd_vel)
+            # FW 천이 직후부터 L1 guidance 적용.
+            # 고정 방향 명령 대신 현재 위치 기반 속도 명령 → 천이 후 헤딩 드리프트 즉시 보정.
+            seg_i = min(self._guidance.current_segment, len(self._gamma) - 1)
+            gamma = float(self._gamma[seg_i])
+            vel_cmd = self._guidance.ned_velocity_cmd(
+                state.pos_ned, state.vel_ned, gamma_ref=gamma)
+            self._setpoint.publish(vel_cmd)
 
-            # OFFBOARD 확인: 속도 방향이 경로와 정렬(60° 이내)된 후에만 추종 진입.
-            # 헤딩 진동으로 방향이 틀어진 채 FW 천이가 완료된 경우 곡선 경로 방지.
             if self._current_mode == "OFFBOARD":
-                if vel_aligned_with_path(state.vel_ned, self._pts):
-                    self.get_logger().info("OFFBOARD + 속도 정렬 확인 -> 경로 추종")
-                    self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
-                                else _State.FOLLOWING)
-                else:
-                    self.get_logger().debug("OFFBOARD 대기 중: 속도 방향 정렬 미달")
+                self.get_logger().info("OFFBOARD 확인 → L1 위치 기반 추종")
+                self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
+                            else _State.FOLLOWING)
                 return
 
-            # 폴백: OFFBOARD 미활성 상태에서 유입된 경우 20 tick 후 요청
+            # 폴백: OFFBOARD 미활성 상태에서 20 tick 후 재요청
             self._stream_ticks += 1
             if self._stream_ticks == 20 and not self._offboard_requested:
                 self._request_offboard()
@@ -413,7 +406,10 @@ class OffboardNode(Node):
                 if self._fw_stable_ticks >= _FW_STABLE_REQ:
                     self._fw_heading_aligned = True
                     self.get_logger().info(
-                        f"헤딩 정렬 완료 err={heading_err:.3f} rad "
+                        f"헤딩 정렬 완료 "
+                        f"target={np.degrees(chi_wp):.1f}° "
+                        f"current={np.degrees(state.yaw):.1f}° "
+                        f"err={np.degrees(heading_err):.1f}° "
                         f"({_FW_STABLE_REQ}틱 안정) → 전진 + 천이 명령")
                     # fall-through to Phase 3
                 else:
