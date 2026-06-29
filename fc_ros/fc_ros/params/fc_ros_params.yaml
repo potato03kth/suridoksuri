@@ -28,7 +28,7 @@ offboard_node:
     # 경로 계획 (main() entry_point 전용)
     planner: "eta3"
     # ROS2 파라미터는 중첩 리스트 불가 → flat 1D, 코드에서 reshape(-1, 3)
-    waypoints: [0.0, 0.0, 50.0, 100.0, 0.0, 50.0]
+    waypoints: [0.0, 0.0, 50.0, 300.0, 0.0, 50.0]
 
     # 기체 파라미터
     v_cruise: 20.0            # m/s  (임시: terminal 속도 반영 확인용)
@@ -45,4 +45,4 @@ offboard_node:
 mission_node:
   ros__parameters:
     # ROS2 파라미터는 중첩 리스트 불가 → flat 1D, 코드에서 reshape(-1, 3)
-    waypoints: [0.0, 0.0, 50.0, 100.0, 0.0, 50.0]
+    waypoints: [0.0, 0.0, 50.0, 300.0, 0.0, 50.0]
