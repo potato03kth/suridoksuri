@@ -58,3 +58,17 @@ def vel_aligned_with_path(
     if seg_norm < 1e-9:
         return True
     return float(np.dot(vel2 / speed, seg / seg_norm)) > cos_thresh
+
+
+def wp1_land_ready(
+    dist: float,
+    speed: float,
+    radius: float,
+    speed_thresh: float,
+) -> bool:
+    """WP1 착륙 준비 판정: 수평거리 < radius 이고 수평속도 < speed_thresh.
+
+    역천이 오버슈트 후 MC로 WP1에 복귀해 충분히 정착했는지 확인한다.
+    (경계값은 strict < 이므로 미트리거)
+    """
+    return dist < radius and speed < speed_thresh

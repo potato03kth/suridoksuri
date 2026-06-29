@@ -10,7 +10,8 @@ OffboardNode: create_timer 기반 상태머신으로 Offboard 경로 추종.
   STREAMING     : FW 더미 세트포인트(전진속도) 발행 후 OFFBOARD 전환 요청
   ENTRY         : entry_mode="mid_flight" 시에만 통과; WP0 진입 + 헤딩 정렬 대기
   FOLLOWING     : L1Guidance 기반 경로 추종
-  TRANSITION_MC : FW→MC 역천이 명령 + vtol_state==MC 대기
+  TRANSITION_MC : FW→MC 역천이 명령 + vtol_state==MC 대기 (직선 감속)
+  HOLD          : MC로 WP1 복귀·홀드 → 도달+안정 시 LANDING (WP1 지점 착륙)
   LANDING       : AUTO.LAND 명령 + disarmed 대기
   DONE          : 착륙 완료 (타이머 계속 동작, 속도=0 유지)
 
@@ -29,7 +30,7 @@ from fc_bridge.guidance.l1_guidance import L1Guidance
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
-    override_mode,
+    override_mode, wp1_land_ready,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 import enum
@@ -67,6 +68,9 @@ _FW_STABLE_REQ = 20
 # 목표점을 선회반경(SITL 로그상 ~37m)보다 충분히 멀리 둬 FW가 목표점을 orbit하지 않게 한다.
 _FW_LOOKAHEAD = 70.0
 
+# WP1 착륙 홀드: 도달+안정 연속 요구 틱 수
+_HOLD_STABLE_REQ = 10
+
 
 class _State(enum.Enum):
     IDLE = "idle"
@@ -77,6 +81,7 @@ class _State(enum.Enum):
     ENTRY = "entry"
     FOLLOWING = "following"
     TRANSITION_MC = "transition_mc"
+    HOLD = "hold"
     LANDING = "landing"
     DONE = "done"
 
@@ -122,6 +127,9 @@ class OffboardNode(Node):
         self.declare_parameter("landing_timeout",   60.0)
         self.declare_parameter("v_terminal",        15.2)
         self.declare_parameter("decel_dist",        80.0)
+        self.declare_parameter("wp1_land_radius",    3.0)
+        self.declare_parameter("wp1_land_speed",     1.5)
+        self.declare_parameter("hold_timeout",       30.0)
         self.declare_parameter(
             "waypoints",  [0.0, 0.0, 50.0, 100.0, 0.0, 50.0])
         self.declare_parameter("planner",    "eta3")
@@ -147,6 +155,11 @@ class OffboardNode(Node):
         self._d_end_thresh = float(self.get_parameter("d_end_thresh").value)
         self._landing_timeout = float(
             self.get_parameter("landing_timeout").value)
+        self._wp1_land_radius = float(
+            self.get_parameter("wp1_land_radius").value)
+        self._wp1_land_speed = float(
+            self.get_parameter("wp1_land_speed").value)
+        self._hold_timeout = float(self.get_parameter("hold_timeout").value)
 
         # ── 경로 계획 ─────────────────────────────────────────
         from fc_bridge.planning.planner_runner import run_planner
@@ -213,6 +226,10 @@ class OffboardNode(Node):
         self._landing_sent = False
         self._landing_elapsed = 0.0
         self._landing_timeout_warned = False
+        # HOLD (WP1 복귀·착륙) 플래그
+        self._hold_ticks = 0
+        self._hold_stable_ticks = 0
+        self._hold_elapsed = 0.0
 
         # ── MAVROS 토픽 구독 ─────────────────────────────────
         self.create_subscription(
@@ -320,6 +337,9 @@ class OffboardNode(Node):
 
         elif self._sm == _State.TRANSITION_MC:
             self._step_transition_mc(state)
+
+        elif self._sm == _State.HOLD:
+            self._step_hold(state)
 
         elif self._sm == _State.LANDING:
             self._step_landing(state)
@@ -541,8 +561,8 @@ class OffboardNode(Node):
             np.array([far_tgt[0], far_tgt[1], self._cruise_alt]))
 
         if vtol_is_mc(state.vtol_state):
-            self.get_logger().info("MC 전환 완료 -> LANDING")
-            self._sm = _State.LANDING
+            self.get_logger().info("MC 전환 완료 -> HOLD (WP1 복귀)")
+            self._sm = _State.HOLD
             return
 
         if self._current_mode != "OFFBOARD":
@@ -560,6 +580,50 @@ class OffboardNode(Node):
             self._cmd_cli.call_async(req)
             self._mc_transition_sent = True
             self.get_logger().info("FW->MC 역천이 명령 요청")
+
+    # ── HOLD (WP1 복귀·착륙) ──────────────────────────────────
+
+    def _step_hold(self, state: VehicleState) -> None:
+        """MC로 WP1 복귀·홀드 → 도달+안정 시 LANDING (WP1 지점 착륙).
+
+        역천이는 FW 관성으로 WP1을 지나치므로, MC 전환 후 WP1으로 복귀해
+        홀드한 뒤 그 자리에서 AUTO.LAND 하면 WP1 상공에서 수직 하강해 착륙한다.
+        MC는 근접/정지 목표를 추종할 수 있어 끝점을 직접 목표로 발행한다.
+        """
+        wp1 = self._pts[-1]
+        self._publish_pos_setpoint(
+            np.array([wp1[0], wp1[1], self._cruise_alt]))
+
+        if self._current_mode != "OFFBOARD":
+            self._request_offboard()
+
+        dist = float(np.linalg.norm(state.pos_ned[:2] - wp1))
+        speed = float(np.linalg.norm(state.vel_ned[:2]))
+
+        self._hold_ticks += 1
+        if self._hold_ticks % 20 == 0:
+            self.get_logger().info(
+                f"WP1 홀드 dist={dist:.1f}m speed={speed:.1f}m/s "
+                f"stable={self._hold_stable_ticks}/{_HOLD_STABLE_REQ}")
+
+        if wp1_land_ready(dist, speed,
+                          self._wp1_land_radius, self._wp1_land_speed):
+            self._hold_stable_ticks += 1
+            if self._hold_stable_ticks >= _HOLD_STABLE_REQ:
+                self.get_logger().info(
+                    f"WP1 도달·안정 → LANDING "
+                    f"(dist={dist:.1f}m speed={speed:.1f}m/s)")
+                self._sm = _State.LANDING
+                return
+        else:
+            self._hold_stable_ticks = 0
+
+        self._hold_elapsed += self._dt
+        if self._hold_elapsed > self._hold_timeout:
+            self.get_logger().warn(
+                f"WP1 홀드 타임아웃 {self._hold_timeout:.0f}s 초과 "
+                f"(dist={dist:.1f}m) → 강제 LANDING")
+            self._sm = _State.LANDING
 
     # ── LANDING ───────────────────────────────────────────────
 

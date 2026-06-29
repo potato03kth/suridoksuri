@@ -42,6 +42,11 @@ offboard_node:
     v_terminal:      15.2     # 경로 끝점 도달 속도 (m/s, 스톨 13.8×1.1)
     decel_dist:      80.0     # 종단 감속 시작 거리 (m)
 
+    # WP1 지점 착륙 (역천이 오버슈트 후 MC로 WP1 복귀·홀드 → 그 자리 착륙)
+    wp1_land_radius: 3.0      # WP1 착륙 도달 반경 (m)
+    wp1_land_speed:  1.5      # 착륙 전 안정 수평속도 임계 (m/s)
+    hold_timeout:    30.0     # WP1 홀드 타임아웃 (s)
+
 mission_node:
   ros__parameters:
     # ROS2 파라미터는 중첩 리스트 불가 → flat 1D, 코드에서 reshape(-1, 3)

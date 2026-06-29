@@ -12,7 +12,7 @@ import pytest
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
-    override_mode, vel_aligned_with_path,
+    override_mode, vel_aligned_with_path, wp1_land_ready,
 )
 
 
@@ -236,3 +236,23 @@ def test_vel_aligned_single_point_path():
     vel = np.array([5.0, 0.0])
     pts = np.array([[0.0, 0.0]])            # WP 1개 → 방향 불명 → True 반환
     assert vel_aligned_with_path(vel, pts) is True
+
+
+# ── WP1 착륙 준비 판정 (wp1_land_ready) ─────────────────────────
+# 역천이 오버슈트 후 MC로 WP1 복귀, 도달+안정 시 착륙.
+
+def test_wp1_land_ready_close_and_slow():
+    assert wp1_land_ready(2.0, 1.0, 3.0, 1.5) is True
+
+
+def test_wp1_land_not_ready_far():
+    assert wp1_land_ready(5.0, 0.5, 3.0, 1.5) is False   # 반경 밖
+
+
+def test_wp1_land_not_ready_fast():
+    assert wp1_land_ready(1.0, 2.0, 3.0, 1.5) is False   # 아직 빠름 (정착 전)
+
+
+def test_wp1_land_boundary_strict():
+    # 경계값: dist==radius, speed==thresh 는 미트리거 (strict <)
+    assert wp1_land_ready(3.0, 1.5, 3.0, 1.5) is False
