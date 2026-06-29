@@ -517,11 +517,25 @@ class OffboardNode(Node):
     # ── TRANSITION_MC ─────────────────────────────────────────
 
     def _step_transition_mc(self, state: VehicleState) -> None:
-        """FW→MC 역천이 명령 발행 → vtol_state==MC 확인 → LANDING 전환."""
+        """FW→MC 역천이 명령 발행 → vtol_state==MC 확인 → LANDING 전환.
+
+        역천이 대기 중에도 OFFBOARD 세트포인트 스트림을 끊지 않는다.
+        끊기면 PX4 offboard 상실 failsafe(COM_OF_LOSS_T) → RTL.
+        최종 WP를 위치 setpoint로 유지 발행해 스트림 keepalive + 목적지 홀드.
+        """
+        # OFFBOARD keepalive — 역천이 구간 RTL 방지 (전방 천이 ACTIVE 블록과 대칭)
+        self._publish_pos_setpoint(
+            np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]))
+
         if vtol_is_mc(state.vtol_state):
             self.get_logger().info("MC 전환 완료 -> LANDING")
             self._sm = _State.LANDING
             return
+
+        if self._current_mode != "OFFBOARD":
+            self._request_offboard()
+            self.get_logger().warn(
+                f"역천이 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})")
 
         if not self._mc_transition_sent:
             if not self._cmd_cli.service_is_ready():
