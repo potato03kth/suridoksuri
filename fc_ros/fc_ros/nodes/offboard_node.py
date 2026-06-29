@@ -95,10 +95,6 @@ class OffboardNode(Node):
       wp0_entry_radius   (float, 5.0)   — WP0 도달 판정 반경 (m)
       wp0_heading_tol    (float, 0.2)   — 헤딩 허용 오차 (rad)
       v_approach         (float, 5.0)   — ENTRY 접근 속도 (m/s)
-      a_max              (float, 2.94)  — 횡방향 가속도 상한 (m/s²)
-      error_stall_steps  (int,   20)    — 오차 정체 판정 스텝 수
-      accel_reduction    (float, 0.9)   — 오차 정체 시 a_max 감소 비율
-      accel_min_frac     (float, 0.3)   — a_max 최솟값 비율 (원래 값 대비)
       cmd_vel_frame_id   (str,  "base_link") — TwistStamped frame_id (MAVROS 버전에 따라 다름)
       waypoints          (float[], [0,0,50, 100,0,50]) — flat 1D, 코드에서 reshape(-1,3)
       planner            (str,  "eta3") — "eta3" | "diterpin"
@@ -117,10 +113,6 @@ class OffboardNode(Node):
         self.declare_parameter("wp0_entry_radius",  5.0)
         self.declare_parameter("wp0_heading_tol",   0.2)
         self.declare_parameter("v_approach",        5.0)
-        self.declare_parameter("a_max",             2.94)
-        self.declare_parameter("error_stall_steps", 20)
-        self.declare_parameter("accel_reduction",   0.9)
-        self.declare_parameter("accel_min_frac",    0.3)
         self.declare_parameter("cmd_vel_frame_id",  "base_link")
         self.declare_parameter("transition_alt",    50.0)
         self.declare_parameter("d_end_thresh",      10.0)
@@ -143,12 +135,6 @@ class OffboardNode(Node):
         self._wp0_r = self.get_parameter("wp0_entry_radius").value
         self._wp0_htol = self.get_parameter("wp0_heading_tol").value
         self._v_approach = self.get_parameter("v_approach").value
-        self._a_max = self.get_parameter("a_max").value
-        self._a_max_init = self._a_max
-        self._stall_steps = int(self.get_parameter("error_stall_steps").value)
-        self._accel_red = self.get_parameter("accel_reduction").value
-        self._accel_min = self._a_max * \
-            self.get_parameter("accel_min_frac").value
         frame_id = self.get_parameter("cmd_vel_frame_id").value
         self._transition_alt = float(
             self.get_parameter("transition_alt").value)
@@ -180,14 +166,12 @@ class OffboardNode(Node):
         path_pts = np.array([pt.pos[:2] for pt in path.points])
         v_profile = np.array([pt.v_ref for pt in path.points])
         s_arc = np.array([pt.s for pt in path.points])
-        gamma_profile = np.array([pt.gamma_ref for pt in path.points])
         v_profile = apply_terminal_decel(
             v_profile, s_arc, v_terminal, decel_dist)
 
         # ── 경로 데이터 ──────────────────────────────────────
         self._pts = np.asarray(path_pts, dtype=float)
         self._v = np.asarray(v_profile, dtype=float)
-        self._gamma = np.asarray(gamma_profile, dtype=float)
         # FW 위치 setpoint 순항 고도 (h_up, 양수=위). WP 고도 사용.
         self._cruise_alt = float(raw_wps[-1, 2])
         # 역천이 직진용 최종 진행방향 (마지막 WP 레그, NED 단위벡터).
@@ -207,7 +191,6 @@ class OffboardNode(Node):
         self._guidance = L1Guidance(
             self.get_parameter("l1_dist").value, self._pts, self._v)
         self._sm = _State.ARM_TAKEOFF
-        self._prev_errors: list[float] = []
         self._offboard_requested = False
         self._stream_ticks = 0
         self._follow_ticks = 0

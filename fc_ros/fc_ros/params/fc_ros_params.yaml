@@ -15,12 +15,6 @@ offboard_node:
     wp0_heading_tol: 0.05     # 헤딩 허용 오차 (rad) ≈ 2.9°
     v_approach: 5.0           # ENTRY 접근 속도 (m/s)
 
-    # 가속도 제한 및 적응 감소
-    a_max: 2.94               # 횡방향 가속도 상한 (m/s²) ≈ 0.3g
-    error_stall_steps: 20
-    accel_reduction: 0.9
-    accel_min_frac: 0.3
-
     # TwistStamped frame_id — CC 환경의 MAVROS 버전에 따라 변경
     # "base_link" 또는 "local_origin"
     cmd_vel_frame_id: "local_origin"

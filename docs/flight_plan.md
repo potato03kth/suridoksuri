@@ -429,6 +429,9 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 
 ## SITL-3 — 경로 추종 검증
 
+> ✅ **PASS (2026-06-30)** — 직선 300 m 전체 시퀀스 검증. 핵심 버그(원호천이·heading종속·FOLLOWING미진입·151m RTL·역천이꺾임) 해결.
+> 근본 원인: **PX4 FW 오프보드는 위치 setpoint 필수**(velocity 무시). 상세 `docs/sitl3_fix_plan.md` · 튜닝 `docs/sitl3_tuning_notes.md`.
+
 **목적:** 경로 생성 → OffboardNode 주입 → L1 추종 + 종단 감속을 SITL 검증.
 **선행:** 작업 B · C · D · SITL-2
 
@@ -578,7 +581,7 @@ def test_arbitrary_wp_path_invariants():
 - [x] 작업 E: 긴급 수동 override [코드] — 2026-06-20 완료
 - [x] SITL-1: VTOL 환경 전환 + 상수 확인 [SITL] — 2026-06-19 조건부 PASS
 - [x] SITL-2: launch 통합 기동 [SITL] — 2026-06-20 완료
-- [ ] SITL-3: 경로 추종 검증 [SITL]
+- [x] SITL-3: 경로 추종 검증 [SITL] — PASS 2026-06-30 (FW 위치 setpoint 전환)
 - [ ] SITL-4: 전체 사이클 통합 [SITL]
 - [ ] SITL-5: RPi4 배포 [배포]
 - [ ] 작업 F: 임의 WP 경로 생성 견고성 하니스 [코드] (후속, SITL-4 이후)
