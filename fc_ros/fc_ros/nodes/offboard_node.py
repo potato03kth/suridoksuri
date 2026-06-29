@@ -177,6 +177,16 @@ class OffboardNode(Node):
         self._gamma = np.asarray(gamma_profile, dtype=float)
         # FW 위치 setpoint 순항 고도 (h_up, 양수=위). WP 고도 사용.
         self._cruise_alt = float(raw_wps[-1, 2])
+        # 역천이 직진용 최종 진행방향 (마지막 WP 레그, NED 단위벡터).
+        # 역천이 시 끝점(근접)을 목표로 하면 FW가 급선회하므로, 이 방향으로
+        # 먼 점을 목표로 발행해 직선 감속한다.
+        if len(raw_wps) >= 2:
+            _ed = raw_wps[-1, :2] - raw_wps[-2, :2]
+            _edn = float(np.linalg.norm(_ed))
+            self._end_dir = (_ed / _edn if _edn > 1e-9
+                             else np.array([1.0, 0.0]))
+        else:
+            self._end_dir = np.array([1.0, 0.0])
 
         # ── 내부 상태 ────────────────────────────────────────
         self._vehicle_state = VehicleState()
@@ -523,9 +533,12 @@ class OffboardNode(Node):
         끊기면 PX4 offboard 상실 failsafe(COM_OF_LOSS_T) → RTL.
         최종 WP를 위치 setpoint로 유지 발행해 스트림 keepalive + 목적지 홀드.
         """
-        # OFFBOARD keepalive — 역천이 구간 RTL 방지 (전방 천이 ACTIVE 블록과 대칭)
+        # OFFBOARD keepalive — 역천이 구간 RTL 방지 + 직선 감속.
+        # 끝점(근접)을 목표로 하면 FW가 근접 목표로 급선회한다(동향 꺾임).
+        # 최종 진행방향으로 항상 lookahead만큼 앞선 점을 목표로 직진 유지.
+        far_tgt = state.pos_ned[:2] + self._end_dir * _FW_LOOKAHEAD
         self._publish_pos_setpoint(
-            np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]))
+            np.array([far_tgt[0], far_tgt[1], self._cruise_alt]))
 
         if vtol_is_mc(state.vtol_state):
             self.get_logger().info("MC 전환 완료 -> LANDING")
