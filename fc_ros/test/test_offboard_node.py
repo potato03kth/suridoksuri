@@ -12,7 +12,8 @@ import pytest
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
-    override_mode, vel_aligned_with_path, wp1_land_ready,
+    override_mode, override_reached, override_fallback_due,
+    vel_aligned_with_path, wp1_land_ready,
 )
 
 
@@ -160,6 +161,46 @@ def test_override_transition_to_fw():
 def test_override_transition_to_mc():
     # 천이 중(2)은 MC가 아니므로 MANUAL
     assert override_mode(2) == "MANUAL"
+
+
+# ── override 종료/폴백 판정 (override_reached / override_fallback_due) ──
+# headless SITL·RC 없음 시 MANUAL/POSCTL 거부 → AUTO.LOITER 폴백.
+
+def test_override_reached_target_manual():
+    assert override_reached("MANUAL", "MANUAL") is True
+
+
+def test_override_reached_loiter_fallback():
+    # 목표는 MANUAL이었으나 AUTO.LOITER 폴백 진입도 종료 조건
+    assert override_reached("AUTO.LOITER", "MANUAL") is True
+
+
+def test_override_not_reached_still_offboard():
+    assert override_reached("OFFBOARD", "MANUAL") is False
+
+
+def test_override_fallback_due_after_timeout():
+    # OFFBOARD 유지(거부)로 10틱 경과, 폴백 미발행 → 발행해야 함
+    assert override_fallback_due("OFFBOARD", "MANUAL", 10, 10, False) is True
+
+
+def test_override_fallback_not_due_before_timeout():
+    assert override_fallback_due("OFFBOARD", "MANUAL", 9, 10, False) is False
+
+
+def test_override_fallback_not_due_already_sent():
+    # 이미 1회 발행했으면 재발행 금지
+    assert override_fallback_due("OFFBOARD", "MANUAL", 20, 10, True) is False
+
+
+def test_override_fallback_not_due_manual_reached():
+    # 실기체: 조종사 RC로 MANUAL 진입 → 폴백 불필요
+    assert override_fallback_due("MANUAL", "MANUAL", 20, 10, False) is False
+
+
+def test_override_fallback_not_due_loiter_reached():
+    # 폴백 LOITER 진입 후엔 재발행 안 함
+    assert override_fallback_due("AUTO.LOITER", "MANUAL", 20, 10, False) is False
 
 
 # ── TRANSITION_FW 헤딩 안정 카운터 ───────────────────────────

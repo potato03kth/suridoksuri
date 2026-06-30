@@ -13,6 +13,7 @@ OffboardNode: create_timer 기반 상태머신으로 Offboard 경로 추종.
   TRANSITION_MC : FW→MC 역천이 명령 + vtol_state==MC 대기 (직선 감속)
   HOLD          : MC로 WP1 복귀·홀드 → 도달+안정 시 LANDING (WP1 지점 착륙)
   LANDING       : AUTO.LAND 명령 + disarmed 대기
+  OVERRIDE      : 긴급 수동 전환 — manual 모드 시도 → 미진입 시 AUTO.LOITER 폴백
   DONE          : 착륙 완료 (타이머 계속 동작, 속도=0 유지)
 
 MAVROS 토픽을 직접 구독해 TelemetryNode에 의존하지 않는다.
@@ -30,7 +31,7 @@ from fc_bridge.guidance.l1_guidance import L1Guidance
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
-    override_mode, wp1_land_ready,
+    override_mode, override_reached, override_fallback_due, wp1_land_ready,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 import enum
@@ -71,6 +72,10 @@ _FW_LOOKAHEAD = 70.0
 # WP1 착륙 홀드: 도달+안정 연속 요구 틱 수
 _HOLD_STABLE_REQ = 10
 
+# OVERRIDE: manual 모드 진입 대기 후 AUTO.LOITER 안전 폴백까지의 틱 수 (10Hz → 1s).
+# headless SITL·RC 없음 시 PX4가 MANUAL/POSCTL을 거부하므로 폴백 필수.
+_OVERRIDE_FALLBACK_TICKS = 10
+
 
 class _State(enum.Enum):
     IDLE = "idle"
@@ -83,6 +88,7 @@ class _State(enum.Enum):
     TRANSITION_MC = "transition_mc"
     HOLD = "hold"
     LANDING = "landing"
+    OVERRIDE = "override"
     DONE = "done"
 
 
@@ -213,6 +219,10 @@ class OffboardNode(Node):
         self._hold_ticks = 0
         self._hold_stable_ticks = 0
         self._hold_elapsed = 0.0
+        # OVERRIDE (긴급 수동 전환) 플래그
+        self._override_target = "MANUAL"
+        self._override_ticks = 0
+        self._override_fallback_sent = False
 
         # ── MAVROS 토픽 구독 ─────────────────────────────────
         self.create_subscription(
@@ -326,6 +336,9 @@ class OffboardNode(Node):
 
         elif self._sm == _State.LANDING:
             self._step_landing(state)
+
+        elif self._sm == _State.OVERRIDE:
+            self._step_override(state)
 
         elif self._sm == _State.DONE:
             self._setpoint.publish(np.zeros(3))
@@ -520,12 +533,55 @@ class OffboardNode(Node):
             self._request_override()
 
     def _request_override(self) -> None:
+        """긴급 수동 전환 진입: manual 목표 모드 요청 후 OVERRIDE 상태로.
+
+        실제 모드 전환 확인·폴백은 _step_override 가 담당한다. 여기서 곧장
+        DONE으로 가면(이전 구현) 모드 전환 거부 시 cmd_vel velocity-0 발행이
+        OFFBOARD를 살려둬 FW가 직진 폭주한다 → OVERRIDE 상태로 명시 처리.
+        """
         state = self._get_state()
-        req = SetMode.Request()
-        req.custom_mode = override_mode(state.vtol_state)
-        self._set_mode_cli.call_async(req)
-        self._sm = _State.DONE
-        self.get_logger().warn("긴급 수동 전환 실행")
+        self._override_target = override_mode(state.vtol_state)  # MC→POSCTL, FW→MANUAL
+        self._override_ticks = 0
+        self._override_fallback_sent = False
+        if self._set_mode_cli.service_is_ready():
+            req = SetMode.Request()
+            req.custom_mode = self._override_target
+            self._set_mode_cli.call_async(req)
+        else:
+            self.get_logger().warn("/mavros/set_mode 서비스 없음 (override)")
+        self._sm = _State.OVERRIDE
+        self.get_logger().warn(f"긴급 수동 전환 실행 → {self._override_target} 요청")
+
+    def _step_override(self, state: VehicleState) -> None:
+        """manual 모드 진입 확인 → 미진입 시 AUTO.LOITER 안전 폴백.
+
+        OFFBOARD setpoint를 더 이상 발행하지 않는다(스트림 중단). manual 모드
+        (MANUAL/POSCTL)는 RC·조이스틱 같은 수동제어 소스가 필요해 headless SITL
+        에선 거부된다. 1초 내 미진입이면 AUTO.LOITER를 발행해 자율 안전 홀드로
+        전환, 기체가 OFFBOARD로 폭주하지 않게 한다. 실기체에선 조종사 RC 인계로
+        목표 모드가 즉시 잡혀 폴백 전에 종료된다.
+        """
+        if override_reached(self._current_mode, self._override_target):
+            self.get_logger().warn(
+                f"수동/안전 모드 진입 확인 (mode={self._current_mode}) -> DONE")
+            self._sm = _State.DONE
+            return
+
+        self._override_ticks += 1
+        if override_fallback_due(
+                self._current_mode, self._override_target,
+                self._override_ticks, _OVERRIDE_FALLBACK_TICKS,
+                self._override_fallback_sent):
+            if not self._set_mode_cli.service_is_ready():
+                self.get_logger().warn("/mavros/set_mode 서비스 없음 (override 폴백)")
+                return
+            req = SetMode.Request()
+            req.custom_mode = "AUTO.LOITER"
+            self._set_mode_cli.call_async(req)
+            self._override_fallback_sent = True
+            self.get_logger().warn(
+                f"수동 모드({self._override_target}) 미진입 "
+                f"(mode={self._current_mode}) -> AUTO.LOITER 안전 폴백 요청")
 
     # ── TRANSITION_MC ─────────────────────────────────────────
 

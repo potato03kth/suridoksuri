@@ -36,6 +36,29 @@ def override_mode(vtol_state: int, MC: int = 3) -> str:
     return "POSCTL" if vtol_state == MC else "MANUAL"
 
 
+def override_reached(current_mode: str, target_mode: str) -> bool:
+    """override 종료 조건: manual 목표 모드 또는 AUTO.LOITER(안전 폴백) 진입."""
+    return current_mode == target_mode or current_mode == "AUTO.LOITER"
+
+
+def override_fallback_due(
+    current_mode: str,
+    target_mode: str,
+    ticks: int,
+    fallback_ticks: int,
+    fallback_sent: bool,
+) -> bool:
+    """manual 모드 미진입 시 AUTO.LOITER 안전 폴백 발행 조건.
+
+    headless SITL·RC 없음 등으로 PX4가 MANUAL/POSCTL을 거부하면 OFFBOARD가
+    유지돼 기체가 폭주한다. fallback_ticks 경과 후에도 목표 모드 미진입이면
+    AUTO.LOITER를 1회 발행해 자율 안전 홀드로 전환한다(경계값 strict >=).
+    """
+    if override_reached(current_mode, target_mode):
+        return False
+    return ticks >= fallback_ticks and not fallback_sent
+
+
 def vel_aligned_with_path(
     vel_ned,
     pts,
