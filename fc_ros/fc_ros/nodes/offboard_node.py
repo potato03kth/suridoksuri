@@ -32,6 +32,7 @@ from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
     override_mode, override_reached, override_fallback_due, wp1_land_ready,
+    after_climb_state, after_following_state,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 import enum
@@ -115,6 +116,8 @@ class OffboardNode(Node):
         # ── ROS2 파라미터 ────────────────────────────────────
         self.declare_parameter("control_hz",        10.0)
         self.declare_parameter("l1_dist",           20.0)
+        # 기체 타입: "vtol"(기본, MC↔FW 천이 포함) | "mc"(순수 멀티콥터, 천이 생략)
+        self.declare_parameter("vehicle_type",      "vtol")
         self.declare_parameter("entry_mode",        "pre_takeoff")
         self.declare_parameter("wp0_entry_radius",  5.0)
         self.declare_parameter("wp0_heading_tol",   0.2)
@@ -137,6 +140,9 @@ class OffboardNode(Node):
 
         control_hz = self.get_parameter("control_hz").value
         self._dt = 1.0 / max(control_hz, 2.0)
+        self._vehicle_type = str(
+            self.get_parameter("vehicle_type").value).lower()
+        self._is_mc = self._vehicle_type == "mc"
         self._entry_mode = self.get_parameter("entry_mode").value
         self._wp0_r = self.get_parameter("wp0_entry_radius").value
         self._wp0_htol = self.get_parameter("wp0_heading_tol").value
@@ -325,8 +331,11 @@ class OffboardNode(Node):
 
         elif self._sm == _State.FOLLOWING:
             if self._step_following(state):
-                self.get_logger().info("경로 추종 완료 -> TRANSITION_MC")
-                self._sm = _State.TRANSITION_MC
+                nxt = _State(after_following_state(self._is_mc))
+                self.get_logger().info(
+                    f"경로 추종 완료 -> {nxt.value}"
+                    + (" (MC, 역천이 생략)" if self._is_mc else ""))
+                self._sm = nxt
 
         elif self._sm == _State.TRANSITION_MC:
             self._step_transition_mc(state)
@@ -375,11 +384,16 @@ class OffboardNode(Node):
     # ── CLIMBING ─────────────────────────────────────────────
 
     def _step_climbing(self, state: VehicleState) -> None:
-        """천이 고도 도달 확인 → TRANSITION_FW 전환."""
+        """운용 고도 도달 확인 → 다음 상태 전환.
+
+        VTOL: TRANSITION_FW(MC→FW 천이). MC: STREAMING(천이 생략, OFFBOARD 진입).
+        """
         if climbing_reached(state.pos_ned[2], self._transition_alt):
+            nxt = _State(after_climb_state(self._is_mc))
             self.get_logger().info(
-                f"천이 고도 {self._transition_alt:.1f}m 도달 → TRANSITION_FW")
-            self._sm = _State.TRANSITION_FW
+                f"운용 고도 {self._transition_alt:.1f}m 도달 → {nxt.value}"
+                + (" (MC, 천이 생략)" if self._is_mc else ""))
+            self._sm = nxt
 
     # ── TRANSITION_FW ─────────────────────────────────────────
 

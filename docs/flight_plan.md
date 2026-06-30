@@ -359,6 +359,9 @@ def test_landing_done(): assert _landing_done(False) is True
 
 > **RC 레이어와 독립:** PX4 `COM_RC_OVERRIDE`(SITL-1에서 설정)는 ROS2 override와 별개로 동작하는 하드웨어 레이어다. 두 레이어 모두 OFFBOARD 진입 전/후 어느 상태에서도 독립 동작해야 한다. 상세는 [안전 및 긴급 수동 전환](#안전-및-긴급-수동-전환) 참조.
 
+> ⚠ **SITL-4 정정 (2026-06-30):** 위 코드처럼 `_request_override`가 곧장 `_sm=DONE`으로 가면 모드 전환 거부 시 cmd_vel velocity-0 발행이 OFFBOARD를 살려둬 **FW가 직진 폭주**한다(SITL-4 실측). 또 MANUAL/POSCTL은 RC·조이스틱 같은 수동제어 소스가 필요해 **headless SITL에선 거부**된다(SITL-1 `COM_RC_OVERRIDE`→POSCTL 재현불가와 동일).
+> → 현재 구현은 **`_State.OVERRIDE`** 를 두고: ⓐ override 시 OFFBOARD setpoint 발행 중단, ⓑ manual 모드 시도, ⓒ 1초 내 미진입이면 **AUTO.LOITER 안전 폴백** 강제. 실기체에선 조종사 RC로 manual이 즉시 잡혀 폴백 전 종료. 판정함수 `override_reached`/`override_fallback_due`(state_logic).
+
 **테스트:** [fc_ros/test/test_offboard_node.py](../fc_ros/test/test_offboard_node.py)에 추가:
 
 ```python
@@ -455,6 +458,9 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 
 ## SITL-4 — 전체 사이클 통합
 
+> ✅ **PASS (2026-06-30)** — 직선 300 m + L자 전체 자율 사이클 검증. 역천이 가속도 ~1.5 m/s²(<0.3g), WP1 착륙오차 ~0.3 m.
+> override는 1차 실패(headless SITL은 RC 없어 MANUAL 거부) → **AUTO.LOITER 안전 폴백** 추가 후 재검증 PASS. 상세 `docs/sitl_verification_log.md`.
+
 **목적:** 이륙→천이→경로추종→역천이→착륙 전체 자율 시퀀스 SITL 검증.
 **선행:** 작업 E · SITL-3
 
@@ -465,12 +471,14 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
    ```
    [ARM_TAKEOFF] ARM + AUTO.TAKEOFF
    [CLIMBING]    고도 50 m 도달
-   [TRANSITION_FW] vtol_state == FW
+   [TRANSITION_FW] 헤딩 정렬 → vtol_state == FW
    [STREAMING→FOLLOWING] OFFBOARD 경로 추종 시작
-   [TRANSITION_MC] vtol_state == MC
-   [LANDING]     disarmed
+   [TRANSITION_MC] vtol_state == MC (역천이, 직선 감속)
+   [HOLD]        MC로 WP1 복귀·정착 (역천이 오버슈트 보정)
+   [LANDING]     AUTO.LAND → disarmed
    [DONE]
    ```
+   > `entry_mode="pre_takeoff"` 이므로 ENTRY는 건너뛴다. HOLD는 SITL-3에서 추가된 상태(역천이 오버슈트 후 WP1 복귀·착륙).
 3. QGC Plan 뷰에서 실제 궤적 확인
 4. 천이 가속도 측정: `/mavros/imu/data` `linear_acceleration` 크기 ≤ 0.3g(≈2.94 m/s²) 확인
 5. 긴급 override 1회 트리거 테스트 (FOLLOWING 중 `/fc_ros/override`)
@@ -478,10 +486,11 @@ def test_override_fw(): assert _override_mode(4) == "MANUAL"
 
 **합격 기준 (체크리스트):**
 
-- [ ] 전체 상태 전이 로그 순서대로 출력 + disarmed 도달
-- [ ] 역천이 중 가속도 ≤ 0.3g
-- [ ] override 트리거 시 즉시 POSCTL/MANUAL 전환 + setpoint 중단
-- [ ] `sitl_verification_log.md` 업데이트
+- [x] 전체 상태 전이 로그 순서대로 출력 + disarmed 도달 (2026-06-30, HOLD 포함)
+- [x] 역천이 중 가속도 ≤ 0.3g (~1.5 m/s², `VT_B_DEC_MSS` 1.0 설계값 부합)
+- [x] override 트리거 시 안전 전환 + setpoint 중단 (SITL: AUTO.LOITER 폴백 — manual은 RC 필요, 실기체 SITL-5 이월)
+- [x] 직선·L자 경로 FOLLOWING·착륙 완료, WP1 착륙오차 ~0.3 m
+- [x] `sitl_verification_log.md` 업데이트
 
 ---
 
@@ -582,7 +591,7 @@ def test_arbitrary_wp_path_invariants():
 - [x] SITL-1: VTOL 환경 전환 + 상수 확인 [SITL] — 2026-06-19 조건부 PASS
 - [x] SITL-2: launch 통합 기동 [SITL] — 2026-06-20 완료
 - [x] SITL-3: 경로 추종 검증 [SITL] — PASS 2026-06-30 (FW 위치 setpoint 전환)
-- [ ] SITL-4: 전체 사이클 통합 [SITL]
+- [x] SITL-4: 전체 사이클 통합 [SITL] — PASS 2026-06-30 (직선+L자; override는 AUTO.LOITER 폴백 추가, manual 인계는 SITL-5)
 - [ ] SITL-5: RPi4 배포 [배포]
 - [ ] 작업 F: 임의 WP 경로 생성 견고성 하니스 [코드] (후속, SITL-4 이후)
 - [ ] SITL-6: 임의 WP 생성·추종 SITL [SITL] (후속, SITL-4 이후)
@@ -742,7 +751,8 @@ Layer 1 (PX4 하드웨어): RC 송신기 모드 스위치
 
 Layer 2 (ROS2 소프트웨어): /fc_ros/override 토픽
         ↓ ros2 topic pub --once /fc_ros/override std_msgs/Bool "data: true"
-        OffboardNode: setpoint 발행 중단 + set_mode 요청 (MC→POSCTL, FW→MANUAL)
+        OffboardNode(_State.OVERRIDE): OFFBOARD setpoint 발행 중단 + manual 모드 요청
+        (MC→POSCTL, FW→MANUAL) → 미진입(RC 없음) 시 AUTO.LOITER 안전 폴백
         → 키보드 터미널 또는 스크립트에서 트리거
 ```
 
@@ -750,7 +760,7 @@ Layer 2 (ROS2 소프트웨어): /fc_ros/override 토픽
 
 **Layer 1 — PX4 (SITL-1, QGC에서 1회):** `COM_RC_OVERRIDE = 3`, RC 채널 → POSCTL/HOLD 매핑.
 
-**Layer 2 — ROS2 (작업 E, OffboardNode 통합):** `_cb_override()` 구현, vtol_state 분기, `_sm = DONE`으로 setpoint 즉시 중단.
+**Layer 2 — ROS2 (작업 E, OffboardNode 통합):** `_cb_override()` 구현, vtol_state 분기, `_sm = OVERRIDE`로 setpoint 즉시 중단 + manual 모드 요청 → 미진입 시 AUTO.LOITER 폴백 (SITL-4 정정).
 
 ### 동작 보장 조건
 

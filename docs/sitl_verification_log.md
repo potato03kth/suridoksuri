@@ -567,7 +567,53 @@ ARM → AUTO.TAKEOFF → 목표 고도 도달 → **HOLD 모드로 전환** ✅
 
 ---
 
-## 현재 진행 상태 (2026-06-20 기준)
+## SITL-4 — 전체 사이클 통합 (2026-06-30)
+
+**결과: PASS** (직선 300 m + L자 경로, 전체 자율 시퀀스)
+
+> SITL-2/3 상세는 `docs/flight_plan.md`·`docs/sitl3_fix_plan.md`·`docs/sitl3_tuning_notes.md` 참조.
+
+### 전체 사이클 (직선 300 m)
+
+상태 전이가 설계대로 끝까지 진행, disarmed 도달:
+
+```
+ARM_TAKEOFF → CLIMBING(50m) → 헤딩정렬(err -2.3°) → MC→FW 천이(vtol 3→1→4)
+ → STREAMING → FOLLOWING(cte 최대 0.6m) → 경로끝(dist<10m) → TRANSITION_MC(vtol 4→2)
+ → HOLD(WP1 복귀) → LANDING → 착륙 완료(disarmed) → DONE
+```
+
+| 항목 | 결과 |
+|---|---|
+| 전체 전이 로그 순서 + disarmed | ✅ HOLD 포함 |
+| cross_track_error | ✅ 전 구간 ≤ 0.6 m (직선) |
+| 역천이 중 가속도 ≤ 0.3g(2.94 m/s²) | ✅ ~1.5 m/s² (telemetry pos 미분, `VT_B_DEC_MSS` 1.0 설계값 부합) |
+| WP1 착륙 정밀도 | ✅ 최종 [300.3 N, 0.05 E], WP1(300,0) 대비 ~0.3 m |
+
+> 역천이 오버슈트 ~43 m(FW 관성, 정상 거동) → HOLD가 WP1으로 복귀시켜 그 자리 착륙. 줄이려면 `d_end_thresh` ↑.
+
+### 긴급 override (Layer 2, `/fc_ros/override`)
+
+**1차 실패 → 코드 수정 → 재검증 PASS.**
+
+- **1차 실패 원인:** `긴급 수동 전환 실행`은 찍혔으나 MANUAL 미진입(OFFBOARD 유지) → 기체 직진 폭주(435 m). headless SITL은 RC·조이스틱 같은 수동제어 소스가 없어 PX4가 MANUAL/POSCTL을 거부한다(**SITL-1 `COM_RC_OVERRIDE`→POSCTL 재현불가와 동일 한계**). 게다가 거부 시 노드가 DONE으로 들어가 cmd_vel velocity-0을 계속 발행 → OFFBOARD 유지 + FW가 velocity 무시 → 폭주.
+- **수정:** `_State.OVERRIDE` 신설. override 시 OFFBOARD setpoint 발행을 중단하고, manual 모드 1초 내 미진입이면 **AUTO.LOITER 안전 폴백**을 강제 발행. 실기체에선 조종사 RC로 manual이 즉시 잡혀 폴백 전 종료. (state_logic `override_reached`/`override_fallback_due` + 단위 테스트)
+- **재검증:** QGC 모드 = Hold/Loiter 전환, 기체 선회(폭주 없음), setpoint 중단 확인. ✅
+  ```
+  긴급 수동 전환 실행 → MANUAL 요청
+  수동 모드(MANUAL) 미진입 (mode=OFFBOARD) -> AUTO.LOITER 안전 폴백 요청
+  수동/안전 모드 진입 확인 (mode=AUTO.LOITER) -> DONE
+  ```
+- **이월:** 실기체 RC로 MANUAL/POSCTL 직접 인계는 SITL-5에서 확인.
+
+### L자 경로
+
+`waypoints` yaml 교체(직선→L자) 후 FOLLOWING·역천이·착륙 전체 사이클 완료. ✅
+(FW는 90° 코너를 타이트하게 못 돌아 코너 오버슈트 — 정상, WP 직선 레그 기준.)
+
+---
+
+## 현재 진행 상태 (2026-06-30 기준)
 
 - [x] WSL SITL 환경 구축
 - [x] MAVROS ↔ SITL 연결 확인 (`/mavros/state: connected=true`)
@@ -585,9 +631,11 @@ ARM → AUTO.TAKEOFF → 목표 고도 도달 → **HOLD 모드로 전환** ✅
 - [x] **작업 B: 종단 감속 헬퍼 + 배선** (2026-06-20, `apply_terminal_decel()` + `offboard_node.py` main() 배선, pytest 5/5 PASS)
 - [x] **작업 C: 상태머신 ① 이륙·상승·천이** (2026-06-20, ARM_TAKEOFF/CLIMBING/TRANSITION_FW 구현, pytest 13/13 PASS)
 - [x] **작업 D: 상태머신 ② 역천이·착륙** (2026-06-20, TRANSITION_MC/LANDING 구현, pytest 21/21 PASS → 전체 31/31)
-- [ ] SITL-2: launch 통합 기동 (선행 완료 → 진입 가능)
-- [ ] 작업 E: 긴급 수동 override (선행: C/D ✅ → 진입 가능)
-- [ ] SITL-3~5, 작업 F, SITL-6
+- [x] SITL-2: launch 통합 기동 (2026-06-20)
+- [x] 작업 E: 긴급 수동 override (2026-06-20 구현 → 2026-06-30 SITL-4서 AUTO.LOITER 폴백 추가)
+- [x] SITL-3: 경로 추종 검증 (2026-06-30)
+- [x] SITL-4: 전체 사이클 통합 (2026-06-30, 직선+L자, override 재검증 포함)
+- [ ] SITL-5: RPi4 배포, 작업 F·SITL-6 (후속)
 
 ---
 

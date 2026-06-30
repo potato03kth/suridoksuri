@@ -31,6 +31,26 @@ def landing_done(armed: bool) -> bool:
     return not armed
 
 
+def after_climb_state(is_mc: bool) -> str:
+    """CLIMBING 다음 상태 라벨.
+
+    MC(순수 멀티콥터)는 FW 천이가 없으므로 STREAMING으로 직행하고,
+    VTOL은 TRANSITION_FW(MC→FW 천이)를 거친다.
+    반환값은 offboard_node._State 의 value 문자열과 일치한다.
+    """
+    return "streaming" if is_mc else "transition_fw"
+
+
+def after_following_state(is_mc: bool) -> str:
+    """FOLLOWING 다음 상태 라벨.
+
+    MC는 역천이가 없으므로 HOLD(마지막 WP 복귀·정지·착륙)로 직행하고,
+    VTOL은 TRANSITION_MC(FW→MC 역천이)를 거친다.
+    반환값은 offboard_node._State 의 value 문자열과 일치한다.
+    """
+    return "hold" if is_mc else "transition_mc"
+
+
 def override_mode(vtol_state: int, MC: int = 3) -> str:
     """긴급 override 전환 모드 결정: MC 상태이면 POSCTL, FW 상태이면 MANUAL."""
     return "POSCTL" if vtol_state == MC else "MANUAL"

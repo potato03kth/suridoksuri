@@ -14,6 +14,7 @@ from fc_bridge.execution.state_logic import (
     trans_mc_trigger, vtol_is_mc, landing_done,
     override_mode, override_reached, override_fallback_due,
     vel_aligned_with_path, wp1_land_ready,
+    after_climb_state, after_following_state,
 )
 
 
@@ -297,3 +298,26 @@ def test_wp1_land_not_ready_fast():
 def test_wp1_land_boundary_strict():
     # 경계값: dist==radius, speed==thresh 는 미트리거 (strict <)
     assert wp1_land_ready(3.0, 1.5, 3.0, 1.5) is False
+
+
+# ── 기체 타입별 상태 분기 (after_climb_state / after_following_state) ──
+# 반환 문자열은 offboard_node._State 의 value 와 일치해야 한다.
+
+def test_after_climb_vtol():
+    # VTOL: CLIMBING → TRANSITION_FW (MC→FW 천이)
+    assert after_climb_state(False) == "transition_fw"
+
+
+def test_after_climb_mc():
+    # MC: CLIMBING → STREAMING (천이 생략, 바로 OFFBOARD 진입)
+    assert after_climb_state(True) == "streaming"
+
+
+def test_after_following_vtol():
+    # VTOL: FOLLOWING → TRANSITION_MC (FW→MC 역천이)
+    assert after_following_state(False) == "transition_mc"
+
+
+def test_after_following_mc():
+    # MC: FOLLOWING → HOLD (역천이 생략, 마지막 WP 복귀·착륙)
+    assert after_following_state(True) == "hold"

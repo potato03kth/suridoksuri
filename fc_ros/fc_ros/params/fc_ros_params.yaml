@@ -7,6 +7,10 @@ offboard_node:
     control_hz: 10.0          # 세트포인트 송신 주파수 (PX4 watchdog: ≥2Hz)
     l1_dist: 20.0             # L1 lookahead 거리 (m)
 
+    # 기체 타입: "vtol"(기본) | "mc"(순수 멀티콥터 — MC↔FW 천이 단계 생략)
+    # 런타임 오버라이드: ros2 launch fc_ros phase2.launch.py vehicle_type:=mc
+    vehicle_type: "vtol"
+
     # 진입 모드
     entry_mode: "pre_takeoff" # "pre_takeoff" | "mid_flight"
 
