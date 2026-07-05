@@ -11,7 +11,7 @@ VTOL 자율비행 대회용 통합 소프트웨어 저장소다.
 |---|---|---|
 | `vtol_sim_checkpoint1_1/vtol_sim/` | 비행 시뮬레이터 (역학, 경로 계획, 제어) | 구현됨 |
 | `fc_bridge/` | FC 라이브러리 (경로 계획, L1 유도, VehicleState) | 구현됨 |
-| `fc_ros/` | FC ROS2 노드 (TelemetryNode, OffboardNode, MissionNode) | 구현 중 (세션 A~F) |
+| `fc_ros/` | FC ROS2 노드 (TelemetryNode, OffboardNode, MissionNode) | SITL 검증 완료, 실기체 배포 중 |
 | `vision/` | 객체인식 (착륙지점 탐지) | 구현됨 |
 | CC 도메인 | 명령 제어 | 미구현 |
 
@@ -36,10 +36,12 @@ VTOL 자율비행 대회용 통합 소프트웨어 저장소다.
 - FC 라이브러리: `fc_bridge/CLAUDE.md`
 - 객체인식: `vision/CLAUDE.md`
 
-FC 작업 세션 진입 시 추가로 읽을 문서:
+FC 작업 세션 절차 (정형):
 
-- `docs/session_status.md` — WSL 환경 상태, 브랜치 전략, 코드 동기화 절차
-- `docs/flight_plan.md` — 세션 A~F 전체 비행 시퀀스 및 작업 계획 (핵심 참조)
+1. **진입:** `docs/session_status.md`의 트랙 보드에서 재개할 트랙 블록 하나만 읽는다 (사용자가 "○○ 트랙 재개"라 지정, 없으면 ▶ 활성 트랙). 그 블록의 참조 문서만, 필요 섹션만 추가로 읽는다. 다른 트랙 블록·`flight_plan.md` 전체 정독 금지 — 완료 작업 상세는 `docs/archive/`에 있다.
+2. **자가 복구:** `session_status.md`의 last_updated 이후 커밋이 있거나, 트랙 보드로 설명되지 않는 미커밋 변경이 있으면 — 직전 세션이 기록 없이 끝난 것이다. `git log`/`git diff`로 무슨 일이 있었는지 파악해 해당 트랙 블록을 먼저 갱신한 뒤 작업을 시작한다.
+3. **트랙 전환 규칙:** ① 다른 트랙 작업을 시작하기 전에 현재 변경을 커밋한다 (WIP 허용, 메시지에 `[main]`/`[mc-hw]`/`[sitl]`/`[vtol-hw]` 태그). ② 테스트용 임시 파라미터는 yaml을 고치지 않는다 — `phase2.launch.py v_cruise:=18.0 waypoints:="[...]"` launch 인자로만 준다.
+4. **종료:** 세션 종료 전 `/session-log` — 이번 세션이 건드린 트랙 블록 갱신 + 로그 기록 + 로그 아카이브가 자동 수행된다. 급하면 `/session-log 축약`.
 
 ---
 
