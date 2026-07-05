@@ -26,16 +26,16 @@ last_updated: 2026-07-06
 ### 🚁 mc-실기체 — ▶ 활성
 
 - **내용:** RPi5(Ubuntu 24.04) + Pixhawk 6C 순수 MC 테스트기체 브링업 (SITL-5 변형, `vehicle_type:=mc`)
-- **마지막:** 2026-07-03 — Docker 배포환경 구축, 6C ArduCopter→PX4 플래시, 수동비행 검증 (커밋 `cccaa52`)
-- **다음:** ① MAVROS 링크 안정화 — RTT 2~5 s·heartbeat 플래핑 → 태블릿 QGC 끊고 **USB 직결**부터 ② AUTO.TAKEOFF 미실행 진단 — MAVROS 서비스 미준비 vs GPS 락 없음, `statustext`로 판별
+- **마지막:** 2026-07-06 — **첫 offboard 비행 부분 성공** (사용자 보고. 무엇이 되고 안 됐는지 상세 미기록 — 이 트랙 다음 세션 진입 시 사용자에게 확인해 이 블록부터 갱신할 것). 그 전: 07-03 Docker 배포환경·6C PX4 플래시·수동비행 검증 (`cccaa52`)
+- **다음:** ① 부분 성공의 미해결 지점 확인·기록 ② 남은 문제 진단 (07-03 기준: MAVROS 링크 포화 → USB 직결, AUTO.TAKEOFF — `statustext`로 판별. 부분 성공으로 일부 해소됐을 수 있음) ③ 작업 G 완성 후 로그 체계로 비행 기록 시작
 - **주의:** AUTO.TAKEOFF는 GPS 락 필수(실내/벤치 불가) · 실기체 FC는 PX4인지 확인부터
 - **참조:** `flight_plan.md` SITL-5 섹션 · `pixhawk6c_rpi4_integration_guide.md`
 
 ### 🔧 main-code — ⏸ 대기
 
-- **내용:** fc_ros/fc_bridge 기능 개발. 다음 작업단위는 **작업 F** (임의 WP 견고성 하니스 — SITL-5와 병행 가능)
-- **마지막:** 2026-07-06 — 문서 재구성(트랙 보드 도입) + launch 파라미터 오버라이드 추가, 120/120 PASS
-- **다음:** 작업 F 진입 — `flight_plan.md` "작업 F" 섹션대로 실행
+- **내용:** fc_ros/fc_bridge 기능 개발 및 공용 인프라. 다음 작업단위는 **작업 G** (비행 로그 자동수집·분석 체계)
+- **마지막:** 2026-07-06 — 작업 G 계획 확정(`flight_plan.md`에 상세 등록). 그 전: 문서 재구성 + launch 오버라이드 (`89ab44f`, 120/120 PASS)
+- **다음:** ① **작업 G 실행** — 진입: `main-code 트랙 재개 — flight_plan.md 작업 G를 실행하라` ([코드] 부분은 Claude 완결, RPi 검증만 사람) ② 그 후 작업 F (임의 WP 견고성)
 - **주의:** `waypoints`는 테스트값(직선 300 m) 유지 결정됨(2026-06-30) — 실미션 좌표 확정 시 yaml **두 곳**(offboard_node·mission_node) 동시 교체. `v_cruise: 20.0`도 유지 결정(FW는 TECS가 속도 관장)
 - **참조:** `flight_plan.md` · `fc_bridge/CLAUDE.md` · `sitl3_tuning_notes.md`(튜닝 노브)
 

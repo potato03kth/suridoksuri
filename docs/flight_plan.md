@@ -26,7 +26,8 @@ last_updated: 2026-07-05
 | SITL-2 — launch 통합 기동 | ✅ PASS (06-20) | 〃 |
 | SITL-3 — 경로 추종 | ✅ PASS (06-30) — 핵심: FW는 위치 setpoint 필수 | `sitl3_fix_plan.md` · `sitl3_tuning_notes.md` |
 | SITL-4 — 전체 사이클 통합 | ✅ PASS (06-30) — override는 AUTO.LOITER 폴백 | `sitl_verification_log.md` |
-| **SITL-5 — 실기체 배포** | **진행 중** (07-03~, RPi5 MC 브링업) | [아래](#sitl-5--실기체-배포-진행-중) |
+| **SITL-5 — 실기체 배포** | **진행 중** (07-03~, RPi5 MC 브링업. 07-06 첫 offboard 부분 성공) | [아래](#sitl-5--실기체-배포-진행-중) |
+| **작업 G — 로그 자동수집 체계** | **계획 확정** (07-06), 미착수 — 다음 main-code 작업 | [아래](#작업-g--비행-로그-자동수집분석-체계-인프라) |
 | 작업 F — 임의 WP 견고성 | 미착수 (후속) | [아래](#작업-f--임의-wp-경로-생성-견고성-하니스) |
 | SITL-6 — 임의 WP SITL | 미착수 (후속) | [아래](#sitl-6--임의-wp-생성추종-sitl) |
 
@@ -131,6 +132,66 @@ last_updated: 2026-07-05
 4. **VTOL 실기체 반복** — FW 천이 포함 전체 사이클 + RC override→POSCTL 실측 (SITL-1 이월 항목).
 
 **비행 전 필수:** [첫 비행 전 지상 안전 테스트](#첫-비행-전-지상-안전-테스트-sitl-5-비행-직전) + [필수 조정 파라미터 체크리스트](#실기체-배포-시-필수-조정-파라미터-체크리스트-sitl-5) 전 항목 통과. **통과 전 이륙 금지.**
+
+---
+
+## 작업 G — 비행 로그 자동수집·분석 체계 (인프라)
+
+**유형:** [코드] (Claude 자율 — 스크립트·규약·문서) + [배포] (사람 — RPi 1회 검증)
+**목적:** 비행 1회 = 폴더 1개 규약으로 PX4 ulog·rosbag·터미널 로그를 자동 수집하고, 개발컴으로 회수해 즉시 분석 가능하게 한다. 전 테스트 트랙(🚁 mc-실기체 / 🛩 sitl-vtol / ✈ vtol-실기체) 공용 인프라.
+**선행:** 없음 (SITL-5와 병행 가능)
+**계획 확정:** 2026-07-06. 진입 트리거: `main-code 트랙 재개 — flight_plan.md 작업 G를 실행하라`
+
+### 배경 (설계 입력)
+
+| 로그 소스 | 실체 | 수집 방식 |
+|---|---|---|
+| PX4 ulog (6C 실기체) | SD카드 `/fs/microsd/log/`에 arming~disarm 자동 기록. 정보량 최대(자세·모드전이·setpoint 수락·failsafe 사유) | 비행 종료 후 **MAVLink FTP**로 다운로드 (pymavlink). 실패 시 SD 수동 회수 폴백 |
+| PX4 ulog (SITL) | `~/PX4-Autopilot/build/px4_sitl_default/rootfs/log/` 자동 생성 | 최신 파일 복사 |
+| 파이썬 노드 터미널 | `ros2 launch` stdout — 현재 세션 종료 시 소실 | `tee launch.log` |
+| MAVROS / ROS2 | `~/.ros/log/` + `/rosout` · `/mavros/statustext/recv`(PX4 거부 사유) | rosbag2 녹화에 포함 |
+
+**핵심 제약:** ulog 다운로드는 반드시 **launch(MAVROS) 종료 후** — 시리얼 포트를 MAVROS가 단독 점유하고, 비행 중 같은 링크로 대용량 전송 시 제어 링크 오염(현재도 링크 여유 없음).
+
+**업로드 방침 (2026-07-06 결정):** GitHub 업로드 안 함 — 대용량 바이너리로 git 이력 팽창 + LFS 쿼터 + `results/` 금지 규칙과 충돌. 로그의 목적지는 분석하는 곳 = **개발컴** (RPi → 개발컴 직접 fetch). 공유·웹 분석이 필요한 ulog만 선택적으로 PX4 Flight Review(logs.px4.io)에 업로드.
+
+### 산출물 및 작업 목록
+
+1. **`tools/flight_logs/record_flight.sh`** — RPi/WSL 겸용 비행 래퍼
+   - `logs/YYYY-MM-DD_flightNN/` 자동 생성 (NN = 당일 순번 자동 증가)
+   - rosbag2 record 백그라운드 시작 (토픽 목록: `topics.txt`)
+   - `ros2 launch fc_ros phase2.launch.py "$@" 2>&1 | tee launch.log` — launch 인자 그대로 통과 (`vehicle_type:=`/`v_cruise:=`/`waypoints:=` 오버라이드 호환)
+   - launch 종료(Ctrl-C) 시: rosbag 정지 → `--sitl`이면 SITL log 디렉터리에서 최신 ulog 복사, 실기체면 `pull_ulog.py` 실행
+   - `notes.md` 템플릿 생성 (비행 조건 / 관찰 / 결론 3줄 양식)
+2. **`tools/flight_logs/pull_ulog.py`** — pymavlink MAVLink FTP로 최신 `.ulg` 다운로드
+   - 인자: `--url`(기본: RPi USB serial), `--out`, `--list`(로그 목록만)
+   - 최신 로그 선택·플라이트 폴더 넘버링 로직은 **순수 함수로 분리** (pytest 대상, 규약대로)
+   - 실패 시 명확한 폴백 안내 출력: "SD 카드 수동 회수 → 폴더에 넣어라"
+3. **`tools/flight_logs/topics.txt`** — rosbag 녹화 토픽:
+   `/mavros/state` `/mavros/extended_state` `/mavros/local_position/pose` `/mavros/local_position/velocity_local` `/mavros/setpoint_position/local` `/mavros/setpoint_velocity/cmd_vel` `/mavros/statustext/recv` `/mavros/global_position/global` `/mavros/imu/data` `/fc_ros/override` `/rosout`
+4. **`tools/flight_logs/fetch_logs.ps1`** — 개발컴(Windows)에서 scp/rsync over SSH로 RPi `logs/` → 로컬 `logs/` (신규 폴더만 증분 복사)
+5. **`.gitignore`에 `logs/` 추가** (`results/` 규칙과 동일 — 로그는 git 밖, 분석 결론만 docs에)
+6. **`tools/flight_logs/README.md`** — 사용법 + 분석 절차: pyulog(`ulog_info`/`ulog2csv`), Flight Review 업로드 방법, rosbag 대조(`ros2 bag info/play`), "분석은 개발컴에서 Claude에게 로그 폴더 경로를 주면 됨"
+
+### 테스트 — 합격 기준 [코드]
+
+- `tools/flight_logs/test_flight_logs.py`: 폴더 넘버링·최신 ulog 선택 순수 함수 pytest 통과
+- `bash -n record_flight.sh` 문법 검증 + WSL SITL dry-run 1회 (rosbag·launch.log 생성 확인 — 사람과 협업)
+
+### 배포 검증 — 합격 기준 [배포] (사람, RPi)
+
+```
+[ ] record_flight.sh 벤치 기동 1회 (arm 불필요) → 폴더에 rosbag + launch.log 생성
+[ ] arm~disarm 1회 후 pull_ulog.py로 .ulg 자동 회수 (실패 시 SD 폴백 안내 동작 확인)
+[ ] 개발컴 fetch_logs.ps1 → logs/ 회수 → pyulog로 열람 확인
+[ ] Docker 컨테이너 `fc` 안의 logs/ 경로가 호스트에서 접근 가능한지 확인 (볼륨 마운트 여부)
+```
+
+### 미결 (구현 세션에서 확인할 것)
+
+- 컨테이너 `fc`의 `/drone_ws/src/suridoksuri`가 호스트 마운트인지 — 아니면 logs 위치를 호스트 경로로 조정
+- RPi에 pymavlink 설치 여부 · MAVLink FTP 다운로드 실측 속도 (USB 직결 기준. 너무 느리면 SD 회수를 기본, FTP를 옵션으로 뒤집음)
+- PX4 `SDLOG_PROFILE` 기본값으로 충분한지 (고빈도 디버깅 필요 시 조정)
 
 ---
 
