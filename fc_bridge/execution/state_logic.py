@@ -103,6 +103,23 @@ def vel_aligned_with_path(
     return float(np.dot(vel2 / speed, seg / seg_norm)) > cos_thresh
 
 
+def takeoff_request_fields(transition_alt: float) -> dict:
+    """CommandTOL(/mavros/cmd/takeoff) 요청 필드.
+
+    altitude=transition_alt 로 이륙 목표고도와 CLIMBING이 기다리는 고도를
+    동일 값으로 강제 일치시켜, PX4 저장 파라미터(MIS_TAKEOFF_ALT)와의
+    수동 동기화 의존을 구조적으로 제거한다.
+    latitude/longitude=0.0, yaw=nan 은 PX4 관례상 "현재 위치/헤딩 사용"을 뜻한다.
+    """
+    return {
+        "min_pitch": 0.0,
+        "yaw": float("nan"),
+        "latitude": 0.0,
+        "longitude": 0.0,
+        "altitude": float(transition_alt),
+    }
+
+
 def wp1_land_ready(
     dist: float,
     speed: float,

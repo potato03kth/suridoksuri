@@ -32,7 +32,7 @@ from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, vtol_is_mc, landing_done,
     override_mode, override_reached, override_fallback_due, wp1_land_ready,
-    after_climb_state, after_following_state,
+    after_climb_state, after_following_state, takeoff_request_fields,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 import enum
@@ -45,7 +45,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State, ExtendedState
-from mavros_msgs.srv import CommandBool, CommandLong, SetMode
+from mavros_msgs.srv import CommandBool, CommandLong, CommandTOL, SetMode
 from std_msgs.msg import Bool
 
 _MAVROS_QOS = QoSProfile(
@@ -264,6 +264,7 @@ class OffboardNode(Node):
             SetMode,      "/mavros/set_mode")
         self._arm_cli = self.create_client(CommandBool,  "/mavros/cmd/arming")
         self._cmd_cli = self.create_client(CommandLong,  "/mavros/cmd/command")
+        self._takeoff_cli = self.create_client(CommandTOL, "/mavros/cmd/takeoff")
 
         # ── 제어 타이머 ──────────────────────────────────────
         self.create_timer(self._dt, self._control_callback)
@@ -356,7 +357,11 @@ class OffboardNode(Node):
     # ── ARM_TAKEOFF ──────────────────────────────────────────
 
     def _step_arm_takeoff(self, state: VehicleState) -> None:
-        """ARM 요청 → armed 확인 → AUTO.TAKEOFF 요청 → CLIMBING 전환."""
+        """ARM 요청 → armed 확인 → CommandTOL 이륙 요청 → CLIMBING 전환.
+
+        altitude=transition_alt 를 실어 보내 이륙 목표고도와 CLIMBING이 기다리는
+        고도를 일치시킨다 — PX4 저장 파라미터 MIS_TAKEOFF_ALT 의존 제거(작업 H).
+        """
         if not self._arm_sent:
             if not self._arm_cli.service_is_ready():
                 self.get_logger().warn("/mavros/cmd/arming 서비스 없음")
@@ -372,14 +377,16 @@ class OffboardNode(Node):
             return  # ARM 완료 대기
 
         if not self._takeoff_sent:
-            if not self._set_mode_cli.service_is_ready():
-                self.get_logger().warn("/mavros/set_mode 서비스 없음")
+            if not self._takeoff_cli.service_is_ready():
+                self.get_logger().warn("/mavros/cmd/takeoff 서비스 없음")
                 return
-            req = SetMode.Request()
-            req.custom_mode = "AUTO.TAKEOFF"
-            self._set_mode_cli.call_async(req)
+            req = CommandTOL.Request()
+            for field, value in takeoff_request_fields(self._transition_alt).items():
+                setattr(req, field, value)
+            self._takeoff_cli.call_async(req)
             self._takeoff_sent = True
-            self.get_logger().info("AUTO.TAKEOFF 요청 -> CLIMBING")
+            self.get_logger().info(
+                f"CommandTOL 이륙 요청 altitude={self._transition_alt:.1f}m -> CLIMBING")
             self._sm = _State.CLIMBING
 
     # ── CLIMBING ─────────────────────────────────────────────

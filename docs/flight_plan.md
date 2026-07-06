@@ -27,7 +27,8 @@ last_updated: 2026-07-05
 | SITL-3 — 경로 추종 | ✅ PASS (06-30) — 핵심: FW는 위치 setpoint 필수 | `sitl3_fix_plan.md` · `sitl3_tuning_notes.md` |
 | SITL-4 — 전체 사이클 통합 | ✅ PASS (06-30) — override는 AUTO.LOITER 폴백 | `sitl_verification_log.md` |
 | **SITL-5 — 실기체 배포** | **진행 중** (07-03~, RPi5 MC 브링업. 07-06 첫 offboard 부분 성공) | [아래](#sitl-5--실기체-배포-진행-중) |
-| **작업 G — 로그 자동수집 체계** | **계획 확정** (07-06), 미착수 — 다음 main-code 작업 | [아래](#작업-g--비행-로그-자동수집분석-체계-인프라) |
+| **작업 H — AUTO.TAKEOFF 목표고도 명시 전달** | **[코드] 완료** (07-06, `pytest` 통과) — SITL/실기체 검증 대기 | [아래](#작업-h--autotakeoff-목표고도-명시-전달-commandtol) |
+| **작업 G — 로그 자동수집 체계** | **계획 확정** (07-06), 미착수 | [아래](#작업-g--비행-로그-자동수집분석-체계-인프라) |
 | 작업 F — 임의 WP 견고성 | 미착수 (후속) | [아래](#작업-f--임의-wp-경로-생성-견고성-하니스) |
 | SITL-6 — 임의 WP SITL | 미착수 (후속) | [아래](#sitl-6--임의-wp-생성추종-sitl) |
 
@@ -132,6 +133,44 @@ last_updated: 2026-07-05
 4. **VTOL 실기체 반복** — FW 천이 포함 전체 사이클 + RC override→POSCTL 실측 (SITL-1 이월 항목).
 
 **비행 전 필수:** [첫 비행 전 지상 안전 테스트](#첫-비행-전-지상-안전-테스트-sitl-5-비행-직전) + [필수 조정 파라미터 체크리스트](#실기체-배포-시-필수-조정-파라미터-체크리스트-sitl-5) 전 항목 통과. **통과 전 이륙 금지.**
+
+---
+
+## 작업 H — AUTO.TAKEOFF 목표고도 명시 전달 (CommandTOL)
+
+**유형:** [코드] (Claude 자율) — **완료 (2026-07-06)**
+**목적:** 07-03/07-06 실기체 비행(`b9fc748d-...ulg` 등)에서 확인된 근본 원인 수정.
+**선행:** 없음. 실기체·SITL 검증은 각각 🚁 mc-실기체 / 🛩 sitl-vtol 트랙에서 — **미완료, 다음 비행에서 확인**.
+
+### 근본 원인 (ulog `b9fc748d-...` pyulog 직접 파싱으로 확정, 2026-07-06)
+
+`_step_arm_takeoff`가 `SetMode(custom_mode="AUTO.TAKEOFF")`만 보내고 **목표고도를 전혀 전달하지 않는다.** PX4는 그래서 자기 자신의 파라미터 `MIS_TAKEOFF_ALT`(기본 2.5m)까지만 오르고 자체적으로 AUTO_LOITER로 전환한다. `CLIMBING` 상태는 `pos_ned[2] >= transition_alt`를 기다리는데, 실제 도달 가능한 고도(2.5m)가 `transition_alt`보다 낮으면 이 조건이 **영원히 만족되지 않아 OFFBOARD 요청 자체가 나가지 않는다.**
+
+실측 증거: 해당 비행 `vehicle_command` 로그 전체에 OFFBOARD 모드 요청(DO_SET_MODE, custom_main_mode=6)이 단 한 건도 없고, `vehicle_control_mode.flag_control_offboard_enabled`가 비행 내내 0. 실측 고도는 home(~17.2m MSL) + `MIS_TAKEOFF_ALT`(2.5m) ≈ 19.7m — waypoint의 20m와는 무관한 우연의 일치였다.
+
+### 작업 목록
+
+1. `fc_ros/fc_ros/nodes/offboard_node.py` `_step_arm_takeoff`: `SetMode("AUTO.TAKEOFF")` 대신 `mavros_msgs/srv/CommandTOL`(`/mavros/cmd/takeoff`)로 교체. `altitude=self._transition_alt`를 실어 보내 **이륙 목표고도와 CLIMBING이 기다리는 고도를 동일 값으로 강제 일치**시킨다 — `MIS_TAKEOFF_ALT`(PX4 저장 파라미터, 코드와 별개로 수동 동기화 필요했던 값)에 대한 의존을 구조적으로 제거.
+2. 서비스 클라이언트 추가: `self._takeoff_cli = self.create_client(CommandTOL, "/mavros/cmd/takeoff")` (import `CommandTOL` from `mavros_msgs.srv`).
+3. 요청 필드: `min_pitch=0.0`, `yaw=float('nan')`(현재 헤딩 유지), `latitude=0.0`, `longitude=0.0`(현재 위치 사용 — PX4 관례), `altitude=self._transition_alt`.
+4. 기존 논블로킹 패턴 유지 — `service_is_ready()`만 검사, `wait_for_service()` 금지 (SITL-3 Bug1 준-데드락 재발 방지).
+5. `fc_ros/test/test_offboard_node.py`: `_step_arm_takeoff`가 `CommandTOL` 요청을 보내고 `req.altitude == transition_alt`인지 mock client로 검증. 기존 `SetMode` 기반 ARM_TAKEOFF 테스트를 대체.
+6. 회귀: `pytest fc_ros` 전체 통과.
+
+### 실제 구현 메모 (2026-07-06)
+
+- Windows 개발컴엔 `rclpy`가 없어(계획상 mock client 검증 불가) 요청 필드 조립 로직을 순수함수 `fc_bridge/execution/state_logic.py::takeoff_request_fields(transition_alt)`로 추출 — `offboard_node._step_arm_takeoff`와 `fc_ros/test/test_offboard_node.py`가 동일 함수를 참조(기존 판정함수와 동일 패턴).
+- `offboard_node.py`: `self._takeoff_cli = self.create_client(CommandTOL, "/mavros/cmd/takeoff")` 추가, `_step_arm_takeoff`의 이륙 단계가 `SetMode("AUTO.TAKEOFF")` 대신 `CommandTOL.Request()`에 `takeoff_request_fields()` 필드를 실어 발행.
+- `pytest`: vtol_sim 6 · fc_bridge 44(+4 신규) · fc_ros 82(+4 신규) = 151 전부 통과.
+
+### 검증 (별도 트랙)
+
+- **SITL** (🛩): gz_x500(MC)·gz_standard_vtol에서 실제 climb altitude가 `MIS_TAKEOFF_ALT`와 무관하게 `transition_alt`와 일치하는지 ulog로 확인.
+- **실기체** (🚁): 다음 비행에서 검증. 이 수정이 들어가면 "`transition_alt`를 `MIS_TAKEOFF_ALT` 이하로 낮춰라"는 임시조치(session_status.md에 기록된)가 **불필요해짐** — 수정 반영 후 해당 임시조치 문구 제거.
+
+**주의:** `CommandTOL.altitude`가 AMSL/relative 중 어느 쪽으로 PX4에 해석되는지 SITL에서 반드시 재확인(문서상으론 상대고도이나 실측 우선).
+
+**합격 기준:** `pytest fc_ros` 통과 + 위 SITL 검증 1항목 PASS.
 
 ---
 

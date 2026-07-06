@@ -6,6 +6,8 @@ rclpy 없이 실행 가능한 수학적 로직만 검증한다.
 판정 함수는 fc_bridge.execution.state_logic 에서 import 한다.
 offboard_node.py 와 이 테스트가 동일 함수를 참조하므로 코드 변경이 즉시 검출된다.
 """
+import math
+
 import numpy as np
 import pytest
 
@@ -14,7 +16,7 @@ from fc_bridge.execution.state_logic import (
     trans_mc_trigger, vtol_is_mc, landing_done,
     override_mode, override_reached, override_fallback_due,
     vel_aligned_with_path, wp1_land_ready,
-    after_climb_state, after_following_state,
+    after_climb_state, after_following_state, takeoff_request_fields,
 )
 
 
@@ -132,6 +134,30 @@ def test_vtol_is_mc_fw():
 
 def test_vtol_is_mc_transition():
     assert vtol_is_mc(2) is False  # VTOL_STATE_TRANSITION_TO_MC
+
+
+# ── 작업 H: CommandTOL 이륙 요청 필드 (takeoff_request_fields) ──
+# altitude가 transition_alt와 일치해야 MIS_TAKEOFF_ALT 의존이 제거된다.
+
+def test_takeoff_request_altitude_matches_transition_alt():
+    fields = takeoff_request_fields(4.0)
+    assert fields["altitude"] == pytest.approx(4.0)
+
+
+def test_takeoff_request_altitude_matches_different_value():
+    fields = takeoff_request_fields(50.0)
+    assert fields["altitude"] == pytest.approx(50.0)
+
+
+def test_takeoff_request_yaw_is_nan():
+    # nan = 현재 헤딩 유지 (PX4 관례)
+    assert math.isnan(takeoff_request_fields(10.0)["yaw"])
+
+
+def test_takeoff_request_lat_lon_zero_uses_current_position():
+    fields = takeoff_request_fields(10.0)
+    assert fields["latitude"] == 0.0
+    assert fields["longitude"] == 0.0
 
 
 # ── 작업 D: 착륙 완료 판정 (landing_done) ───────────────────────
