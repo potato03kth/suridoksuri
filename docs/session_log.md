@@ -11,6 +11,36 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-06 — [main] planner 이식(다른 repo 회수) + transition_alt 오버라이드
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 실기체 OFFBOARD 실패 관련 — 다른 계정 repo(Fable 작업)의 planner 수정 회수 + MC 저고도 테스트 배선
+
+### 완료
+
+- **RPi 저장소 구조 규명** — 정본은 `~/drone_ws/src/suridoksuri`(`potato03kth`, `-v ~/drone_ws:/drone_ws` 마운트, 컨테이너엔 git 없음 → 호스트에서 `git pull`). nested `~/drone_ws/suridoksuri/suridoksuri`는 **다른 계정(`suridouksuri`) repo**라 무관 — 그동안 여기서 git해 어긋났던 원인. 정본에서 pull하면 됨(정리 불필요)
+- **planner 2종 본선 이식** (stray repo Fable 5 작업, `584cff3`): ① eta3 **v3.3** — 2D 퇴화 WP(이륙점 수직 상방 천이고도 WP) 병합 + s strictly-increasing → `np.gradient` NaN 제거(offboard 경로추종 미시작 근본결함). 우리 SITL-3 코드에 수동 병합 ② **StraightLinePlanner(신규)** — 3D 직선·NR 없음·수직 NaN 불가 ③ **자동선택** `resolve_planner_name`: `planner:"auto"` 기본 → mc=straight/vtol=eta3, 명시 우선. sim 검증 vtol_sim 6·fc_bridge 44(신규 resolve 6)·fc_ros 82 pass + e2e 스모크
+- **transition_alt launch 오버라이드** (`356ae5a`) — 07-03 OFFBOARD 미진입 원인(`transition_alt:50` 미도달→CLIMBING 무한대기) 대응. 계획했던 `transition_alt:=4.0` 인자가 **미선언이라 무시되던 것**을 실제 먹히게 함(v_cruise/waypoints와 동일 패턴)
+
+### 결정
+
+- planner **기체 타입 자동선택**(mc→straight, vtol→eta3), `planner` 명시 시 우선 — 요구사항 반영
+- stray repo `suridouksuri`는 **폐기** — 필요한 planner 코드 다 회수함
+- RPi 정본 = `potato03kth`, pull 위치 = `~/drone_ws/src/suridoksuri`
+
+### 다음 세션
+
+1. **mc-실기체 첫 실질 OFFBOARD 테스트** — RPi `git pull`(356ae5a까지)+`colcon build --packages-select fc_ros` 후 `vehicle_type:=mc transition_alt:=4.0 waypoints:="[0,0,4, 8,0,4]"`. transition_alt(CLIMBING 통과)+straight(짧은 레그 NaN 없음)가 맞물려야 첫 OFFBOARD
+2. main-code: RPi pull_ulog 실측(작업 G 속도 판정) + 남은 V-unit(V1은 재작성으로 갱신 필요)
+3. planner·transition_alt 벤치·실비행 검증
+
+### 주의
+
+> planner·transition_alt는 **sim만 검증, 실기체 미검증.** RPi는 `git pull`(356ae5a까지)+rebuild 후 비행 — 584cff3까지만 받았으면 launch 변경 누락으로 transition_alt 또 무시됨.
+> 07-03 배터리 새그(12V→10.2V 페일세이프)·나침반 결함·가속도계 클리핑은 **하드웨어 점검** 항목(코드 무관).
+
+---
+
 ## 2026-07-06 — [main] V2 검증·pull_ulog 다운로드 livelock 수정
 
 **브랜치:** `dev--vision-computing-module`
@@ -246,30 +276,4 @@ project: suridoksuri-1
 
 > SITL-3 진입 전 WSL에서 `colcon build --packages-select fc_ros && source install/setup.bash` 재빌드 필수 (offboard_node.py 수정됨).
 > `MIS_TAKEOFF_ALT = 50.0` QGC 설정 완료 — SITL 재시작 시 유지 여부 확인 권장.
-
----
-
-## 2026-06-20 — 전체 테스트 재실행 + 31/31 PASS 확인
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** 사용자가 수정한 테스트를 전부 재실행해 flight_plan.md 기준 합격 여부 확인
-
-### 완료
-
-- 사용자가 테스트 파일을 대폭 수정한 후 전체 재실행 요청
-- flight_plan.md에 명시된 3개 테스트 파일 전부 실행 → **31/31 PASS**
-
-| 테스트 파일                              | 케이스 수 | 결과       |
-| ---------------------------------------- | --------- | ---------- |
-| `fc_ros/test/test_params.py`             | 5         | 5/5 PASS   |
-| `fc_bridge/tests/test_terminal_decel.py` | 5         | 5/5 PASS   |
-| `fc_ros/test/test_offboard_node.py`      | 21        | 21/21 PASS |
-
-- 커버 범위: 작업 A(파라미터 정비) · 작업 B(종단 감속) · 작업 C(이륙·천이) · 작업 D(역천이·착륙) 전부 통과
-
-### 다음 세션
-
-1. **작업 E** — 긴급 수동 override (`/fc_ros/override` Bool 토픽, vtol_state 분기, `test_offboard_node.py`에 `test_override_mc`/`test_override_fw` 추가)
-2. 작업 E 완료 → 코드 단위 A~E 전부 완료 → **SITL-3 진입 조건 충족**
-3. SITL-2(phase2 launch 통합 기동)는 사람이 언제든 WSL에서 수행 가능 (선행: 작업 A ✅)
 

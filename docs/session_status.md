@@ -27,18 +27,32 @@ last_updated: 2026-07-06
 ### 🚁 mc-실기체 — ▶ 활성
 
 - **내용:** RPi5(Ubuntu 24.04) + Pixhawk 6C 순수 MC 테스트기체 브링업 (SITL-5 변형, `vehicle_type:=mc`)
-- **마지막:** 2026-07-06 — **첫 offboard 비행 부분 성공** (사용자 보고. 무엇이 되고 안 됐는지 상세 미기록 — 이 트랙 다음 세션 진입 시 사용자에게 확인해 이 블록부터 갱신할 것). 그 전: 07-03 Docker 배포환경·6C PX4 플래시·수동비행 검증 (`cccaa52`)
-- **다음:** ① 부분 성공의 미해결 지점 확인·기록 ② 남은 문제 진단 (07-03 기준: MAVROS 링크 포화 → USB 직결, AUTO.TAKEOFF — `statustext`로 판별. 부분 성공으로 일부 해소됐을 수 있음) ③ 작업 G 완성 후 로그 체계로 비행 기록 시작
+- **마지막:** 2026-07-06 — 07-03 비행 3건(`10_11_00.ulg`, `10_42_29.ulg`, `10_50_55.ulg`) ulog+launch.log 교차분석 완료. 결론:
+  - **OFFBOARD 미진입 원인 확정 (`/fc_ros/override` 아님):** `fc_ros_params.yaml`의 `transition_alt: 50.0`(m)이 그대로 적용됐는데 실측 최고고도는 3.3m뿐 → `offboard_node`가 `CLIMBING` 상태에서 영원히 대기, OFFBOARD 요청 자체가 발행된 적이 없음(launch.log상 `AUTO.TAKEOFF 요청 -> CLIMBING` 이후 침묵으로 확인). 이후 보인 `AUTO_LOITER`는 fc_ros 명령이 아니라 **PX4가 AUTO.TAKEOFF 완료 후 자체적으로 전환하는 기본 동작**.
+  - 배터리: 무장 후 6~8초 시점에 12V대→10.2~10.6V 새그로 LOW/CRITICAL/EMERGENCY 페일세이프 3연속 발생이 **3개 비행 모두 재현** — 배터리 파라미터(셀수/전압임계) 오탐 의심, 점검 필요.
+  - `10_42_29.ulg`·`10_50_55.ulg` 공통: AUTO_LOITER 중 나침반 결함(`Compass 0 fault`)+가속도계 클리핑(`Accel 1 clipping`) 겹치는 순간 GPS로 확인되는 실제 수 미터 위치 이탈(예: 정남향 ~6m) 후 자연 복귀 — 하드웨어(나침반 캘리브레이션·진동/마운트) 점검 필요.
+  - 착륙은 전부 조종자 RC 스틱 개입(`Pilot took over using sticks`) 후 PX4 자체 착륙감지+자동해제(`COM_DISARM_LAND`) — 소프트웨어의 명시적 착륙 명령 아님, 정상 동작.
+- **다음 비행 직전 필수 — MC 테스트용 파라미터 변경:**
+  - **왜:** 위 OFFBOARD 미진입 원인이 `transition_alt` 기본값(50m, VTOL 장거리 기준)이 MC 저고도 벤치테스트에 안 맞아서였음. 그대로 두면 다음 비행도 OFFBOARD 진입 자체가 또 안 됨.
+  - **방법 (yaml 직접 수정 금지 — launch 인자로만):**
+    ```bash
+    ros2 launch fc_ros phase2.launch.py vehicle_type:=mc \
+      transition_alt:=4.0 \
+      waypoints:="[0.0,0.0,4.0, 8.0,0.0,4.0]"
+    ```
+  - **추천값:** `transition_alt`(이륙고도) **4.0m** 내외로 낮게 — 실측 도달 가능 고도보다 여유 있게. `waypoints`는 각 WP 간격 **10m 미만**으로 짧게 (예: `[0,0,4, 8,0,4]`) — 부지 내 저고도 왕복 테스트 기준.
+  - 이 변경 없이 실비행 진행 금지. RPi 코드 갱신(`git pull`+빌드) 직후, arm 전에 반드시 이 launch 인자로 실행할 것.
+- **다음:** ① 위 launch 인자 반영 후 OFFBOARD 진입 재검증(첫 실질적 OFFBOARD 테스트) ② 배터리 파라미터 점검 ③ 나침반 재캘리브레이션·진동원 점검 ④ 작업 G 로그 체계로 비행 기록 지속
 - **주의:** AUTO.TAKEOFF는 GPS 락 필수(실내/벤치 불가) · 실기체 FC는 PX4인지 확인부터
-- **참조:** `flight_plan.md` SITL-5 섹션 · `pixhawk6c_rpi4_integration_guide.md`
+- **참조:** `flight_plan.md` SITL-5 섹션 · `pixhawk6c_rpi4_integration_guide.md` · `fc_ros/fc_ros/params/fc_ros_params.yaml`(transition_alt/waypoints 기본값) · `fc_ros/fc_ros/nodes/offboard_node.py`(CLIMBING/OFFBOARD 상태머신)
 
 ### 🔧 main-code — ⏸ 대기
 
 - **내용:** fc_ros/fc_bridge 기능 개발 및 공용 인프라. **작업 G(비행 로그 수집·분석) [코드] 완료·검증(V2)·커밋**
-- **마지막:** 2026-07-06 — **V2 검증 완료**: pull_ulog.py 다운로드 livelock 발견·수정(윈도우드 손실복구, serial 경로 불변), SITL 실링크 바이트 동일 PASS, pytest 37. Task G 도구 최초 커밋+push(`b580953`). 그 전: 작업 G 계획(`4ac7df7`)
-- **다음:** ① **RPi 배포 검증** — 실기체 USB 직결에서 pull_ulog 실측 속도·byte 동일 확인 → 속도 판정 최종(15 MB가 5분 초과면 작업 G-2 등록) ② 남은 V-unit: V1(재작성으로 갱신 필요)·V3(record_flight.sh)·V4(fetch_logs.ps1)·V5(dry-run) ③ 작업 F(임의 WP 견고성)
-- **주의:** 신 pull_ulog가 WSL `~/suridoksuri-1`·RPi에 **미전파** — 각 환경 `git pull` 필요. `waypoints` 300 m·`v_cruise 20.0` 유지 결정(2026-06-30). V2/V5는 MAVROS 중지 필요(단독 링크)
-- **참조:** `tools/flight_logs/VERIFY.md`(V1~V5)·`README.md` · `flight_plan.md` · `sitl3_tuning_notes.md`(튜닝 노브)
+- **마지막:** 2026-07-06 — ① **planner 2종 본선 이식**(다른 계정 repo `suridouksuri`의 Fable 작업 회수): eta3 **v3.3**(2D 퇴화 WP NaN 근본수정)+**StraightLinePlanner**(신규)+`resolve_planner_name` 기체타입 자동선택(mc→straight/vtol→eta3, `planner` 명시 우선), sim 검증 vtol_sim 6·fc_bridge 44·fc_ros 82 — `584cff3` ② **transition_alt launch 오버라이드** `356ae5a` ③ 그 전: V2 검증·pull_ulog livelock 수정 `b580953`
+- **다음:** ① **RPi 배포 검증** — pull_ulog 실측 속도·byte 동일(작업 G 속도 판정 최종, 15 MB>5분이면 작업 G-2 등록) ② planner·transition_alt **실기체 검증은 🚁 mc-실기체 트랙에서** ③ 남은 V-unit: V1(download_log 재작성으로 갱신 필요)·V3·V4·V5 ④ 작업 F(임의 WP 견고성)
+- **주의:** 최신 코드(`356ae5a`)가 WSL `~/suridoksuri-1`·RPi에 **미전파** — 각 환경 `git pull` 필요(RPi 정본=호스트 `~/drone_ws/src/suridoksuri`, potato03kth). `waypoints` 300 m·`v_cruise 20.0` 유지 결정(2026-06-30). V2/V5는 MAVROS 중지 필요(단독 링크)
+- **참조:** `fc_bridge/planning/planner_runner.py`(resolve_planner_name) · `vtol_sim/…/straight_line_planner.py`·`eta3clothoid_v3_1_planner.py`(v3.3) · `tools/flight_logs/VERIFY.md`(V1~V5) · `flight_plan.md`
 
 ### 🛩 sitl-vtol — ✅ 완료 (회귀검증 시에만 재개)
 

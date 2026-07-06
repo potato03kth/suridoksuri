@@ -11,6 +11,32 @@ period: 2026-06-18 ~ 2026-06-20
 
 ---
 
+## 2026-06-20 — 전체 테스트 재실행 + 31/31 PASS 확인
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 사용자가 수정한 테스트를 전부 재실행해 flight_plan.md 기준 합격 여부 확인
+
+### 완료
+
+- 사용자가 테스트 파일을 대폭 수정한 후 전체 재실행 요청
+- flight_plan.md에 명시된 3개 테스트 파일 전부 실행 → **31/31 PASS**
+
+| 테스트 파일                              | 케이스 수 | 결과       |
+| ---------------------------------------- | --------- | ---------- |
+| `fc_ros/test/test_params.py`             | 5         | 5/5 PASS   |
+| `fc_bridge/tests/test_terminal_decel.py` | 5         | 5/5 PASS   |
+| `fc_ros/test/test_offboard_node.py`      | 21        | 21/21 PASS |
+
+- 커버 범위: 작업 A(파라미터 정비) · 작업 B(종단 감속) · 작업 C(이륙·천이) · 작업 D(역천이·착륙) 전부 통과
+
+### 다음 세션
+
+1. **작업 E** — 긴급 수동 override (`/fc_ros/override` Bool 토픽, vtol_state 분기, `test_offboard_node.py`에 `test_override_mc`/`test_override_fw` 추가)
+2. 작업 E 완료 → 코드 단위 A~E 전부 완료 → **SITL-3 진입 조건 충족**
+3. SITL-2(phase2 launch 통합 기동)는 사람이 언제든 WSL에서 수행 가능 (선행: 작업 A ✅)
+
+---
+
 ## 2026-06-20 — 작업 D 완료 (상태머신 ② 역천이·착륙)
 
 **브랜치:** `dev--vision-computing-module`
