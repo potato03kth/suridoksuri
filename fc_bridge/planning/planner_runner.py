@@ -18,7 +18,22 @@ if str(_REPO_ROOT) not in sys.path:
 from vtol_sim_checkpoint1_1.vtol_sim.path_planning.base_planner import Path  # noqa: E402
 
 
-_PLANNER_NAMES = ("eta3", "diterpin")
+_PLANNER_NAMES = ("eta3", "diterpin", "straight")
+
+
+def resolve_planner_name(planner_param: str, vehicle_type: str) -> str:
+    """planner 파라미터를 실제 플래너 이름으로 해석한다.
+
+    - "auto"(또는 빈 값): 기체 타입으로 자동 선택 —
+        mc(멀티콥터/쿼드) → "straight"(곡률 완화 불필요 + 퇴화 WP에 안전),
+        vtol/그 외        → "eta3".
+    - 그 외(명시 지정): 지정값을 그대로 사용 — 명시 지정이 항상 우선한다.
+    """
+    p = (planner_param or "").strip().lower()
+    if p and p != "auto":
+        return p
+    vt = (vehicle_type or "").strip().lower()
+    return "straight" if vt == "mc" else "eta3"
 
 
 def run_planner(
@@ -34,7 +49,8 @@ def run_planner(
     Parameters
     ----------
     planner_name : str
-        "eta3" 또는 "diterpin"
+        "eta3" | "diterpin" | "straight" (해석된 실제 플래너 이름).
+        "auto"는 resolve_planner_name()으로 먼저 해석해 넘길 것.
     waypoints_ned : np.ndarray, shape (N, 3)
         NED 좌표 웨이포인트 [N, E, h_up].
     vehicle_params : dict
@@ -60,6 +76,12 @@ def run_planner(
         )
         planner = Eta3ClothoidPlannerV3(
             ds=1.0, accel_tol=0.85, end_extension=0)
+
+    elif planner_name == "straight":
+        from vtol_sim_checkpoint1_1.vtol_sim.path_planning.straight_line_planner import (
+            StraightLinePlanner,
+        )
+        planner = StraightLinePlanner(ds=1.0)
 
     else:  # diterpin
         from vtol_sim_checkpoint1_1.vtol_sim.path_planning.D_iterpin_planner import DIterativePinPlanner

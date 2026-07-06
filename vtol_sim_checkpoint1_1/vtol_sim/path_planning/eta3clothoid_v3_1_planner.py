@@ -12,6 +12,13 @@ v3.1 → v3.2 핵심 변경:
     - NR 잔차가 커도 path는 매끈 + 모든 WP 정확 통과
   • 잔차 가중치 균형 개선: mean_chord 대신 헤딩에 별도 가중치 w_head
   • NR 위치 잔차가 큰 경우(특정 임계값 초과) 자동 경고 출력
+
+v3.2 → v3.3 핵심 변경:
+  • [BUGFIX] 2D 퇴화 WP(같은 수평 위치·고도만 다른 WP — 이륙점 수직 상방의
+    천이고도 WP)를 병합 + 출력 s를 strictly increasing으로 보장 →
+    np.gradient divide-by-zero(NaN setpoint)로 offboard 경로추종이 시작되지
+    못하던 실기체 결함의 근본 수정. min_wp_chord(기본 0.1 m)로 병합 임계.
+  • 경고 print에 flush=True — ros2 launch 파이프 버퍼링에서도 실시간 출력.
 """
 from __future__ import annotations
 import time
@@ -317,12 +324,14 @@ class Eta3ClothoidPlannerV3(BasePlanner):
                  nr_tol: float = 1e-5,
                  nr_max_iter: int = 60,
                  end_extension: float = 15.0,
+                 min_wp_chord: float = 0.1,
                  verbose: bool = False):
         self.ds = ds
         self.accel_tol = accel_tol
         self.nr_tol = nr_tol
         self.nr_max_iter = nr_max_iter
         self.end_extension = end_extension
+        self.min_wp_chord = min_wp_chord
         self.verbose = verbose
 
     def plan(self,
@@ -333,6 +342,32 @@ class Eta3ClothoidPlannerV3(BasePlanner):
         wps = np.asarray(waypoints_ned, dtype=float)
         if len(wps) < 2:
             raise ValueError("waypoints는 최소 2개 필요")
+
+        # ── 2D 퇴화 WP 병합 ─────────────────────────────────────────
+        # 같은 수평 위치에 고도만 다른 WP(수직 상승)는 2D clothoid로 표현할
+        # 수 없고, 그대로 두면 s가 같은 중복 경로점이 생겨 하류 np.gradient에서
+        # divide-by-zero → NaN setpoint가 발생한다. 병합 시 고도는 나중 WP 값을
+        # 채택한다(순항은 상승 완료 고도에서 시작). 수직 상승 구간은 planner가
+        # 아니라 이륙/천이 상태기계가 담당한다.
+        keep = [0]
+        merged: list[int] = []
+        for i in range(1, len(wps)):
+            if np.linalg.norm(wps[i, :2] - wps[keep[-1], :2]) < self.min_wp_chord:
+                wps[keep[-1], 2] = wps[i, 2]
+                merged.append(i)
+            else:
+                keep.append(i)
+        if merged:
+            print(f"[Eta3ClothoidPlannerV3] WARNING: merged consecutive WPs {merged} "
+                  f"within {self.min_wp_chord}m horizontal distance into the previous WP "
+                  f"(altitude takes the later value); vertical climb must be handled by "
+                  f"the takeoff/transition state machine, not the planner.",
+                  flush=True)
+            wps = wps[keep]
+            if len(wps) < 2:
+                raise ValueError(
+                    "2D 퇴화 WP 병합 후 waypoints가 2개 미만입니다. "
+                    "WP 목록이 사실상 한 지점입니다 — 미션 WP를 확인하세요.")
 
         g = float(aircraft_params.get("gravity", 9.81))
         v_cruise = float(aircraft_params["v_cruise"])
@@ -371,7 +406,8 @@ class Eta3ClothoidPlannerV3(BasePlanner):
                 f"[Stage 1] pos_max={pos_res:.3e}m head_max={head_res:.3e}rad")
         if pos_res > 0.5:
             print(f"[Eta3ClothoidPlannerV3] WARNING: NR pos residual {pos_res:.3f}m is large. "
-                  f"affine correction guarantees WP passage but curve may be deformed.")
+                  f"affine correction guarantees WP passage but curve may be deformed.",
+                  flush=True)
 
         all_pts:  list[np.ndarray] = []
         wp_marks: dict[int, int] = {}
@@ -427,6 +463,17 @@ class Eta3ClothoidPlannerV3(BasePlanner):
         diffs = np.diff(pts_arr, axis=0)
         s_arr = np.concatenate(
             [[0.0], np.cumsum(np.hypot(diffs[:, 0], diffs[:, 1]))])
+
+        # ── s strictly increasing 보장 (최종 안전망) ─────────────────
+        # ds=0 중복점이 남아 있으면 아래 곡률 재계산의 np.gradient(f, s)가
+        # divide-by-zero → NaN 궤적을 만들어 FC가 setpoint를 거부한다. 중복점을
+        # 제거하고 wp 마크는 살아남는 점으로 재매핑한다.
+        keep_mask = np.concatenate([[True], np.diff(s_arr) > 1e-9])
+        if not np.all(keep_mask):
+            old_to_new = np.cumsum(keep_mask) - 1
+            wp_marks = {int(old_to_new[idx]): wi for idx, wi in wp_marks.items()}
+            pts_arr = pts_arr[keep_mask]
+            s_arr = s_arr[keep_mask]
 
         # affine 보정 후 실제 기하학적 곡률 재계산 (설계 κ 대신 실제 경로 위치 기준)
         # NR 잔차가 클수록 설계 κ와 실제 κ의 괴리가 크므로, 하위 소비자(속도 프로필,

@@ -104,7 +104,7 @@ class OffboardNode(Node):
       v_approach         (float, 5.0)   — ENTRY 접근 속도 (m/s)
       cmd_vel_frame_id   (str,  "base_link") — TwistStamped frame_id (MAVROS 버전에 따라 다름)
       waypoints          (float[], [0,0,50, 100,0,50]) — flat 1D, 코드에서 reshape(-1,3)
-      planner            (str,  "eta3") — "eta3" | "diterpin"
+      planner            (str,  "auto") — "auto"(mc→straight/vtol→eta3) | "eta3" | "diterpin" | "straight"
       v_cruise           (float, 15.0)  — 순항 속도 (m/s)
       a_max_g            (float, 0.3)   — 횡방향 가속도 상한 (g)
       gravity            (float, 9.81)  — 중력 가속도 (m/s²)
@@ -133,7 +133,7 @@ class OffboardNode(Node):
         self.declare_parameter("hold_timeout",       30.0)
         self.declare_parameter(
             "waypoints",  [0.0, 0.0, 50.0, 100.0, 0.0, 50.0])
-        self.declare_parameter("planner",    "eta3")
+        self.declare_parameter("planner",    "auto")
         self.declare_parameter("v_cruise",   15.0)
         self.declare_parameter("a_max_g",    0.3)
         self.declare_parameter("gravity",    9.81)
@@ -160,12 +160,13 @@ class OffboardNode(Node):
         self._hold_timeout = float(self.get_parameter("hold_timeout").value)
 
         # ── 경로 계획 ─────────────────────────────────────────
-        from fc_bridge.planning.planner_runner import run_planner
+        from fc_bridge.planning.planner_runner import run_planner, resolve_planner_name
         from fc_bridge.planning.terminal_decel import apply_terminal_decel
 
         raw_wps = np.array(self.get_parameter(
             "waypoints").value, dtype=float).reshape(-1, 3)
-        planner_name = self.get_parameter("planner").value
+        planner_name = resolve_planner_name(
+            self.get_parameter("planner").value, self._vehicle_type)
         vehicle_params = {
             "v_cruise": self.get_parameter("v_cruise").value,
             "a_max_g":  self.get_parameter("a_max_g").value,

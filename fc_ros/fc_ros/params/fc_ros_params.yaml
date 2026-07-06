@@ -24,7 +24,8 @@ offboard_node:
     cmd_vel_frame_id: "local_origin"
 
     # 경로 계획 (main() entry_point 전용)
-    planner: "eta3"
+    # "auto": 기체 타입 자동 선택(mc→straight, vtol→eta3). 명시 지정("eta3"/"straight"/"diterpin")은 그대로.
+    planner: "auto"
     # ROS2 파라미터는 중첩 리스트 불가 → flat 1D, 코드에서 reshape(-1, 3)
     waypoints: [0.0, 0.0, 50.0, 300.0, 0.0, 50.0]
 

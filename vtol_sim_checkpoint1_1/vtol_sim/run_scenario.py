@@ -28,6 +28,7 @@ from path_planning.clothoid_planner import ClothoidPlanner
 from path_planning.eta3clothoid_planner import Eta3ClothoidPlanner
 from path_planning.eta3clothoid_stage2_planner import Eta3ClothoidPlanner as Eta3ClothoidPhase2Planner
 from path_planning.eta3clothoid_v3_1_planner import Eta3ClothoidPlannerV3
+from path_planning.straight_line_planner import StraightLinePlanner
 from utils.config_loader import (
     load_simulation_params, load_scenario, merge_scenario_into_aircraft,
     load_aircraft_params,
@@ -72,6 +73,8 @@ def build_planner(name: str):
         return Eta3ClothoidPhase2Planner(ds=1.0, accel_tol=0.9, nr_max_iter=40)
     if name == "eta3clothoid3":
         return Eta3ClothoidPlannerV3(ds=1.0, accel_tol=0.7, end_extension=10)
+    if name == "straight":
+        return StraightLinePlanner(ds=1.0)
     raise ValueError(f"Unknown planner: {name}")
 
 
@@ -111,7 +114,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("scenario", help="scenario name (e.g., 'basic')")
     parser.add_argument("--planner", default="dubins",
-                        choices=["dubins", "spline", "bspline", "bspline2", "hermite", "qhermite", "iterpin", "diterpin", "clothoid", "eta3clothoid", "eta3clothoid2", "eta3clothoid3"])
+                        choices=["dubins", "spline", "bspline", "bspline2", "hermite", "qhermite", "iterpin", "diterpin", "clothoid", "eta3clothoid", "eta3clothoid2", "eta3clothoid3", "straight"])
     parser.add_argument("--controller", default="nlgl",
                         choices=["nlgl", "mpc"])
     parser.add_argument("--seed", type=int, default=None)
