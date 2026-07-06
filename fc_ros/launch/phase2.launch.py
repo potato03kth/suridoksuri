@@ -8,6 +8,7 @@ Phase 2 launch: TelemetryNode + OffboardNode — Offboard 경로 추종.
   ros2 launch fc_ros phase2.launch.py vehicle_type:=mc
   ros2 launch fc_ros phase2.launch.py v_cruise:=18.0
   ros2 launch fc_ros phase2.launch.py waypoints:="[0.0,0.0,50.0, 300.0,0.0,50.0]"
+  ros2 launch fc_ros phase2.launch.py vehicle_type:=mc transition_alt:=4.0 waypoints:="[0.0,0.0,4.0, 8.0,0.0,4.0]"
 
 TelemetryNode: 진단·모니터링 용도 (VehicleState 로깅).
 OffboardNode:  실제 제어 루프 (MAVROS 토픽 직접 구독, 자체 VehicleState 유지).
@@ -41,6 +42,10 @@ def _make_nodes(context):
                 f"waypoints must be a flat [x,y,z, ...] list (len % 3 == 0), got len={len(wps)}")
         overrides["waypoints"] = wps
 
+    transition_alt = LaunchConfiguration("transition_alt").perform(context)
+    if transition_alt:
+        overrides["transition_alt"] = float(transition_alt)
+
     return [
         Node(
             package="fc_ros",
@@ -69,5 +74,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "waypoints", default_value="",
             description='테스트용 WP 오버라이드, flat 1D: "[x,y,z, x,y,z, ...]". 빈 값(기본)이면 YAML 값 사용'),
+        DeclareLaunchArgument(
+            "transition_alt", default_value="",
+            description="테스트용 천이/이륙 고도 오버라이드 (m). 빈 값(기본)이면 YAML 값 사용 — MC 저고도 벤치테스트 필수"),
         OpaqueFunction(function=_make_nodes),
     ])
