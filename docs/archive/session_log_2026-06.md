@@ -11,6 +11,56 @@ period: 2026-06-18 ~ 2026-06-20
 
 ---
 
+## 2026-06-20 — 작업 D 완료 (상태머신 ② 역천이·착륙)
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** flight_plan.md 작업 D(상태머신 ② 역천이·착륙) 자율 실행 + 테스트 품질 점검
+
+### 완료
+
+- **테스트 품질 구조 개선** — 기존 작업 C 테스트의 "로직 복사" 문제 수정
+  - 문제: `_climb_reached`, `_vtol_is_fw` 등 판정 로직이 테스트 파일 안에 복사되어 있었음. `offboard_node.py`가 바뀌어도 테스트는 통과할 수 있는 구조 (코드와 단절된 스펙 테스트).
+  - 원인: `offboard_node.py`가 최상단에 `rclpy` import → 테스트에서 직접 import 불가.
+  - **해결**: `fc_bridge/execution/state_logic.py` 신규 생성 (rclpy 의존 없는 순수 판정 함수 5개). `offboard_node.py`와 테스트 양쪽이 동일 함수를 참조 → 코드 변경이 즉시 테스트 실패로 이어짐.
+  - `test_offboard_node.py`의 기존 작업 C 테스트도 import 방식으로 전환.
+
+- **작업 D** — `offboard_node.py` 상태머신 확장
+  - `_State` enum에 `TRANSITION_MC`, `LANDING` 추가
+  - `__init__`에 `_d_end_thresh`, `_landing_timeout` 파라미터 읽기 추가 (이미 선언됨, 읽기만 추가)
+  - `_step_following()` 종료조건: `dist_to_end < 3.0` (하드코딩) → `trans_mc_trigger(dist_to_end, self._d_end_thresh)`. 전환 대상: `DONE` → `TRANSITION_MC`
+  - `_step_transition_mc()`: `CommandLong(3000, param1=3.0)` 역천이 명령 → `vtol_is_mc(state.vtol_state)` 확인 → LANDING
+  - `_step_landing()`: `set_mode "AUTO.LAND"` → `landing_done(state.armed)` 확인 → DONE. `landing_timeout` 초과 시 경고 1회.
+  - 기존 `_step_climbing`, `_step_transition_fw`도 `state_logic` 함수 사용으로 통일
+  - `test_offboard_node.py`에 케이스 8개 추가: `trans_mc_trigger`×3, `vtol_is_mc`×3, `landing_done`×2
+
+### 결과
+
+| 테스트 파일                              | PASS      |
+| ---------------------------------------- | --------- |
+| `fc_ros/test/test_offboard_node.py`      | 21/21     |
+| `fc_bridge/tests/test_terminal_decel.py` | 5/5       |
+| `fc_ros/test/test_params.py`             | 5/5       |
+| **합계**                                 | **31/31** |
+
+### 결정
+
+- 판정 순수 함수는 `fc_bridge/execution/state_logic.py`에 집중 관리. 향후 추가 판정 로직도 이곳에.
+- `_landing_timeout_warned` 플래그로 타임아웃 경고 1회만 출력 (스팸 방지).
+- `_entry_done` (ENTRY 판정) 은 numpy 로직이 복잡하고 작업 D 범위 밖이므로 현행 유지.
+
+### 다음 세션
+
+1. **작업 E** — 긴급 수동 override (`/fc_ros/override` Bool 토픽, vtol_state 분기, 선행: C ✅ D ✅)
+2. 작업 E 완료 후 → **SITL-3** 진입 가능 (선행: B·C·D·SITL-2 전부 충족)
+3. SITL-2(launch 통합 기동)는 A 완료 후 진입 가능이었으나 아직 사람 미수행
+
+### 주의
+
+> 작업 E 완료 시 코드 단위 작업(A~E) 전부 완료 → SITL-3(경로 추종 검증) 진입 조건 충족.
+> SITL-2(phase2 launch 기동)는 작업 A 선행이 완료된 상태이므로 언제든 사람이 WSL에서 수행 가능.
+
+---
+
 ## 2026-06-20 — 작업 B·C 완료 (종단 감속 헬퍼 + 상태머신 이륙·천이)
 
 **브랜치:** `dev--vision-computing-module`

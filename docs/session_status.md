@@ -18,6 +18,7 @@ last_updated: 2026-07-06
 - **브랜치:** `dev--vision-computing-module` (전 트랙 공용 단일 브랜치. main 병합은 SITL-5 안정화 후 결정)
 - **커밋 규율:** 트랙 전환 전 반드시 커밋(WIP 허용, 메시지에 `[main]`/`[mc-hw]`/`[sitl]`/`[vtol-hw]` 태그)
 - **파라미터 규율:** 테스트 임시값은 yaml 수정 금지 — `phase2.launch.py v_cruise:=18.0 waypoints:="[...]"` launch 인자로만
+- **미커밋:** `docs/session_log.md`·`docs/session_status.md` (세션 종료 기록 — 다음 커밋에 포함하면 됨)
 
 ---
 
@@ -33,11 +34,11 @@ last_updated: 2026-07-06
 
 ### 🔧 main-code — ⏸ 대기
 
-- **내용:** fc_ros/fc_bridge 기능 개발 및 공용 인프라. 다음 작업단위는 **작업 G** (비행 로그 자동수집·분석 체계)
-- **마지막:** 2026-07-06 — 작업 G 계획 확정(`flight_plan.md`에 상세 등록). 그 전: 문서 재구성 + launch 오버라이드 (`89ab44f`, 120/120 PASS)
-- **다음:** ① **작업 G 실행** — 진입: `main-code 트랙 재개 — flight_plan.md 작업 G를 실행하라` ([코드] 부분은 Claude 완결, RPi 검증만 사람) ② 그 후 작업 F (임의 WP 견고성)
-- **주의:** `waypoints`는 테스트값(직선 300 m) 유지 결정됨(2026-06-30) — 실미션 좌표 확정 시 yaml **두 곳**(offboard_node·mission_node) 동시 교체. `v_cruise: 20.0`도 유지 결정(FW는 TECS가 속도 관장)
-- **참조:** `flight_plan.md` · `fc_bridge/CLAUDE.md` · `sitl3_tuning_notes.md`(튜닝 노브)
+- **내용:** fc_ros/fc_bridge 기능 개발 및 공용 인프라. **작업 G(비행 로그 수집·분석) [코드] 완료·검증(V2)·커밋**
+- **마지막:** 2026-07-06 — **V2 검증 완료**: pull_ulog.py 다운로드 livelock 발견·수정(윈도우드 손실복구, serial 경로 불변), SITL 실링크 바이트 동일 PASS, pytest 37. Task G 도구 최초 커밋+push(`b580953`). 그 전: 작업 G 계획(`4ac7df7`)
+- **다음:** ① **RPi 배포 검증** — 실기체 USB 직결에서 pull_ulog 실측 속도·byte 동일 확인 → 속도 판정 최종(15 MB가 5분 초과면 작업 G-2 등록) ② 남은 V-unit: V1(재작성으로 갱신 필요)·V3(record_flight.sh)·V4(fetch_logs.ps1)·V5(dry-run) ③ 작업 F(임의 WP 견고성)
+- **주의:** 신 pull_ulog가 WSL `~/suridoksuri-1`·RPi에 **미전파** — 각 환경 `git pull` 필요. `waypoints` 300 m·`v_cruise 20.0` 유지 결정(2026-06-30). V2/V5는 MAVROS 중지 필요(단독 링크)
+- **참조:** `tools/flight_logs/VERIFY.md`(V1~V5)·`README.md` · `flight_plan.md` · `sitl3_tuning_notes.md`(튜닝 노브)
 
 ### 🛩 sitl-vtol — ✅ 완료 (회귀검증 시에만 재개)
 
