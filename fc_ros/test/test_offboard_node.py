@@ -154,10 +154,12 @@ def test_takeoff_request_yaw_is_nan():
     assert math.isnan(takeoff_request_fields(10.0)["yaw"])
 
 
-def test_takeoff_request_lat_lon_zero_uses_current_position():
+def test_takeoff_request_lat_lon_nan_uses_current_position():
+    # nan = 현재 위치 사용 (MAVLink 관례). 0.0/0.0은 실제 좌표(위도·경도 0)로
+    # 해석돼 2026-07-06 SITL에서 고도 미상승 후 preflight disarm으로 실패 확인됨.
     fields = takeoff_request_fields(10.0)
-    assert fields["latitude"] == 0.0
-    assert fields["longitude"] == 0.0
+    assert math.isnan(fields["latitude"])
+    assert math.isnan(fields["longitude"])
 
 
 # ── 작업 D: 착륙 완료 판정 (landing_done) ───────────────────────

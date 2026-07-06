@@ -109,13 +109,15 @@ def takeoff_request_fields(transition_alt: float) -> dict:
     altitude=transition_alt 로 이륙 목표고도와 CLIMBING이 기다리는 고도를
     동일 값으로 강제 일치시켜, PX4 저장 파라미터(MIS_TAKEOFF_ALT)와의
     수동 동기화 의존을 구조적으로 제거한다.
-    latitude/longitude=0.0, yaw=nan 은 PX4 관례상 "현재 위치/헤딩 사용"을 뜻한다.
+    latitude/longitude/yaw=nan 이 MAVLink 관례상 "현재 위치/헤딩 사용"을 뜻한다
+    (2026-07-06 SITL 실패로 확정: 0.0/0.0은 실제 좌표(위도 0, 경도 0)로 해석돼
+    PX4가 유효한 이륙 목표를 만들지 못해 고도 미상승 후 preflight 안전 disarm됨).
     """
     return {
         "min_pitch": 0.0,
         "yaw": float("nan"),
-        "latitude": 0.0,
-        "longitude": 0.0,
+        "latitude": float("nan"),
+        "longitude": float("nan"),
         "altitude": float(transition_alt),
     }
 
