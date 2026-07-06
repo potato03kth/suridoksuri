@@ -1,13 +1,46 @@
 ---
 doc_type: session_log_archive
 project: suridoksuri-1
-period: 2026-06-18 ~ 2026-06-20
+period: 2026-06-18 ~ 2026-06-20 (파라미터 버그 수정 세션 포함)
 ---
 
 # 세션 로그 아카이브 — 2026-06
 
 > `docs/session_log.md`에서 이동된 과거 세션 기록 (최신이 위).
 > 현행 로그는 최근 8개 세션만 유지하며, 초과분은 `/session-log` 실행 시 이 디렉터리로 이동된다.
+
+---
+
+## 2026-06-2e 파라미터 버그 수정
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** SITL-2(phase2 launch 통합 기동) 수행 및 판정
+
+### 완료
+
+- **SITL-2 PASS** — `ros2 launch fc_ros phase2.launch.py` 정상 기동
+  - TelemetryNode + OffboardNode 두 노드 기동 확인 (TypeError 없음)
+  - 신규 파라미터 5개 값 실측: `transition_alt=50.0`, `d_end_thresh=10.0`, `v_terminal=15.2`, `decel_dist=80.0`, `landing_timeout=60.0`
+- **`offboard_node.py` 파라미터 버그 수정** — YAML `waypoints` 미적용 문제
+  - 원인: `main()`의 `_offboard_param_reader` 임시 노드가 YAML 파라미터를 받지 못해 `waypoints`, `planner`, `v_cruise` 등이 항상 하드코딩 기본값으로 동작
+  - 수정: 경로 계획 파라미터 선언 및 계획 로직을 `OffboardNode.__init__`으로 이동, `main()` 임시 노드 제거
+  - 결과: `waypoints`, `planner`, `v_cruise`, `a_max_g`, `gravity`가 이제 YAML 값으로 로드됨, 30/30 pytest PASS 유지
+- **QGC `MIS_TAKEOFF_ALT = 50.0` 설정** — 기본값 10m라 CLIMBING이 50m까지 진행 불가했던 문제 해결
+
+### 결정
+
+- `fc_bridge`는 colcon 패키지가 아니라 순수 Python 라이브러리 → `pip install -e .`로 WSL에 설치, `colcon build --packages-select fc_ros`만 사용
+
+### 다음 세션
+
+1. **SITL-3** — 경로 추종 검증 (선행: B·C·D·SITL-2 전부 ✅)
+   - dry-run 속도 프로파일 끝점 = v_terminal 확인
+   - 3종 경로(직선/L자/사각형) SITL 추종 및 cross_track_error 확인
+
+### 주의
+
+> SITL-3 진입 전 WSL에서 `colcon build --packages-select fc_ros && source install/setup.bash` 재빌드 필수 (offboard_node.py 수정됨).
+> `MIS_TAKEOFF_ALT = 50.0` QGC 설정 완료 — SITL 재시작 시 유지 여부 확인 권장.
 
 ---
 
