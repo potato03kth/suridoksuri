@@ -613,6 +613,21 @@ ARM_TAKEOFF → CLIMBING(50m) → 헤딩정렬(err -2.3°) → MC→FW 천이(vt
 
 ---
 
+## 작업 H — CommandTOL 이륙 SITL 검증 (2026-07-06)
+
+**결과: PASS** (1차 실패 → 코드 수정 → 재검증 PASS)
+
+**배경:** 실기체 비행에서 `SetMode("AUTO.TAKEOFF")`가 목표고도를 전달하지 않아 `MIS_TAKEOFF_ALT`(2.5m)에만 의존 → `transition_alt` 게이트 불충족으로 OFFBOARD 미진입. `CommandTOL(/mavros/cmd/takeoff, altitude=transition_alt)`로 교체.
+
+- **1차 실패 원인:** `takeoff_request_fields()`가 `latitude=0.0, longitude=0.0`을 "현재 위치 사용"으로 잘못 가정(문서화된 "PX4 관례"가 틀림). MAVLink `MAV_CMD_NAV_TAKEOFF` 관례상 "현재 위치 사용"은 **NaN**이며, `0.0/0.0`은 실제 좌표(위도·경도 0, null island)로 해석된다. `transition_alt:=50.0`로 SITL 실행 시 QGC 모드는 AUTO.TAKEOFF로 정상 전환됐으나 고도가 전혀 상승하지 않고(`pos_ned[2]` ~0 근방에서 요동) PX4 자체 preflight 안전 로직으로 자동 disarm됨(`Armed by external command` → `Disarmed by auto preflight disarming`, ~13초).
+- **수정:** `fc_bridge/execution/state_logic.py::takeoff_request_fields()`의 `latitude`/`longitude`를 `0.0` → `float('nan')`으로 교체 (커밋 `000f478`).
+- **재검증 (WSL, gz_standard_vtol, `transition_alt:=50.0`):** ARM → `CommandTOL 이륙 요청 altitude=50.0m -> CLIMBING` → 실제 고도 상승 확인 → CLIMBING 통과, disarm 없이 정상 진행. ✅
+- **잔존 경고 (무해, 별개 이슈):** `mavros.guided_target: PositionTargetGlobal failed because no origin`가 계속 출력됨 — MAVROS humble의 알려진 QoS 불일치 코스메틱 경고(guided_target 플러그인, `/mavros/global_position/gp_origin` 구독 QoS 불일치)로 우리 코드와 무관하고 비행 동작에 영향 없음(PX4 포럼에서도 "정상 동작함" 확인). 조치 불필요 — 제거하려면 `px4_pluginlists.yaml`에서 `guided_target` 블랙리스트 처리 가능(선택 사항, 미실행).
+
+**합격 기준 충족:** `pytest fc_ros` 통과(위 참조) + SITL 재검증 PASS. 실기체 검증은 🚁 mc-실기체 트랙에서 다음 비행 시 확인.
+
+---
+
 ## 현재 진행 상태 (2026-06-30 기준)
 
 - [x] WSL SITL 환경 구축
