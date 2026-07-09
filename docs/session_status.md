@@ -2,7 +2,7 @@
 doc_type: session_status
 project: suridoksuri-1
 scope: FC 세션 유일 진입점 — 트랙 보드(병행 작업 상태) + 환경 절차
-last_updated: 2026-07-06
+last_updated: 2026-07-09
 ---
 
 # FC 세션 진입 상태 문서
@@ -13,44 +13,32 @@ last_updated: 2026-07-06
 
 ---
 
-## 공통 상태 (2026-07-06 갱신)
+## 공통 상태 (2026-07-09 갱신)
 
 - **브랜치:** `dev--vision-computing-module` (전 트랙 공용 단일 브랜치. main 병합은 SITL-5 안정화 후 결정)
 - **커밋 규율:** 트랙 전환 전 반드시 커밋(WIP 허용, 메시지에 `[main]`/`[mc-hw]`/`[sitl]`/`[vtol-hw]` 태그)
 - **파라미터 규율:** 테스트 임시값은 yaml 수정 금지 — `phase2.launch.py v_cruise:=18.0 waypoints:="[...]"` launch 인자로만
-- **미커밋:** `docs/session_log.md`·`docs/session_status.md` (세션 종료 기록 — 다음 커밋에 포함하면 됨)
+- **미커밋:** `docs/session_log.md`·`docs/session_status.md`·`docs/archive/session_log_2026-06.md`·`docs/mc_flight_procedure.md`(신규, 세션 종료 기록 — 다음 커밋에 포함하면 됨)
+- **vision 도메인은 별도 진입점:** `docs/vision_status.md` (트랙 보드) + `docs/vision_plan.md` (설계), 커밋 태그 `[vision]`. **FC 세션은 vision 문서를 읽지 않는다**(컨텍스트 격리).
+- **하드웨어 (2026-07-09 갱신):** MC 테스트기체 **해체됨** → VTOL 테스트기체 **조립됨**. 코드에서 VTOL 천이를 진행하지 않으면 여전히 MC처럼 사용 가능하나, **PX6C의 PX4 파라미터로는 현재 조립이 MC인지 VTOL인지 구분할 방법이 없다** — PX4 설정값이 물리적 기체 형상을 반영하지 않으므로 어느 기체가 실제로 붙어 있는지는 이 문서(트랙 보드)로만 추적한다. 새 세션 진입 시 실기체 관련 가정("PX4 보고 mc/vtol 확인")을 하지 말 것. VTOL 기체에 **미진단 결함**이 있어 현재 비행 자체가 불가능 — 아래 ✈ vtol-실기체 트랙 참조.
 
 ---
 
 ## 트랙 보드
 
-### 🚁 mc-실기체 — ▶ 활성
+### 🚁 mc-실기체 — ⏸ 보류 (하드웨어 해체됨, 2026-07-09)
 
-- **내용:** RPi5(Ubuntu 24.04) + Pixhawk 6C 순수 MC 테스트기체 브링업 (SITL-5 변형, `vehicle_type:=mc`)
-- **마지막:** 2026-07-06 — 07-03 비행 3건(`10_11_00.ulg`, `10_42_29.ulg`, `10_50_55.ulg`) ulog+launch.log 교차분석 완료. 결론:
-  - **OFFBOARD 미진입 원인 확정 (`/fc_ros/override` 아님):** `fc_ros_params.yaml`의 `transition_alt: 50.0`(m)이 그대로 적용됐는데 실측 최고고도는 3.3m뿐 → `offboard_node`가 `CLIMBING` 상태에서 영원히 대기, OFFBOARD 요청 자체가 발행된 적이 없음(launch.log상 `AUTO.TAKEOFF 요청 -> CLIMBING` 이후 침묵으로 확인). 이후 보인 `AUTO_LOITER`는 fc_ros 명령이 아니라 **PX4가 AUTO.TAKEOFF 완료 후 자체적으로 전환하는 기본 동작**.
-  - 배터리: 무장 후 6~8초 시점에 12V대→10.2~10.6V 새그로 LOW/CRITICAL/EMERGENCY 페일세이프 3연속 발생이 **3개 비행 모두 재현** — 배터리 파라미터(셀수/전압임계) 오탐 의심, 점검 필요.
-  - `10_42_29.ulg`·`10_50_55.ulg` 공통: AUTO_LOITER 중 나침반 결함(`Compass 0 fault`)+가속도계 클리핑(`Accel 1 clipping`) 겹치는 순간 GPS로 확인되는 실제 수 미터 위치 이탈(예: 정남향 ~6m) 후 자연 복귀 — 하드웨어(나침반 캘리브레이션·진동/마운트) 점검 필요.
-  - 착륙은 전부 조종자 RC 스틱 개입(`Pilot took over using sticks`) 후 PX4 자체 착륙감지+자동해제(`COM_DISARM_LAND`) — 소프트웨어의 명시적 착륙 명령 아님, 정상 동작.
-- **다음 비행 직전 필수 — MC 테스트용 파라미터 변경:**
-  - **왜:** 위 OFFBOARD 미진입 원인이 `transition_alt` 기본값(50m, VTOL 장거리 기준)이 MC 저고도 벤치테스트에 안 맞아서였음. 그대로 두면 다음 비행도 OFFBOARD 진입 자체가 또 안 됨.
-  - **방법 (yaml 직접 수정 금지 — launch 인자로만):**
-    ```bash
-    ros2 launch fc_ros phase2.launch.py vehicle_type:=mc \
-      transition_alt:=4.0 \
-      waypoints:="[0.0,0.0,4.0, 8.0,0.0,4.0]"
-    ```
-  - **추천값:** `transition_alt`(이륙고도) **4.0m** 내외로 낮게 — 실측 도달 가능 고도보다 여유 있게. `waypoints`는 각 WP 간격 **10m 미만**으로 짧게 (예: `[0,0,4, 8,0,4]`) — 부지 내 저고도 왕복 테스트 기준.
-  - 이 변경 없이 실비행 진행 금지. RPi 코드 갱신(`git pull`+빌드) 직후, arm 전에 반드시 이 launch 인자로 실행할 것.
-- **다음:** ① 위 launch 인자 반영 후 OFFBOARD 진입 재검증(첫 실질적 OFFBOARD 테스트) ② 배터리 파라미터 점검 ③ 나침반 재캘리브레이션·진동원 점검 ④ 작업 G 로그 체계로 비행 기록 지속
-- **주의:** AUTO.TAKEOFF는 GPS 락 필수(실내/벤치 불가) · 실기체 FC는 PX4인지 확인부터
-- **참조:** `flight_plan.md` SITL-5 섹션 · `pixhawk6c_rpi4_integration_guide.md` · `fc_ros/fc_ros/params/fc_ros_params.yaml`(transition_alt/waypoints 기본값) · `fc_ros/fc_ros/nodes/offboard_node.py`(CLIMBING/OFFBOARD 상태머신)
+- **내용:** RPi5(Ubuntu 24.04) + Pixhawk 6C 순수 MC 테스트기체 브링업 (SITL-5 변형, `vehicle_type:=mc`). **2026-07-09 MC 테스트기체 물리적 해체 — 이 형상으로는 재개 불가.** RPi5/Pixhawk6C 자체는 VTOL 기체로 옮겨갔으므로 전자장치·코드 이력은 ✈ vtol-실기체 트랙에서 계승. 아래는 해체 전 마지막 상태(참고용).
+- **마지막:** 2026-07-07 — **오늘 실비행 시도 실패**: SD카드를 컴퓨터에 꽂아둔 채 까먹고 옮겨두지 않아 PX4 prearm check(`Logging is enabled, but no SD card is detected`)로 arming 자체 거부 — 비행 데이터 없음. 그 전(07-06) ulog(`b9fc748d-...`) 재분석으로 "20m 지정했는데 3m만" 문제의 **진짜 원인 확정**: `offboard_node`의 이륙 요청이 목표고도를 안 보내 PX4 자체 `MIS_TAKEOFF_ALT`(2.5m)에만 의존 → OFFBOARD가 아예 요청된 적 없음(vehicle_command 로그에 전무). → **작업 H(`CommandTOL` 목표고도 명시)로 수정, SITL PASS·커밋까지 완료**(main-code 트랙 참조) — **실기체 검증은 아직 미시도**.
+- **다음:** ① **작업 H 실기체 검증 (최우선)** — `docs/mc_flight_procedure.md` 절차대로 진행, **SD카드 삽입 확인부터**. `CommandTOL` 이륙이 실기체에서 정상 동작하는지, `altitude` AMSL/relative 해석 확인 ② PASS 시 이 문서의 과거 "transition_alt를 낮게" 임시조치는 참고용으로만 남기고 실질 의존 제거 ③ 배터리 파라미터 점검(07-03 3개 비행 모두 6~8초 시점 전압 새그 페일세이프 재현, 미해결) ④ 나침반 재캘리브레이션·진동원 점검(미해결) ⑤ 작업 G 로그 체계(`record_flight.sh`)로 비행 기록 지속 — 아직 실기체로 첫 실사용 전
+- **주의:** AUTO.TAKEOFF는 GPS 락 필수(실내/벤치 불가) · 실기체 FC는 PX4인지 확인부터 · **비행 전 SD카드 삽입 확인 (2026-07-07 이걸로 비행 실패)**
+- **참조:** **`docs/mc_flight_procedure.md`(비행 절차 전체 — 로깅 사용/미사용 둘 다, "절차는?" 질문엔 이 문서 그대로 출력)** · `flight_plan.md` 작업 H·SITL-5 섹션 · `pixhawk6c_rpi4_integration_guide.md` · `fc_ros/fc_ros/nodes/offboard_node.py`(`_step_arm_takeoff`/CLIMBING·OFFBOARD 상태머신)
 
 ### 🔧 main-code — ⏸ 대기
 
 - **내용:** fc_ros/fc_bridge 기능 개발 및 공용 인프라. **작업 G(비행 로그 수집·분석) [코드] 완료·검증(V2)·커밋**
 - **마지막:** 2026-07-06 — ① **작업 H 완료·SITL PASS·커밋** — `offboard_node.py` `_step_arm_takeoff`를 `SetMode(AUTO.TAKEOFF)`→`CommandTOL(/mavros/cmd/takeoff, altitude=transition_alt)`로 교체(`7414c1d`). 요청 필드 조립은 순수함수 `fc_bridge/execution/state_logic.py::takeoff_request_fields()`로 분리(rclpy 없는 Windows에서도 pytest 가능). **1차 SITL 실패 → 원인 수정 → 재검증 PASS:** `latitude=0.0, longitude=0.0`을 "현재 위치"로 잘못 가정(MAVLink 관례는 **NaN**, `0.0/0.0`은 실좌표라 PX4가 고도 미상승 후 preflight disarm) → NaN으로 수정(`000f478`). WSL gz_standard_vtol `transition_alt:=50.0` 재검증 시 정상 상승·CLIMBING 통과 확인. 잔존 `guided_target`/"no origin" 경고는 MAVROS humble 알려진 QoS 코스메틱 이슈로 무해. pytest 130(fc_ros+fc_bridge) 전부 통과. 상세: `flight_plan.md`·`sitl_verification_log.md` "작업 H" ② 그 전: **planner 2종 본선 이식**(다른 계정 repo `suridouksuri`의 Fable 작업 회수): eta3 **v3.3**(2D 퇴화 WP NaN 근본수정)+**StraightLinePlanner**(신규)+`resolve_planner_name` 기체타입 자동선택 — `584cff3` ③ **transition_alt launch 오버라이드** `356ae5a` ④ 그 전: V2 검증·pull_ulog livelock 수정 `b580953`
-- **다음(우선순위순):** ① **실기체 검증** (🚁): 다음 비행에서 CommandTOL 이륙이 실기체에서도 정상 동작하는지 확인 — PASS 시 "transition_alt를 MIS_TAKEOFF_ALT 이하로 낮춰라"는 임시조치(아래 🚁 트랙 기록) 제거. `CommandTOL.altitude` AMSL/relative 해석도 실기체에서 함께 확인 ② **RPi 배포 검증** — pull_ulog 실측 속도·byte 동일(작업 G 속도 판정 최종, 15 MB>5분이면 작업 G-2 등록) ③ 남은 V-unit: V1(download_log 재작성으로 갱신 필요)·V3·V4·V5 ④ 작업 F(임의 WP 견고성)
+- **다음(우선순위순, 2026-07-09 갱신 — ✈ vtol-실기체 결함으로 비행 보류 중):** ① ~~실기체 검증~~ **보류** — VTOL 기체 결함 해소 전까지 CommandTOL 이륙 실기체 검증 불가(🚁 mc-실기체 하드웨어는 해체됨, 이설된 ✈ vtol-실기체에서 재개 예정) ② **지금 가능 — 작업 F**(임의 WP 견고성, [코드] Claude 단독) ③ **지금 가능 — V1·V3·V4**(하드웨어 불필요, Claude 단독) ④ **WSL SITL만 있으면 가능 — V2·V5**(RPi 배포 검증용, 실기체 대신 SITL로 우선 진행) ⑤ RPi 배포 검증(pull_ulog 실측 속도)은 결함 해소 후
 - **주의:** 최신 코드(작업 H 포함, `000f478`까지 커밋·푸시 완료)가 RPi에 **미전파** — RPi에서 `git pull` 필요(RPi 정본=호스트 `~/drone_ws/src/suridoksuri`, potato03kth). WSL(`~/suridoksuri-1`)은 이미 pull·재빌드 완료. `waypoints` 300 m·`v_cruise 20.0` 유지 결정(2026-06-30). V2/V5는 MAVROS 중지 필요(단독 링크). **작업 H가 실기체로 검증되기 전까지** 🚁 트랙의 "transition_alt를 낮게" 임시조치를 유지할 것 — SITL은 PASS했으나 실기체 미확인.
 - **참조:** `fc_ros/fc_ros/nodes/offboard_node.py`(`_step_arm_takeoff`) · `fc_bridge/execution/state_logic.py`(`takeoff_request_fields`) · `fc_bridge/planning/planner_runner.py`(resolve_planner_name) · `vtol_sim/…/straight_line_planner.py`·`eta3clothoid_v3_1_planner.py`(v3.3) · `tools/flight_logs/VERIFY.md`(V1~V5) · `flight_plan.md`·`sitl_verification_log.md`(작업 H) · `docs/flight_plan.md`(작업 G)
 
@@ -60,11 +48,16 @@ last_updated: 2026-07-06
 - **재개 조건:** 비행 로직 코드 변경 후 회귀검증 필요 시 — `gz_standard_vtol`로 SITL-4 절차 재실행
 - **참조:** `sitl_verification_log.md` · `sitl3_tuning_notes.md` · `archive/flight_plan_completed.md`(절차)
 
-### ✈ vtol-실기체 — ⬜ 미착수 (선행: 🚁 mc-실기체)
+### ✈ vtol-실기체 — ▶ 활성 (기체 결함으로 비행 보류)
 
-- **내용:** VTOL 실기체 전체 사이클 + RC override→POSCTL 실측(SITL-1 이월 항목)
-- **진입 전 필수:** `flight_plan.md` "첫 비행 전 지상 안전 테스트" + "필수 조정 파라미터 체크리스트" 전 항목
-- **참조:** `flight_plan.md` SITL-5·튜닝 가이드·안전 섹션
+- **내용:** VTOL 실기체 전체 사이클 + RC override→POSCTL 실측(SITL-1 이월 항목). RPi5+Pixhawk6C 전자장치를 🚁 mc-실기체에서 이설.
+- **마지막:** 2026-07-09 — VTOL 테스트기체 조립 완료. 그러나 **기체 결함으로 비행 시도 불가**(원인 미상 — 다음 세션 진입 시 사용자에게 결함 내용 확인). 코드 천이 로직 미실행 상태에서 MC처럼 사용은 여전히 가능하나 지금은 시도하지 않음. **PX4 파라미터로 mc/vtol 물리 형상 구분 불가**(공통 상태 참조) — 실기체 세션 시작 전 어느 기체가 붙어 있는지 이 문서로 먼저 확인할 것.
+- **결함 해결 전에도 진행 가능한 작업 (비행 불필요):**
+  - **main-code 트랙**: 작업 F(임의 WP 경로 견고성 하니스, `fc_bridge/tests/test_arbitrary_wp.py`, [코드] Claude 단독) · `VERIFY.md` V1(pull_ulog 재조립 단위테스트)·V3(record_flight.sh 하니스)·V4(fetch_logs.ps1 증분복사) — 전부 하드웨어·비행 불필요, Claude 단독 완결
+  - **sitl-vtol 트랙**: WSL SITL(`gz_standard_vtol`)로 `VERIFY.md` V2·V5, SITL-6(임의 WP 생성·추종) — 시뮬레이터만 있으면 되고 실기체 결함과 무관
+  - **vision 도메인**: 별도 트랙으로 분리됨 → `docs/vision_status.md` (FC와 독립, 병행 가능)
+- **진입 전 필수 (결함 해결 후 실비행 재개 시):** `flight_plan.md` "첫 비행 전 지상 안전 테스트" + "필수 조정 파라미터 체크리스트" 전 항목
+- **참조:** `flight_plan.md` SITL-5·튜닝 가이드·안전 섹션 · `tools/flight_logs/VERIFY.md`(V1~V5) · `flight_plan.md` 작업 F 섹션
 
 ---
 

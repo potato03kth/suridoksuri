@@ -1,13 +1,84 @@
 ---
 doc_type: session_log_archive
 project: suridoksuri-1
-period: 2026-06-18 ~ 2026-06-20 (파라미터 버그 수정 세션 포함)
+period: 2026-06-18 ~ 2026-06-24 (파라미터 버그 수정 세션 포함)
 ---
 
 # 세션 로그 아카이브 — 2026-06
 
 > `docs/session_log.md`에서 이동된 과거 세션 기록 (최신이 위).
 > 현행 로그는 최근 8개 세션만 유지하며, 초과분은 `/session-log` 실행 시 이 디렉터리로 이동된다.
+
+---
+
+## 2026-06-24 — SITL-3 Bug 2 재수정 (MC yaw rate 헤딩 정렬)
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 이전 세션 Bug 2 수정이 동작하지 않아 재수정 — MC OFFBOARD에서 yaw가 바뀌지 않는 근본 원인 해결
+
+### 완료
+
+- **Bug 2 초기 수정 실패 원인 확인** — velocity 세트포인트만으로는 PX4 MC가 yaw를 변경하지 않음 (MC 위치 제어기에서 yaw는 독립 축)
+- **`SetpointPublisher.publish(yaw_rate=0.0)` 파라미터 추가** — `fc_ros/fc_ros/adapters/setpoint_publisher.py`: `twist.angular.z` 활성화
+- **`_step_transition_fw` Phase 2 yaw rate P제어 추가**
+  - Phase 1: hover 세트포인트 20틱으로 OFFBOARD 프라이밍 (HOLD에서는 무시됨)
+  - Phase 2: MC OFFBOARD hover(`np.zeros(3)`) + yaw rate P제어(`-heading_err * 1.0`, 포화 ±1 rad/s)로 헤딩 정렬
+  - Phase 3: 헤딩 정렬 완료 → WP 방향 전진 + MC→FW 천이 명령
+  - Phase 4: vtol_state==FW 대기 → STREAMING
+- **`v_cruise` 임시 20.0 m/s** — terminal 속도 반영 확인용 (검증 후 복구 필요)
+- **메모리 저장** — `project_sitl_state.md` 업데이트, `feedback_px4_mc_offboard_yaw.md` 신규 작성
+- **pytest 25/25 PASS**
+
+### 결정
+
+- PX4 MC OFFBOARD에서 헤딩 정렬은 반드시 `twist.angular.z` yaw rate를 함께 보내야 한다 (velocity만으로는 불가)
+- yaw rate 부호 규칙: `heading_err` 양수(NED CW 필요) → ENU `angular.z` 음수 (`-heading_err`) — SITL에서 반전 가능성 있음
+
+### 다음 세션
+
+1. **WSL 재빌드** — `colcon build --packages-select fc_ros && source install/setup.bash`
+2. **SITL-3 재실행** — Bug 2 yaw 정렬 동작 확인 (드론이 WP 방향으로 회전 후 직선 천이하는지 관측)
+3. yaw_rate 부호 검증 — 반대로 돌면 `setpoint_publisher.py` 37번째 줄 `-heading_err` → `+heading_err` 수정
+4. terminal 속도 확인 완료 후 `v_cruise: 20.0` → `15.0` 복구
+
+### 주의
+
+> **`v_cruise: 20.0` 임시 변경 중** — `fc_ros/fc_ros/params/fc_ros_params.yaml` 복구 필요
+> **yaw_rate 부호 SITL 미검증** — 드론이 WP 반대 방향으로 돌면 `setpoint_publisher.py:37`에서 부호 반전
+
+---
+
+## 2026-06-20 — SITL-3 버그 3종 수정 (FW 천이·방향·추종)
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** SITL-3 경로 추종 중 발견된 버그 3종 수정 및 dry-run 검증
+
+### 완료
+
+- **dry-run 검증 PASS** — 경로 A(직선 100m)/B(L자 200m)/C(사각형 400m) 끝점 속도 전부 v_terminal=15.2 m/s 일치
+- **cp949 인코딩 버그 수정** — `eta3clothoid_v3_1_planner.py:373` 한국어+특수문자(`⚠`) → ASCII 영문으로 교체
+- **버그 1 수정 (FW 천이 명령 간헐 실패)** — `_step_transition_fw`: `wait_for_service` 블로킹 제거 → `service_is_ready()` 비차단 확인 + 30틱마다 재시도, vtol_state==1(천이 중) 이면 대기
+- **버그 2 수정 (천이 후 방향 이상)** — STREAMING 핸들러: 10틱 고정 대기 → `_heading_aligned_with_path()` (현재 속도 방향 vs 첫 세그먼트 ≤60°) 통과 시에만 OFFBOARD 요청
+- **버그 3 수정 (FOLLOWING 종료 판정 안 남)** — `_step_following`: FW 모드(`vtol_state==4`) 시 velocity 세트포인트 → PoseStamped lookahead 위치 세트포인트(`/mavros/setpoint_position/local`) 전환; MC 모드는 기존 속도 세트포인트 유지; 10틱마다 `cte`·`dist_end`·`seg` 로그 추가
+- **`cmd_vel_frame_id` 수정** — YAML `"base_link"` → `"local_origin"` (velocity가 body frame으로 회전되는 오류 방지)
+- **`_heading_aligned_with_path()` 헬퍼 추가** — 순수 numpy, rclpy 없이 테스트 가능
+- **pytest 25/25 PASS** — 회귀 없음
+
+### 결정
+
+- FW OFFBOARD에서 velocity 세트포인트는 불안정 (PX4 FW yaw 오실레이션) → position setpoint 사용 확정
+- FW loiter 후 OFFBOARD 진입 조건: 속도-경로 각도 60° 이내 (cos > 0.5) — 하드코딩 틱 대기 폐기
+
+### 다음 세션
+
+1. **WSL 재빌드** — `colcon build --packages-select fc_ros && source install/setup.bash`
+2. **SITL-3 재실행** — 경로 A(직선 100m)로 3종 버그 수정 확인
+3. 버그 수정 확인 후 경로 B·C 추종 테스트 진행
+
+### 주의
+
+> FW FOLLOWING 중 lookahead 위치 세트포인트 고도는 `self._transition_alt`로 고정. 실제 비행에서 지형 고도 변화 있을 경우 향후 수정 필요.
+> `_heading_aligned_with_path`는 `self._pts`가 `__init__`에서 설정된 후에만 유효 — STREAMING 진입 시점에는 항상 설정돼 있음.
 
 ---
 

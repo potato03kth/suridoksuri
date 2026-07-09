@@ -12,7 +12,7 @@ VTOL 자율비행 대회용 통합 소프트웨어 저장소다.
 | `vtol_sim_checkpoint1_1/vtol_sim/` | 비행 시뮬레이터 (역학, 경로 계획, 제어) | 구현됨 |
 | `fc_bridge/` | FC 라이브러리 (경로 계획, L1 유도, VehicleState) | 구현됨 |
 | `fc_ros/` | FC ROS2 노드 (TelemetryNode, OffboardNode, MissionNode) | SITL 검증 완료, 실기체 배포 중 |
-| `vision/` | 객체인식 (착륙지점 탐지) | 구현됨 |
+| `vision/` | 객체인식 (착륙지점 탐지) | 임시 틀 구현됨 — 정밀착륙 재설계 계획: `docs/vision_plan.md` |
 | CC 도메인 | 명령 제어 | 미구현 |
 
 ---
@@ -22,7 +22,11 @@ VTOL 자율비행 대회용 통합 소프트웨어 저장소다.
 현재는 **도메인 간 교차 import가 없다.** 각 도메인은 독립 실행된다.
 
 향후 연동 예정:
-- `vision` → FC: `vision/utils/geo_project.py`의 `pixel_to_gps()`로 GPS 좌표를 FC에 전달
+- `vision` → `fc_ros`: 비전이 인식한 착륙지점의 **기체 기준 상대 pose**(`TargetEstimate`)를
+  `offboard_node`의 정밀착륙 서브상태에 전달해 폐루프 유도한다. `LANDING_TARGET`(MAVLink) 네이티브
+  precision-land 피벗과 호환되도록 상대 pose 형식으로 출력한다. 설계 상세는 `docs/vision_plan.md` §8.
+  (기존 `geo_project.pixel_to_gps` GPS 절대좌표 방식은 GPS 정확도 한계(~1~2m)로 30cm 요구 미달 →
+  폐기 예정, 상대 pose 폐루프로 대체.)
 
 새 도메인 간 의존을 추가하기 전에 반드시 이 파일에 의존 관계를 먼저 기록할 것.
 
@@ -40,8 +44,10 @@ FC 작업 세션 절차 (정형):
 
 1. **진입:** `docs/session_status.md`의 트랙 보드에서 재개할 트랙 블록 하나만 읽는다 (사용자가 "○○ 트랙 재개"라 지정, 없으면 ▶ 활성 트랙). 그 블록의 참조 문서만, 필요 섹션만 추가로 읽는다. 다른 트랙 블록·`flight_plan.md` 전체 정독 금지 — 완료 작업 상세는 `docs/archive/`에 있다.
 2. **자가 복구:** `session_status.md`의 last_updated 이후 커밋이 있거나, 트랙 보드로 설명되지 않는 미커밋 변경이 있으면 — 직전 세션이 기록 없이 끝난 것이다. `git log`/`git diff`로 무슨 일이 있었는지 파악해 해당 트랙 블록을 먼저 갱신한 뒤 작업을 시작한다.
-3. **트랙 전환 규칙:** ① 다른 트랙 작업을 시작하기 전에 현재 변경을 커밋한다 (WIP 허용, 메시지에 `[main]`/`[mc-hw]`/`[sitl]`/`[vtol-hw]` 태그). ② 테스트용 임시 파라미터는 yaml을 고치지 않는다 — `phase2.launch.py v_cruise:=18.0 waypoints:="[...]"` launch 인자로만 준다.
+3. **트랙 전환 규칙:** ① 다른 트랙 작업을 시작하기 전에 현재 변경을 커밋한다 (WIP 허용, 메시지에 `[main]`/`[mc-hw]`/`[sitl]`/`[vtol-hw]`/`[vision]` 태그). ② 테스트용 임시 파라미터는 yaml을 고치지 않는다 — `phase2.launch.py v_cruise:=18.0 waypoints:="[...]"` launch 인자로만 준다.
 4. **종료:** 세션 종료 전 `/session-log` — 이번 세션이 건드린 트랙 블록 갱신 + 로그 기록 + 로그 아카이브가 자동 수행된다. 급하면 `/session-log 축약`.
+
+**vision 세션 진입 (FC와 분리):** vision 작업은 `docs/vision_status.md`(라이브 트랙)로 진입하고 설계는 `docs/vision_plan.md`의 필요 섹션만 연다. FC 트랙 보드(`docs/session_status.md`)와 **상호 읽지 않아 컨텍스트가 격리**된다. 커밋 태그 `[vision]`, 서술 로그는 공용 `docs/session_log.md`.
 
 ---
 

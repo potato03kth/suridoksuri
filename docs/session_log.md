@@ -7,7 +7,74 @@ project: suridoksuri-1
 
 > 최신 세션이 위에 온다. `/session-log` 커맨드로 세션 종료 전 자동 작성.
 > **최근 8개 세션만 유지** — 초과분은 `/session-log`가 `docs/archive/session_log_YYYY-MM.md`로 이동한다.
-> 과거 기록: `docs/archive/session_log_2026-06.md` (2026-06-18 ~ 06-20)
+> 과거 기록: `docs/archive/session_log_2026-06.md` (2026-06-18 ~ 06-24)
+
+---
+
+## 2026-07-09 — [vision] 정밀착륙 계획 확정 + 트랙 분리
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 비전 객체인식 본격 개발 전 고려사항 컨설팅(블라인드스팟·unknown-unknowns 중심) → 계획 확정·문서화
+
+### 완료
+
+- **착수 전 컨설팅 완료** — 타겟 3종 확정(①버티포트 원형 3m+중앙 50cm ArUco ②초록 매트+흰 박스, 박스 옆 착륙 ③빨간 십자, 규정 대기), 물리 제약 정량화(GSD/고도·tilt 오차·GPS 한계), 검출 전략(고전 CV, 타겟별 coarse→fine 2단)
+- **하드웨어 갈림길 해소** — 카메라 mono OV9285→컬러 필요 판명→**RPi Cam Module 3 Wide 표준(IR-cut)** 확정(롤링셔터 수용+완화·초점 무한대·수동노출), 짐벌 없음(나디르+고무댐핑)→**자세 de-rotation 필수**, 라이다 1D 40m급
+- **변경내성/관측성 설계** — ports&adapters, 레이어드 config+현장 색 캘리브레이터, 구조적 로깅(터미널+파일 JSONL, 비차단), 기록/재생, 세 화면(전송/연산/연출)+격리 규칙, FPV 인코더 어댑터(Pi5 무-HW인코더→USB2 raw 대역폭 벽)
+- **문서화** — `docs/vision_plan.md` 신규(계획 정본), 루트 `CLAUDE.md` 의존관계 `vision→fc_ros`(상대 pose)로 교체(`pixel_to_gps` 폐기), `vision/CLAUDE.md` 재설계 배너
+- **vision 트랙 분리** — `docs/vision_status.md` 신규(vision 전용 진입점, FC와 컨텍스트 격리), `/session-log` 도메인 라우팅 + `[vision]` 태그 추가, 메모리 `project_vision_plan.md` 신규
+
+### 결정
+
+- **검출은 고전 CV(ML 없음)** — 타겟이 전부 피듀셜/고대비 색·형상, 결정론=신뢰도(대회 오인식 절대불가)
+- **측위: GPS 접근 + 30cm는 비전 폐루프** — 일반 GPS 절대좌표 한계, `geo_project.pixel_to_gps` 폐기
+- **통합: 독립 ROS2 노드 + offboard 정밀착륙 서브상태**, 출력=상대 pose(LANDING_TARGET 피벗 호환)
+- **vision은 FC와 별도 트랙·진입점** — 콜드스타트 컨텍스트 격리 우선(상호 안 읽음), 서술 로그만 공용
+
+### 다음 세션
+
+1. **카메라 인트린식+왜곡 캘리브레이션** (102° 광각, 없으면 pose 거짓)
+2. **관측성 골격 먼저** — `vision/main.py` headless-safe 수정 + 구조적 로깅/JSONL 스캐폴딩
+3. 실기체 데이터 수집(고도별 3타겟) 착수
+
+### 주의
+
+> **대회 상세규정 미공개** — ArUco 딕셔너리/ID·③빨간십자 규정·초록 색·치수 스펙 대기(`vision_plan.md` §10). 하드웨어(카메라/Pi4 인코더/라이다)도 변경 가능 → 전부 어댑터로 흡수 설계.
+> **이번 세션 변경 미커밋**(문서만, 코드 착수 전). `.claude/commands/session-log.md` 라우팅 편집은 git 무시라 로컬만 반영.
+
+---
+
+## 2026-07-07 — [main][mc-hw] ulog 재진단·작업 H 확정 + 실비행 SD카드 실패
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** "20m 지정했는데 3m만 남" 사용자 재보고 → ulog 직접 재분석으로 원인 재확정, 실기체 배포 절차 정리, 다음 비행 시도
+
+### 완료
+
+- **ulog(`b9fc748d-...`) pyulog 직접 파싱으로 원인 재진단** — 이전 세션의 "transition_alt 기본값 미반영" 가설은 이 비행에는 **틀렸음**을 확인(사용자가 매번 수동 override했다고 반박, 근거 있음). 재분석 결과: `nav_state`가 AUTO_TAKEOFF→AUTO_LOITER만 거치고 **OFFBOARD 요청 자체가 `vehicle_command` 로그에 전무**(`flag_control_offboard_enabled` 비행 내내 0). 실측 고도(~19.7m)는 `home_alt(17.2)+MIS_TAKEOFF_ALT(2.5)`의 우연 일치였을 뿐, waypoint 20m와 무관
+- **근본원인 확정** — `offboard_node.py` `_step_arm_takeoff`가 `SetMode("AUTO.TAKEOFF")`만 보내고 목표고도를 전혀 안 실어보냄 → PX4가 자체 `MIS_TAKEOFF_ALT`까지만 상승 후 자동 AUTO_LOITER. `transition_alt` 게이트가 그 실제 도달고도보다 높으면 OFFBOARD 요청이 영원히 안 나감
+- **작업 H 계획 → main-code 트랙에 등록 → (세션 중 반영 확인)** `CommandTOL(/mavros/cmd/takeoff, altitude=transition_alt)`로 교체, SITL PASS·pytest 130 통과까지 완료된 상태를 문서(`flight_plan.md`/`session_status.md`)에서 확인 — lat/lon은 NaN(0.0/0.0은 실좌표로 오인식되는 실측 버그) 사용
+- **RPi5 실비행 배포 절차 정리** — 최초 절차 설명에서 MAVROS 기동 단계가 누락됐던 것을 사용자가 지적해 보완(호스트 git pull → 컨테이너 `fc` 빌드 → MAVROS 별도 기동 → phase2 launch 순서 확정)
+- **작업 G(record_flight.sh) 로깅 도구를 절차에 통합** — phase2.launch.py 직접 호출 대신 `record_flight.sh`로 감싸는 방식 + MAVROS와 pull_ulog 간 시리얼 포트 경쟁(종료 순서) 반영
+- **PX4 SD카드 prearm check 확인** — SD카드 미삽입 시 arming 자체가 거부됨(웹 검색으로 확인). 오늘 실비행 시도가 **SD카드를 컴퓨터에 꽂아둔 채 까먹어 실패** — 작업 H 실기체 검증 아직 미완료
+- **`docs/mc_flight_procedure.md` 신규 작성** — 로깅 사용(A)/미사용(B) 절차 전부 + 0단계 비행 전 체크리스트(SD카드 포함)를 고정 문서화, 다음 세션 "절차는?" 질문에 그대로 인용하도록 트랙 참조에 등록
+- **메모리 갱신** — `project_rpi5_mc_bringup.md`에 이번 재진단으로 이전 오진단 정정, `feedback_flight_procedure_output.md` 신규(향후 "절차는?" 질문엔 두 버전 다 출력)
+
+### 결정
+
+- **"절차는?" 질문엔 로깅 사용/미사용 절차를 항상 둘 다 출력** — `docs/mc_flight_procedure.md`를 그대로 인용
+- 비행 전 체크리스트에 **SD카드 삽입 확인**을 0순위 항목으로 고정
+
+### 다음 세션
+
+1. **🚁 mc-실기체 — 작업 H 실기체 검증 (최우선, 아직 미시도)** — `docs/mc_flight_procedure.md` 절차대로, SD카드 확인부터. `CommandTOL` 이륙이 실기체에서 정상 동작하는지, `altitude` AMSL/relative 해석 확인
+2. PASS 시 "transition_alt를 MIS_TAKEOFF_ALT 이하로 낮춰라"는 임시조치 문서에서 제거
+3. RPi 배포 검증(pull_ulog 실측 속도) 및 남은 V-unit
+
+### 주의
+
+> **오늘 실비행 시도 실패 — SD카드 미삽입으로 arming 거부, 비행 데이터 없음.** 작업 H는 여전히 SITL PASS만 확보된 상태, 실기체 미검증.
+> `docs/mc_flight_procedure.md`가 이제 절차의 단일 진입점 — 이후 절차 변경 시 이 문서부터 갱신할 것.
 
 ---
 
@@ -204,75 +271,3 @@ project: suridoksuri-1
 
 > **이번 세션 변경 미커밋** — 사용자 확인 후 커밋 예정
 > **임시값 유지 중** — `v_cruise: 20`, `waypoints: 300 m`. 상세 `docs/sitl3_tuning_notes.md`
-
----
-
-## 2026-06-24 — SITL-3 Bug 2 재수정 (MC yaw rate 헤딩 정렬)
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** 이전 세션 Bug 2 수정이 동작하지 않아 재수정 — MC OFFBOARD에서 yaw가 바뀌지 않는 근본 원인 해결
-
-### 완료
-
-- **Bug 2 초기 수정 실패 원인 확인** — velocity 세트포인트만으로는 PX4 MC가 yaw를 변경하지 않음 (MC 위치 제어기에서 yaw는 독립 축)
-- **`SetpointPublisher.publish(yaw_rate=0.0)` 파라미터 추가** — `fc_ros/fc_ros/adapters/setpoint_publisher.py`: `twist.angular.z` 활성화
-- **`_step_transition_fw` Phase 2 yaw rate P제어 추가**
-  - Phase 1: hover 세트포인트 20틱으로 OFFBOARD 프라이밍 (HOLD에서는 무시됨)
-  - Phase 2: MC OFFBOARD hover(`np.zeros(3)`) + yaw rate P제어(`-heading_err * 1.0`, 포화 ±1 rad/s)로 헤딩 정렬
-  - Phase 3: 헤딩 정렬 완료 → WP 방향 전진 + MC→FW 천이 명령
-  - Phase 4: vtol_state==FW 대기 → STREAMING
-- **`v_cruise` 임시 20.0 m/s** — terminal 속도 반영 확인용 (검증 후 복구 필요)
-- **메모리 저장** — `project_sitl_state.md` 업데이트, `feedback_px4_mc_offboard_yaw.md` 신규 작성
-- **pytest 25/25 PASS**
-
-### 결정
-
-- PX4 MC OFFBOARD에서 헤딩 정렬은 반드시 `twist.angular.z` yaw rate를 함께 보내야 한다 (velocity만으로는 불가)
-- yaw rate 부호 규칙: `heading_err` 양수(NED CW 필요) → ENU `angular.z` 음수 (`-heading_err`) — SITL에서 반전 가능성 있음
-
-### 다음 세션
-
-1. **WSL 재빌드** — `colcon build --packages-select fc_ros && source install/setup.bash`
-2. **SITL-3 재실행** — Bug 2 yaw 정렬 동작 확인 (드론이 WP 방향으로 회전 후 직선 천이하는지 관측)
-3. yaw_rate 부호 검증 — 반대로 돌면 `setpoint_publisher.py` 37번째 줄 `-heading_err` → `+heading_err` 수정
-4. terminal 속도 확인 완료 후 `v_cruise: 20.0` → `15.0` 복구
-
-### 주의
-
-> **`v_cruise: 20.0` 임시 변경 중** — `fc_ros/fc_ros/params/fc_ros_params.yaml` 복구 필요
-> **yaw_rate 부호 SITL 미검증** — 드론이 WP 반대 방향으로 돌면 `setpoint_publisher.py:37`에서 부호 반전
-
----
-
-## 2026-06-20 — SITL-3 버그 3종 수정 (FW 천이·방향·추종)
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** SITL-3 경로 추종 중 발견된 버그 3종 수정 및 dry-run 검증
-
-### 완료
-
-- **dry-run 검증 PASS** — 경로 A(직선 100m)/B(L자 200m)/C(사각형 400m) 끝점 속도 전부 v_terminal=15.2 m/s 일치
-- **cp949 인코딩 버그 수정** — `eta3clothoid_v3_1_planner.py:373` 한국어+특수문자(`⚠`) → ASCII 영문으로 교체
-- **버그 1 수정 (FW 천이 명령 간헐 실패)** — `_step_transition_fw`: `wait_for_service` 블로킹 제거 → `service_is_ready()` 비차단 확인 + 30틱마다 재시도, vtol_state==1(천이 중) 이면 대기
-- **버그 2 수정 (천이 후 방향 이상)** — STREAMING 핸들러: 10틱 고정 대기 → `_heading_aligned_with_path()` (현재 속도 방향 vs 첫 세그먼트 ≤60°) 통과 시에만 OFFBOARD 요청
-- **버그 3 수정 (FOLLOWING 종료 판정 안 남)** — `_step_following`: FW 모드(`vtol_state==4`) 시 velocity 세트포인트 → PoseStamped lookahead 위치 세트포인트(`/mavros/setpoint_position/local`) 전환; MC 모드는 기존 속도 세트포인트 유지; 10틱마다 `cte`·`dist_end`·`seg` 로그 추가
-- **`cmd_vel_frame_id` 수정** — YAML `"base_link"` → `"local_origin"` (velocity가 body frame으로 회전되는 오류 방지)
-- **`_heading_aligned_with_path()` 헬퍼 추가** — 순수 numpy, rclpy 없이 테스트 가능
-- **pytest 25/25 PASS** — 회귀 없음
-
-### 결정
-
-- FW OFFBOARD에서 velocity 세트포인트는 불안정 (PX4 FW yaw 오실레이션) → position setpoint 사용 확정
-- FW loiter 후 OFFBOARD 진입 조건: 속도-경로 각도 60° 이내 (cos > 0.5) — 하드코딩 틱 대기 폐기
-
-### 다음 세션
-
-1. **WSL 재빌드** — `colcon build --packages-select fc_ros && source install/setup.bash`
-2. **SITL-3 재실행** — 경로 A(직선 100m)로 3종 버그 수정 확인
-3. 버그 수정 확인 후 경로 B·C 추종 테스트 진행
-
-### 주의
-
-> FW FOLLOWING 중 lookahead 위치 세트포인트 고도는 `self._transition_alt`로 고정. 실제 비행에서 지형 고도 변화 있을 경우 향후 수정 필요.
-> `_heading_aligned_with_path`는 `self._pts`가 `__init__`에서 설정된 후에만 유효 — STREAMING 진입 시점에는 항상 설정돼 있음.
-
