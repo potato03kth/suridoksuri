@@ -676,6 +676,19 @@ ros2 topic echo /mavros/statustext/recv     # "Already higher…" 안 떠야 정
 | ⑥ CLIMBING 통과 | 로그 `운용 고도 4.0m 도달 → streaming` | ⏳ |
 | ⑦ 회귀: 이후 시퀀스 정상 | STREAMING/OFFBOARD 진입 (MC) | ⏳ |
 
+### 실패 시 시나리오 분기 (증상 → 후보 원인 → 확인)
+
+> 한 가설에 고정하지 말고, PASS 안 나오면 아래 표로 어느 가지인지 먼저 좁힌다.
+
+| 증상 (SITL) | 후보 원인 | 확인 |
+|---|---|---|
+| 여전히 `Already higher than takeoff altitude` | home_amsl 미반영(0으로 전송) / `geo.altitude`가 0 | 노드 로그 `(지면 X.X+...)`의 X가 0이면 home 콜백이 값을 못 실음 |
+| 노드가 `home_position 미수신`에서 멈춤(이륙 안 함) | GPS 락 없어 home 미설정 / QoS 불일치 / 토픽명 오류 | `ros2 topic echo /mavros/home_position/home`, GPS fix_type≥3 |
+| 이륙은 하는데 목표보다 **과상승**(예 +25~40m) | `geo.altitude`가 AMSL 아닌 ellipsoid → 목표=타원체고+상승분 | 로그 "지면" 값이 `PX4_HOME_ALT`와 geoid만큼 차이나면 확정 |
+| 정상 이륙했으나 **CLIMBING 무한대기** | `ground_ref` 캡처 오류 / 부호 / 로컬 원점 프레임 | 로그의 `pos_ned[2]` − `takeoff_ground_h` vs `transition_alt` 비교 |
+| 이륙·CLIMBING OK인데 STREAMING/OFFBOARD 미진입 | 별개 이슈(OFFBOARD 요청·`MIS_TAKEOFF_ALT` interplay) | ulog `vehicle_command`에 `DO_SET_MODE(OFFBOARD)` 유무 |
+| ARM 직후 곧바로 disarm | preflight(센서/EKF/배터리) — 이번 수정과 무관 | `/mavros/statustext/recv` 거부 사유 |
+
 > CLIMBING 지면기준 AGL 보정(로컬 원점≠지면)은 SITL에선 원점≈지면이라 재현 불가 — 단위테스트 + 실비행으로 검증하고, SITL은 `ground_ref≈0` 회귀(기존 동작 유지)만 확인한다.
 > **PASS 시:** 🚁/✈ 트랙의 "transition_alt를 `MIS_TAKEOFF_ALT` 이하로" 임시조치를 완전 제거하고, 실기체 재검증(VTOL 결함 해소 후)으로 이월.
 
