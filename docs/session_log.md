@@ -7,7 +7,37 @@ project: suridoksuri-1
 
 > 최신 세션이 위에 온다. `/session-log` 커맨드로 세션 종료 전 자동 작성.
 > **최근 8개 세션만 유지** — 초과분은 `/session-log`가 `docs/archive/session_log_YYYY-MM.md`로 이동한다.
-> 과거 기록: `docs/archive/session_log_2026-06.md` (2026-06-18 ~ 06-24)
+> 과거 기록: `docs/archive/session_log_2026-06.md` (2026-06-18 ~ 06-30)
+
+---
+
+## 2026-07-11 — [main][mc-hw] 이륙실패 ulog 진단 + AMSL 이륙고도 수정
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** MC 테스트기체 마지막 이륙 실패(사용자 제공 ulog) 원인 분석 → 수정
+
+### 완료
+
+- **마지막 MC 이륙 실패 근본원인 확정** — 2026-07-07 광주 실비행 ulog(`02_17_49`, `logs/2026-07-07_0217_last/`에 저장·notes.md 분석)를 pyulog 직접 파싱. ARM·CommandTOL(NAV_TAKEOFF param7=4.0, lat/lon=NaN) 모두 ACCEPTED됐으나 navigator `Already higher than takeoff altitude` → 모터 미가동(출력 0.002) → 10초 후 `Disarmed by auto preflight disarming`. 배터리(12.15V, 새그 없음)·GPS(3D 22위성)·SD·OFFBOARD 전부 정상이라 무관 — 이전 실패(07-03 전압새그, 07-07 SD)와 다른 새 원인
+- **원인 = AMSL/relative 프레임 버그(07-06 열린 질문의 실측 종결)** — `CommandTOL.altitude`(→ NAV_TAKEOFF param7)는 AMSL 절대고도인데 `transition_alt`(4.0, 지면 상대)를 그대로 실어 지면 AMSL(19.2m)보다 낮은 목표가 됨. SITL은 `transition_alt:=50`>지면(≈0)이라 그동안 가려졌음
+- **수정 커밋 `9451861`** — ① `takeoff_request_fields(transition_alt, home_amsl)` → `altitude=home_amsl+transition_alt`, `/mavros/home_position/home` 구독, home 미수신 시 이륙 보류 ② CLIMBING 게이트 `climbing_reached(…, ground_ref_up)` 지면기준 AGL 보정(로컬 원점≠지면 2.11m — 안 고치면 이륙해도 CLIMBING 무한대기) ③ pytest fc_ros 60/fc_bridge 44 pass(신규 7)
+- **SITL 재검증 체크리스트 작성** — `sitl_verification_log.md` "작업 H-2". 재현엔 `PX4_HOME_ALT`로 지면 AMSL>transition_alt 세팅 필수 + geoid(geo.altitude가 AMSL인지) 확인
+
+### 결정
+
+- 이륙 목표고도는 항상 **AMSL 절대고도(home_amsl + transition_alt)** 로 전송 — transition_alt 직접 전달 금지
+- CLIMBING 판정은 이륙 순간 캡처한 지면 높이 기준 AGL로
+
+### 다음 세션
+
+1. **SITL 재검증(작업 H-2)** — `sitl_verification_log.md` 체크리스트대로. `PX4_HOME_ALT=100` 등으로 버그 재현 조건을 만든 뒤 수정 확인, **geoid 정합 반드시 확인**
+2. PASS 시 "transition_alt를 MIS_TAKEOFF_ALT 이하로" 임시조치 완전 제거
+3. 실기체 검증은 ✈ vtol-실기체 결함 해소 후
+
+### 주의
+
+> 수정은 **단위테스트만 통과, SITL 재검증 전**이다 — 실비행 반영 금지. geoid 미확인 리스크(MAVROS `geo.altitude`가 ellipsoid면 과상승) 있음, SITL 로그로 판별
+> ulog·분석 notes는 `logs/`(git 제외)에 있음 — GitHub엔 없다
 
 ---
 
@@ -238,36 +268,3 @@ project: suridoksuri-1
 > **AUTO.TAKEOFF는 GPS 락 필수** — 수동비행 성공 ≠ GPS 락. 실내/벤치 불가.
 > **웨이포인트 비퇴화 필수** — 시작=끝 동일하거나 초단거리 레그면 플래너 divide-by-zero(NaN).
 > **이번 세션 전체 미커밋.**
-
----
-
-## 2026-06-30 — SITL-3 해결 (FW 위치 setpoint 전환)
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** SITL-3 두 핵심 버그(천이 원호, 경로가 초기 heading에 종속) 진단·수정
-
-### 완료
-
-- **근본 원인 규명** — PX4 FW 오프보드는 velocity setpoint를 무시(flower-pattern 선회), 위치 setpoint 필수. 천이 원호·heading 종속·FOLLOWING 미진입이 **단일 원인**이었음 (frame_id 가설 기각)
-- **FW 활성 구간 전부 위치 setpoint 전환** — STREAMING/FOLLOWING/천이/역천이, lookahead 70 m. 천이·역천이까지 직선화
-- **신규 HOLD 상태** — 역천이 오버슈트 후 MC로 WP1 복귀·홀드 → WP1 지점 착륙. TRANSITION_MC keepalive로 151 m RTL 해결, 역천이 동향 45° 꺾임 해결
-- **단위 테스트 108 passed** (순수 함수 `target_point_ned`·`wp1_land_ready` 신규) + SITL 직선 300 m 전체 시퀀스 정상 확인
-- **문서/메모리 갱신** — `sitl3_fix_plan.md` 해결기록 재작성, `sitl3_tuning_notes.md` 신규, 메모리의 틀린 frame_id 진단 정정 + FW 위치 setpoint 메모리 신규
-- **검증단 점검** — 노드 테스트가 로직 복사본을 검증하는 "거울 테스트" 구조 확인 → 신규 로직은 순수 함수로 추출해 실제 검증
-
-### 결정
-
-- FW 경로추종은 **OFFBOARD + 위치 setpoint** 채택 (AUTO.MISSION 미채택 — 향후 vision 동적목표 대비)
-- 사전가속(Phase 2.5) **폐기 확정** — 불필요
-- WP1 착륙은 **HOLD 상태로 복귀·홀드 후 착륙** 확정
-
-### 다음 세션
-
-1. **임시값 복구** — `v_cruise: 20→15`, `waypoints: 300→실제 미션 좌표` (yaml 2곳)
-2. **SITL-4 전체 사이클** — L자/사각형 경로 FW 추종 + 천이 가속도 측정
-3. **커밋** — 이번 세션 변경 미커밋 상태
-
-### 주의
-
-> **이번 세션 변경 미커밋** — 사용자 확인 후 커밋 예정
-> **임시값 유지 중** — `v_cruise: 20`, `waypoints: 300 m`. 상세 `docs/sitl3_tuning_notes.md`

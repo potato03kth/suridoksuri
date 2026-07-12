@@ -1,13 +1,46 @@
 ---
 doc_type: session_log_archive
 project: suridoksuri-1
-period: 2026-06-18 ~ 2026-06-24 (파라미터 버그 수정 세션 포함)
+period: 2026-06-18 ~ 2026-06-30 (파라미터 버그 수정 세션 포함)
 ---
 
 # 세션 로그 아카이브 — 2026-06
 
 > `docs/session_log.md`에서 이동된 과거 세션 기록 (최신이 위).
 > 현행 로그는 최근 8개 세션만 유지하며, 초과분은 `/session-log` 실행 시 이 디렉터리로 이동된다.
+
+---
+
+## 2026-06-30 — SITL-3 해결 (FW 위치 setpoint 전환)
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** SITL-3 두 핵심 버그(천이 원호, 경로가 초기 heading에 종속) 진단·수정
+
+### 완료
+
+- **근본 원인 규명** — PX4 FW 오프보드는 velocity setpoint를 무시(flower-pattern 선회), 위치 setpoint 필수. 천이 원호·heading 종속·FOLLOWING 미진입이 **단일 원인**이었음 (frame_id 가설 기각)
+- **FW 활성 구간 전부 위치 setpoint 전환** — STREAMING/FOLLOWING/천이/역천이, lookahead 70 m. 천이·역천이까지 직선화
+- **신규 HOLD 상태** — 역천이 오버슈트 후 MC로 WP1 복귀·홀드 → WP1 지점 착륙. TRANSITION_MC keepalive로 151 m RTL 해결, 역천이 동향 45° 꺾임 해결
+- **단위 테스트 108 passed** (순수 함수 `target_point_ned`·`wp1_land_ready` 신규) + SITL 직선 300 m 전체 시퀀스 정상 확인
+- **문서/메모리 갱신** — `sitl3_fix_plan.md` 해결기록 재작성, `sitl3_tuning_notes.md` 신규, 메모리의 틀린 frame_id 진단 정정 + FW 위치 setpoint 메모리 신규
+- **검증단 점검** — 노드 테스트가 로직 복사본을 검증하는 "거울 테스트" 구조 확인 → 신규 로직은 순수 함수로 추출해 실제 검증
+
+### 결정
+
+- FW 경로추종은 **OFFBOARD + 위치 setpoint** 채택 (AUTO.MISSION 미채택 — 향후 vision 동적목표 대비)
+- 사전가속(Phase 2.5) **폐기 확정** — 불필요
+- WP1 착륙은 **HOLD 상태로 복귀·홀드 후 착륙** 확정
+
+### 다음 세션
+
+1. **임시값 복구** — `v_cruise: 20→15`, `waypoints: 300→실제 미션 좌표` (yaml 2곳)
+2. **SITL-4 전체 사이클** — L자/사각형 경로 FW 추종 + 천이 가속도 측정
+3. **커밋** — 이번 세션 변경 미커밋 상태
+
+### 주의
+
+> **이번 세션 변경 미커밋** — 사용자 확인 후 커밋 예정
+> **임시값 유지 중** — `v_cruise: 20`, `waypoints: 300 m`. 상세 `docs/sitl3_tuning_notes.md`
 
 ---
 
