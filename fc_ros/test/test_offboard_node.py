@@ -93,6 +93,25 @@ def test_climb_exact_alt():
     assert climbing_reached(50.0, 50.0) is True
 
 
+# 지면 기준 AGL 판정 (2026-07-07: 로컬 원점≠지면 → ground_ref 보정)
+
+def test_climb_reached_with_ground_ref():
+    # 지면 h_up=-2.11(로컬 원점이 지면보다 2.11m 위). 지면 기준 4.0m 상승 =
+    # 로컬 h_up 1.89 (=-2.11+4.0). 이때 도달 판정 True 여야 CLIMBING이 완료된다.
+    assert climbing_reached(1.89, 4.0, -2.11) is True
+
+
+def test_climb_not_reached_with_ground_ref():
+    # 로컬 h_up=1.0 → 지면 기준 (1.0-(-2.11))=3.11 < 4.0 → 미도달.
+    assert climbing_reached(1.0, 4.0, -2.11) is False
+
+
+def test_climb_ground_ref_defaults_to_zero():
+    # ground_ref 미지정 시 기존 동작(원점≈지면)과 동일.
+    assert climbing_reached(50.1, 50.0) is True
+    assert climbing_reached(49.9, 50.0) is False
+
+
 # ── 작업 C: TRANSITION_FW 완료 판정 (vtol_is_fw) ────────────────
 
 def test_transition_fw_done():
@@ -137,27 +156,37 @@ def test_vtol_is_mc_transition():
 
 
 # ── 작업 H: CommandTOL 이륙 요청 필드 (takeoff_request_fields) ──
-# altitude가 transition_alt와 일치해야 MIS_TAKEOFF_ALT 의존이 제거된다.
+# altitude = 지면 AMSL(home_amsl) + transition_alt (절대고도). 2026-07-07 실측:
+# transition_alt 를 그대로 실으면 지면 AMSL보다 낮아 PX4가 이륙을 취소
+# ("Already higher than takeoff altitude") → preflight auto-disarm으로 이륙 실패.
 
-def test_takeoff_request_altitude_matches_transition_alt():
-    fields = takeoff_request_fields(4.0)
-    assert fields["altitude"] == pytest.approx(4.0)
+def test_takeoff_request_altitude_is_amsl_sum():
+    # 지면 19.2m AMSL + 상승 4.0m = 목표 23.2m AMSL
+    fields = takeoff_request_fields(4.0, 19.2)
+    assert fields["altitude"] == pytest.approx(23.2)
 
 
-def test_takeoff_request_altitude_matches_different_value():
-    fields = takeoff_request_fields(50.0)
-    assert fields["altitude"] == pytest.approx(50.0)
+def test_takeoff_request_altitude_above_ground():
+    # 회귀(2026-07-07): 목표고도는 반드시 지면 AMSL보다 높아야 이륙한다.
+    home_amsl = 19.2
+    fields = takeoff_request_fields(4.0, home_amsl)
+    assert fields["altitude"] > home_amsl
+
+
+def test_takeoff_request_altitude_different_values():
+    fields = takeoff_request_fields(50.0, 100.0)
+    assert fields["altitude"] == pytest.approx(150.0)
 
 
 def test_takeoff_request_yaw_is_nan():
     # nan = 현재 헤딩 유지 (PX4 관례)
-    assert math.isnan(takeoff_request_fields(10.0)["yaw"])
+    assert math.isnan(takeoff_request_fields(10.0, 0.0)["yaw"])
 
 
 def test_takeoff_request_lat_lon_nan_uses_current_position():
     # nan = 현재 위치 사용 (MAVLink 관례). 0.0/0.0은 실제 좌표(위도·경도 0)로
     # 해석돼 2026-07-06 SITL에서 고도 미상승 후 preflight disarm으로 실패 확인됨.
-    fields = takeoff_request_fields(10.0)
+    fields = takeoff_request_fields(10.0, 0.0)
     assert math.isnan(fields["latitude"])
     assert math.isnan(fields["longitude"])
 

@@ -6,9 +6,17 @@ offboard_node.py 와 fc_ros/test/test_offboard_node.py 양쪽이 이 함수를 �
 import numpy as np
 
 
-def climbing_reached(pos_ned_up: float, transition_alt: float) -> bool:
-    """천이 고도 도달 여부. pos_ned_up = VehicleState.pos_ned[2] (h_up, 양수=위)."""
-    return pos_ned_up >= transition_alt
+def climbing_reached(pos_ned_up: float, transition_alt: float,
+                     ground_ref_up: float = 0.0) -> bool:
+    """천이 고도 도달 여부 (이륙 지점 지면 기준 AGL).
+
+    pos_ned_up = VehicleState.pos_ned[2] (h_up, 양수=위)는 EKF 로컬 원점 기준
+    상대고도이며, 로컬 원점이 실제 지면과 일치하지 않을 수 있다
+    (2026-07-07 실측: 로컬 원점이 지면보다 2.11m 높음 → 원점 기준 판정은 실제 AGL과
+    어긋나 CLIMBING 무한대기를 유발한다). 이륙 순간 지면 높이(ground_ref_up)를 빼
+    실제 AGL로 판정한다. ground_ref_up 기본 0.0은 원점≈지면일 때 기존 동작과 동일.
+    """
+    return (pos_ned_up - ground_ref_up) >= transition_alt
 
 
 def vtol_is_fw(vtol_state: int, FW: int = 4) -> bool:
@@ -103,12 +111,20 @@ def vel_aligned_with_path(
     return float(np.dot(vel2 / speed, seg / seg_norm)) > cos_thresh
 
 
-def takeoff_request_fields(transition_alt: float) -> dict:
+def takeoff_request_fields(transition_alt: float, home_amsl: float) -> dict:
     """CommandTOL(/mavros/cmd/takeoff) 요청 필드.
 
-    altitude=transition_alt 로 이륙 목표고도와 CLIMBING이 기다리는 고도를
-    동일 값으로 강제 일치시켜, PX4 저장 파라미터(MIS_TAKEOFF_ALT)와의
-    수동 동기화 의존을 구조적으로 제거한다.
+    CommandTOL.altitude(→ MAVLink MAV_CMD_NAV_TAKEOFF param7)는 **AMSL 절대고도**다.
+    transition_alt(지면 기준 상승분)에 이륙 지점 지면 AMSL(home_amsl,
+    /mavros/home_position/home 의 geo.altitude)을 더해 절대고도로 변환한다.
+
+    (2026-07-07 실측 확정: transition_alt(예 4.0)를 그대로 altitude에 실으면
+    지면 AMSL(예 19.2m)보다 낮은 값이라 PX4 navigator가
+    "Already higher than takeoff altitude"로 이륙을 취소, 모터 미가동 후
+    COM_DISARM_PRFLT(10s) preflight auto-disarm으로 이륙 실패했다.
+    근거: logs/2026-07-07_0217_last/notes.md. SITL은 transition_alt(50)>지면AMSL(≈0)
+    이라 이 버그가 가려져 PASS했었다.)
+
     latitude/longitude/yaw=nan 이 MAVLink 관례상 "현재 위치/헤딩 사용"을 뜻한다
     (2026-07-06 SITL 실패로 확정: 0.0/0.0은 실제 좌표(위도 0, 경도 0)로 해석돼
     PX4가 유효한 이륙 목표를 만들지 못해 고도 미상승 후 preflight 안전 disarm됨).
@@ -118,7 +134,7 @@ def takeoff_request_fields(transition_alt: float) -> dict:
         "yaw": float("nan"),
         "latitude": float("nan"),
         "longitude": float("nan"),
-        "altitude": float(transition_alt),
+        "altitude": float(home_amsl) + float(transition_alt),
     }
 
 

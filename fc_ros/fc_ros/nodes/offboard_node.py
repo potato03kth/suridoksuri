@@ -44,7 +44,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseStamped, TwistStamped
-from mavros_msgs.msg import State, ExtendedState
+from mavros_msgs.msg import State, ExtendedState, HomePosition
 from mavros_msgs.srv import CommandBool, CommandLong, CommandTOL, SetMode
 from std_msgs.msg import Bool
 
@@ -211,6 +211,10 @@ class OffboardNode(Node):
         # ARM_TAKEOFF 시퀀스 플래그
         self._arm_sent = False
         self._takeoff_sent = False
+        # 이륙 지점 지면 AMSL (/mavros/home_position). CommandTOL 목표고도(절대) 기준.
+        self._home_amsl = None
+        # 이륙 순간 로컬 지면 높이 (h_up). CLIMBING AGL 판정의 지면 기준(2026-07-07).
+        self._takeoff_ground_h = 0.0
         # TRANSITION_FW 시퀀스 플래그
         self._fw_transition_sent = False
         self._fw_prime_ticks = 0     # OFFBOARD 프라이밍 틱 수
@@ -248,6 +252,10 @@ class OffboardNode(Node):
             ExtendedState,
             "/mavros/extended_state",
             self._cb_extended, _MAVROS_QOS)
+        self.create_subscription(
+            HomePosition,
+            "/mavros/home_position/home",
+            self._cb_home, _MAVROS_QOS)
         self.create_subscription(
             Bool,
             "/fc_ros/override",
@@ -287,6 +295,10 @@ class OffboardNode(Node):
     def _cb_extended(self, msg: ExtendedState) -> None:
         with self._vs_lock:
             update_from_extended_state(self._vehicle_state, msg)
+
+    def _cb_home(self, msg: HomePosition) -> None:
+        # geo.altitude = 이륙 지점 지면 AMSL. CommandTOL 목표고도(절대)의 기준값.
+        self._home_amsl = float(msg.geo.altitude)
 
     def _get_state(self) -> VehicleState:
         with self._vs_lock:
@@ -359,8 +371,9 @@ class OffboardNode(Node):
     def _step_arm_takeoff(self, state: VehicleState) -> None:
         """ARM 요청 → armed 확인 → CommandTOL 이륙 요청 → CLIMBING 전환.
 
-        altitude=transition_alt 를 실어 보내 이륙 목표고도와 CLIMBING이 기다리는
-        고도를 일치시킨다 — PX4 저장 파라미터 MIS_TAKEOFF_ALT 의존 제거(작업 H).
+        이륙 목표고도는 지면 AMSL(home_amsl)+transition_alt 절대고도로 보낸다
+        (작업 H 수정, 2026-07-07): CommandTOL.altitude 는 AMSL 절대고도라
+        transition_alt 를 그대로 실으면 지면보다 낮아 PX4가 이륙을 취소한다.
         """
         if not self._arm_sent:
             if not self._arm_cli.service_is_ready():
@@ -376,17 +389,28 @@ class OffboardNode(Node):
         if not state.armed:
             return  # ARM 완료 대기
 
+        if self._home_amsl is None:
+            # home_position 미수신이면 이륙 목표 AMSL을 계산할 수 없다 → 수신 대기.
+            self.get_logger().warn(
+                "home_position 미수신 — 이륙 목표 AMSL 계산 불가, 대기",
+                throttle_duration_sec=2.0)
+            return
+
         if not self._takeoff_sent:
             if not self._takeoff_cli.service_is_ready():
                 self.get_logger().warn("/mavros/cmd/takeoff 서비스 없음")
                 return
+            # 이륙 순간 로컬 지면 높이 캡처 (로컬 원점≠지면 보정, CLIMBING AGL 판정용).
+            self._takeoff_ground_h = float(state.pos_ned[2])
             req = CommandTOL.Request()
-            for field, value in takeoff_request_fields(self._transition_alt).items():
+            fields = takeoff_request_fields(self._transition_alt, self._home_amsl)
+            for field, value in fields.items():
                 setattr(req, field, value)
             self._takeoff_cli.call_async(req)
             self._takeoff_sent = True
             self.get_logger().info(
-                f"CommandTOL 이륙 요청 altitude={self._transition_alt:.1f}m -> CLIMBING")
+                f"CommandTOL 이륙 요청 alt={fields['altitude']:.1f}m AMSL "
+                f"(지면 {self._home_amsl:.1f}+{self._transition_alt:.1f}) -> CLIMBING")
             self._sm = _State.CLIMBING
 
     # ── CLIMBING ─────────────────────────────────────────────
@@ -396,7 +420,8 @@ class OffboardNode(Node):
 
         VTOL: TRANSITION_FW(MC→FW 천이). MC: STREAMING(천이 생략, OFFBOARD 진입).
         """
-        if climbing_reached(state.pos_ned[2], self._transition_alt):
+        if climbing_reached(state.pos_ned[2], self._transition_alt,
+                            self._takeoff_ground_h):
             nxt = _State(after_climb_state(self._is_mc))
             self.get_logger().info(
                 f"운용 고도 {self._transition_alt:.1f}m 도달 → {nxt.value}"

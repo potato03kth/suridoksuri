@@ -628,6 +628,59 @@ ARM_TAKEOFF → CLIMBING(50m) → 헤딩정렬(err -2.3°) → MC→FW 천이(vt
 
 ---
 
+## 작업 H-2 — 이륙 목표 AMSL 보정 + CLIMBING 지면기준 AGL (2026-07-11, ⏳ SITL 재검증 대기)
+
+**배경:** 작업 H(CommandTOL)의 실기체 첫 검증(2026-07-07 광주, ulog `02_17_49`)에서 이륙 실패. 근본원인 = `CommandTOL.altitude`(→ `MAV_CMD_NAV_TAKEOFF` param7)는 **AMSL 절대고도**인데 `transition_alt`(지면 기준 상승분, 예 4.0)를 그대로 실어, 지면 AMSL(19.2m)보다 낮은 목표라 PX4 navigator가 "Already higher than takeoff altitude"로 이륙을 취소 → 모터 미가동 → `COM_DISARM_PRFLT`(10s) preflight auto-disarm. 상세 분석·ulog: `logs/2026-07-07_0217_last/notes.md`.
+
+**수정 (커밋됨):**
+- `state_logic.py::takeoff_request_fields(transition_alt, home_amsl)` → `altitude = home_amsl + transition_alt`. `offboard_node`가 `/mavros/home_position/home`의 `geo.altitude`를 지면 AMSL로 사용, **home 미수신 시 이륙 보류**(잘못된 고도 이륙 차단).
+- CLIMBING 게이트 `climbing_reached(pos_ned_up, transition_alt, ground_ref_up=0.0)` → 이륙 순간 지면높이(`pos_ned[2]`) 캡처 후 AGL로 판정(로컬 원점≠지면, 이 로그 2.11m 차 보정). 기본 0.0이라 원점≈지면인 SITL에선 기존 동작 불변.
+- 단위테스트: `fc_ros/test 60 passed`(신규 7: AMSL 합산·지면초과 회귀·CLIMBING 지면기준), `fc_bridge 44 passed`.
+
+### ⚠ 재현 조건 (필수 — 이 세팅 아니면 버그가 안 잡힌다)
+
+작업 H 최초 SITL이 통과했던 이유: `transition_alt:=50` > SITL 지면 AMSL(≈0)이라 "50 AMSL"이 우연히 지면 위여서 climb됐다. **버그를 재현하려면 지면 AMSL을 `transition_alt`보다 크게** 만들어야 한다 → PX4 SITL home 고도를 실제 필드값으로 지정:
+
+```bash
+# T1 — PX4 SITL (MC: gz_x500). 실제 대회장 좌표+고도로 home 설정 (핵심)
+PX4_HOME_LAT=35.1753 PX4_HOME_LON=126.8414 PX4_HOME_ALT=100.0 \
+  make px4_sitl gz_x500
+```
+- 지면 AMSL = 100m, `transition_alt:=4.0`(작은 값)로 실행 시:
+  - **수정 전 코드**면: `altitude=4.0`(<100) → "Already higher…" → 이륙 실패(=버그 재현).
+  - **수정 후 코드**면: `altitude=104.0 AMSL`(100+4) → 4m AGL 상승 → 정상.
+
+### 실행
+
+```bash
+# T2 — MAVROS
+ros2 launch mavros px4.launch fcu_url:=udp://:14540@localhost:14557
+# T3 — fc_ros (MC, 낮은 transition_alt, 비퇴화 짧은 레그 → straight 플래너)
+cd ~/drone_ws && source install/setup.bash
+ros2 launch fc_ros phase2.launch.py vehicle_type:=mc \
+  transition_alt:=4.0 \
+  waypoints:="[0.0,0.0,4.0, 30.0,0.0,4.0]"
+# T4 — 모니터
+ros2 topic echo /mavros/statustext/recv     # "Already higher…" 안 떠야 정상
+```
+
+### 합격 기준 체크리스트
+
+| 항목 | 확인 방법 | 결과 |
+|---|---|---|
+| ① home_amsl 수신 | 노드 로그 `CommandTOL 이륙 요청 alt=… (지면 100.0+4.0)` 출력 | ⏳ |
+| ② **geoid 정합** | 로그의 "지면" 값이 `PX4_HOME_ALT`(100.0)와 일치 → `geo.altitude`가 AMSL(정상). `100+geoid`(한국 ~25m)로 뜨면 ellipsoid 버그 → 과상승 | ⏳ |
+| ③ 이륙 목표 = 지면+transition_alt | 로그 `alt=104.0m AMSL` | ⏳ |
+| ④ "Already higher than takeoff altitude" **미출력** | `/mavros/statustext/recv` | ⏳ |
+| ⑤ 실제 상승 (preflight disarm 없음) | 고도가 지면 기준 ~4m AGL 도달 | ⏳ |
+| ⑥ CLIMBING 통과 | 로그 `운용 고도 4.0m 도달 → streaming` | ⏳ |
+| ⑦ 회귀: 이후 시퀀스 정상 | STREAMING/OFFBOARD 진입 (MC) | ⏳ |
+
+> CLIMBING 지면기준 AGL 보정(로컬 원점≠지면)은 SITL에선 원점≈지면이라 재현 불가 — 단위테스트 + 실비행으로 검증하고, SITL은 `ground_ref≈0` 회귀(기존 동작 유지)만 확인한다.
+> **PASS 시:** 🚁/✈ 트랙의 "transition_alt를 `MIS_TAKEOFF_ALT` 이하로" 임시조치를 완전 제거하고, 실기체 재검증(VTOL 결함 해소 후)으로 이월.
+
+---
+
 ## 현재 진행 상태 (2026-06-30 기준)
 
 - [x] WSL SITL 환경 구축
