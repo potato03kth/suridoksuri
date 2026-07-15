@@ -1,0 +1,15 @@
+# vision domain dependencies -- for tests and runtime.
+# Install (from repo root):
+#   python -m venv .venv
+#   Windows PowerShell:  .\.venv\Scripts\Activate.ps1
+#   WSL/RPi (bash):      source .venv/bin/activate
+#   python -m pip install -r vision/requirements.txt
+#
+# NOTE: pick ONE OpenCV variant per environment (edit the opencv-python line):
+#   - dev-desktop / dev-laptop (has display, uses --display window):  opencv-python
+#   - rpi / headless           (no display):                          opencv-python-headless
+# (Korean guidance: see the test section in vision/CLAUDE.md.)
+numpy>=1.24
+PyYAML>=6.0
+opencv-python>=4.8
+pytest>=7.4
