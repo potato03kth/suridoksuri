@@ -7,7 +7,38 @@ project: suridoksuri-1
 
 > 최신 세션이 위에 온다. `/session-log` 커맨드로 세션 종료 전 자동 작성.
 > **최근 8개 세션만 유지** — 초과분은 `/session-log`가 `docs/archive/session_log_YYYY-MM.md`로 이동한다.
-> 과거 기록: `docs/archive/session_log_2026-06.md` (2026-06-18 ~ 06-30)
+> 과거 기록: `docs/archive/session_log_2026-06.md` (2026-06-18 ~ 06-30) · `docs/archive/session_log_2026-07.md` (2026-07-03 ~)
+
+---
+
+## 2026-07-15 — [vision] 계획 갭 반영·headless main.py·테스트환경
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** vision 트랙 재개 — 목적·구현범위 점검 → 계획서 갭 반영 → 개발단계 디버깅 착수(headless main.py) → 실테스트 환경 구축
+
+### 완료
+
+- **vision 트랙 이해·구현범위 점검 → 계획서(`vision_plan.md`) 갭 8건 반영** (커밋 `af32ccf`): ④단순착륙 전략공백/내부불일치(§2 표+§5.6 신설), TERMINAL 데드레코닝·blob 타겟 스케일 융합규칙(§5.1), 빨강 ①원↔③십자 혼동 방어(§5.4), `TargetEstimate` 좌표 프레임 계약 미확정(§7.1+§10), CC 명령 수신 시임 `CommandSource`(§7.2), **개발단계 디버깅 워크플로 §7.9 신설**, 성능/지연 예산 등 §10/§11
+- **main.py headless-safe** — `--display {none|window|file|stream}`, 모든 GUI(imshow/waitKey)를 window 뒤로 격리, 기본 `none`=GUI 미호출(드론 헤드리스 크래시 원천 제거). `tests/test_main.py` 회귀 4종(none=imshow 0회 불변식)
+- **테스트 규칙 정비** — `vision/CLAUDE.md`에 테스트 방법 + 단위별 필수 테스트 표(15단위, ✅4/TODO 다수/폐기 1) + 공통 규칙 4. `vision/requirements.txt`(ASCII) 신설, `.gitignore`에 `.venv/` 등
+- **개발컴 실테스트 환경 구축·통과** — `.venv`(Python 3.10.11, opencv-python 5.0.0.93, numpy 2.2.6, PyYAML 6.0.3, pytest 9.1.1). `pytest vision/tests/` → **16 passed**
+
+### 결정
+
+- **실테스트 환경 4구분 기록·검증**(사용자 지시) — 개발컴(항상 필수, 이번에 설치완료)·개발노트북(실비행 휴대)·개발노트북의 wsl·rpi(headless=`opencv-python-headless`). 단계별 추가, **최종 단계엔 4환경 전부 검증**. 매트릭스는 메모리 `project_vision_dev_env.md`에
+- `vision/requirements.txt`는 **ASCII 유지** — 개발컴 pip(cp949)가 한글 주석에 `UnicodeDecodeError`. 한글 안내는 `vision/CLAUDE.md`에
+- `geo_project.pixel_to_gps`는 폐기 예정 → 신규 테스트 금지
+
+### 다음 세션
+
+1. **미커버 단위 테스트 채우기** — `color` HSV 초록/빨강 모드 우선(정밀착륙 직결) + edge/morphology/fusion 등. 대상·규칙은 `vision/CLAUDE.md` 단위테스트 표
+2. **또는 관측성 골격 §7.9 다음 항목** — 이중싱크 로거 + provenance 헤더(config+git해시+캘리브id)
+3. (선행 대기) 카메라 인트린식/왜곡 캘리브레이션 + 실기체 3타겟 데이터 — 골든셋·색 캘리브 착수 조건
+
+### 주의
+
+> 개발컴만 `.venv` 준비됨 — **개발노트북·그 wsl·rpi는 미설치**(필요 단계에서 `vision/requirements.txt`, rpi는 headless 변형).
+> 대회 상세규정 여전히 대기(`vision_plan.md` §10: ArUco ID·③빨간십자·초록 스펙·성공판정·CC 인터페이스).
 
 ---
 
@@ -235,36 +266,3 @@ project: suridoksuri-1
 
 > `v_cruise: 20.0`·`waypoints: 300 m`는 **유지 결정**(2026-06-30, `sitl3_tuning_notes.md`) — 복구 대상 아님. 실미션 좌표 확정 시 waypoints만 yaml 두 곳 교체.
 > 🚁 첫 offboard 부분 성공의 상세 미기록 — mc-hw 세션 진입 시 사용자에게 확인해 트랙 블록부터 갱신.
-
----
-
-## 2026-07-03 — 실기체 MC 브링업 (RPi5/24.04 + PX6C)
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** RPi5(Ubuntu 24.04) + Pixhawk 6C **순수 MC** 테스트기체에 fc_ros 배포·검증 (SITL-5 변형)
-
-### 완료
-
-- **`vehicle_type` 런타임 파라미터 추가** — `"vtol"`(기본)|`"mc"`. MC는 FW 천이 2단계(TRANSITION_FW/TRANSITION_MC) 생략하고 CLIMBING→STREAMING, FOLLOWING→HOLD 직행. 코드 분기만, **VTOL 동작 불변**. 순수함수 `after_climb_state`/`after_following_state` + 테스트 4개 추가(90 passed)
-- **launch 런타임 오버라이드** — `phase2.launch.py vehicle_type:=mc` + yaml 기본값. 코드 교체 없이 파라미터로 MC 전환
-- **RPi5 배포 환경 구축** — Docker `ros:humble` 컨테이너(이름 `fc`, 항상 `sudo`), MAVROS·numpy 설치, fc_ros colcon 빌드, fc_bridge+vtol_sim은 PYTHONPATH(`/drone_ws/src/suridoksuri`)로 로드
-- **Pixhawk 6C 펌웨어 ArduCopter→PX4 교체** — PC 데스크톱 QGC로 플래시, 에어프레임/캘리브레이션 재설정, **수동비행 검증 성공**
-
-### 결정
-
-- **RPi5(24.04)는 Docker Humble로 운용** — Humble이 22.04 전용이라. **개발컴은 22.04/Humble 유지**(업그레이드 안 함). 네이티브 Jazzy 미채택("오류 나면 안 됨" 우선 → 검증된 Humble 환경 재현)
-- **MC 추종은 위치 setpoint 재사용** — 속도+L1 복원 안 함. 속도는 PX4 MPC가 관장, `v_terminal`/`decel_dist`는 MC에서 무의미
-- **MC 검증은 코드포크가 아니라 파라미터 스위치로** — SITL은 gz_x500(=MC)로 선검증
-
-### 다음 세션
-
-1. **MAVROS 링크 문제 해결** — RTT 2~5초·heartbeat 플래핑·935 params 정체. 태블릿 QGC 끊고 **USB 직결**로 링크 안정화부터
-2. **AUTO.TAKEOFF 미실행 진단** — offboard가 이륙명령 발행 안 함. (a) MAVROS 서비스 미준비인지 (b) PX4 GPS 락 없어 AUTO.TAKEOFF 거부인지 `statustext`로 판별
-3. **커밋** — `vehicle_type` 변경 등 이번 세션 전체 미커밋
-
-### 주의
-
-> **근본 교훈: 6C는 ArduCopter였다.** 우리 코드·SITL 검증은 전부 **PX4 전용**(모드명·AUTO.TAKEOFF·OFFBOARD·vtol_state). 실기체는 PX4 확인부터.
-> **AUTO.TAKEOFF는 GPS 락 필수** — 수동비행 성공 ≠ GPS 락. 실내/벤치 불가.
-> **웨이포인트 비퇴화 필수** — 시작=끝 동일하거나 초단거리 레그면 플래너 divide-by-zero(NaN).
-> **이번 세션 전체 미커밋.**
