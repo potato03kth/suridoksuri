@@ -112,6 +112,10 @@ else
         || echo "[record_flight] ulog 자동 회수 실패 — 위 폴백 안내대로 SD 수동 회수" >&2
 fi
 
+# 컨테이너(fc, root)로 실행된 경우 $FLIGHT_DIR가 root 소유가 되어 호스트의
+# suri 사용자가 이후 접근/전송하지 못하는 문제를 방지 — best-effort
+chown -R "$(stat -c '%u:%g' "$LOG_ROOT")" "$FLIGHT_DIR" 2>/dev/null || true
+
 echo
 echo "[record_flight] 수집 완료: $FLIGHT_DIR"
 ls -la "$FLIGHT_DIR"
