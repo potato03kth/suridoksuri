@@ -54,7 +54,9 @@ python3 tools/flight_logs/pull_ulog.py --out logs/<플라이트폴더>/  # 최�
 python3 tools/flight_logs/pull_ulog.py --log-id 7 --out .        # 특정 로그
 ```
 
-기본 연결: `/dev/ttyACM0` @ 921600 (RPi USB 직결). 필요 패키지: `pymavlink`.
+기본 연결: `/dev/ttyACM0` @ 921600 (RPi USB 직결). 필요 패키지: `pymavlink`
+(RPi는 PEP 668 적용 대상이라 `python3 -m pip install --user --break-system-packages pymavlink`로 설치 —
+sudo 불필요, 설치 상세·근거는 `docs/pixhawk6c_rpi4_integration_guide.md` §1.4 참조).
 실패 시 폴백: **SD 카드 수동 회수** → `/fs/microsd/log/<날짜>/` 최신 `.ulg`를 플라이트 폴더에 복사.
 
 > 구현 노트: MAVLink **로그 전송 프로토콜**(LOG_REQUEST_LIST/DATA — QGC와 동일 방식) 사용.
@@ -100,6 +102,6 @@ WSL SITL dry-run 1회(rosbag·launch.log 생성 확인)는 사람과 협업 항�
 ## 미결 (RPi 배포 검증 시 확인 — flight_plan.md 작업 G [배포] 체크리스트)
 
 - [ ] 컨테이너 `fc`의 `/drone_ws/src/suridoksuri`가 호스트 마운트인지 → 아니면 `FLIGHT_LOG_ROOT`를 호스트 마운트 경로로 지정하고 `fetch_logs.ps1 -RemotePath` 맞출 것
-- [ ] RPi에 pymavlink 설치 여부 (`pip3 install pymavlink`)
+- [x] RPi에 pymavlink 설치 여부 — **미설치 상태였음이 확인됐고(2026-07-18), `--user --break-system-packages`로 설치·검증 완료.** 설치 명령은 위 "2. ulog 단독 회수" 절 참조, 상세 근거는 `docs/pixhawk6c_rpi4_integration_guide.md` §1.4
 - [ ] MAVLink 다운로드 실측 속도 (USB 직결 기준) — 판정 기준: 대표 ulog(실측 크기, 없으면 15 MB) 다운로드가 5분(재배터리 간격) 초과면 ① 틈새 전송(작업 G-2: gcs_url 브리지+disarmed 게이팅) 등록·구현, 그래도 부족하면 ② SD 수동 회수를 기본으로 뒤집음. 5분 이내면 현행 유지 (VERIFY.md V2 판정 절차와 동일 기준)
 - [ ] PX4 `SDLOG_PROFILE` 기본값으로 충분한지 (고빈도 디버깅 필요 시 조정)

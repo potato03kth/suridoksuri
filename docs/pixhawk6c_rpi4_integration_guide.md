@@ -78,6 +78,28 @@ scope_out:
 
 변환 규칙: Camera → ENU → NED 순서.
 
+### 1.4 RPi Python 패키지 설치 (pymavlink)
+
+RPi (Debian/Ubuntu 계열, Python 3.12)는 PEP 668 `externally-managed-environment`가 기본
+활성화되어 있어 시스템 Python에 `pip install`이 그대로 차단된다. pip/venv 모듈조차 기본
+미설치인 이미지도 있다. sudo 없이 사용자 영역에 설치:
+
+```bash
+curl -sS -o /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py
+python3 /tmp/get-pip.py --user --break-system-packages
+python3 -m pip install --user --break-system-packages pymavlink
+```
+
+- `--user`: companion computer에 sudo 권한이 없거나 필요 없음 — 시스템 Python을 건드리지 않고
+  `~/.local`에 설치.
+- `--break-system-packages`: Debian/Ubuntu의 PEP 668 보호가 일반 `pip install`을 막는 것에 대한
+  의도된 우회. "고쳐야 할 경고"가 아니라 이 환경에서 항상 필요한 정상 절차이므로 제거하지 말 것.
+
+사용자 site-packages(`~/.local/lib/python3.x/site-packages`)는 Python이 기본으로
+`sys.path`에 포함하므로, 설치 후 `PATH` 조작 없이 일반 로그인 셸에서 바로
+`python3 -c "import pymavlink"`가 동작한다. `PATH=$HOME/.local/bin:$PATH`가 필요한 경우는
+`pip3` 같은 콘솔 스크립트 실행 파일을 직접 호출할 때뿐, 라이브러리 import에는 불필요.
+
 ---
 
 ## 2. PROTOCOL: 저수준 프로토콜

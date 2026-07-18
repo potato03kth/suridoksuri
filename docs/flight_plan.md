@@ -229,8 +229,8 @@ last_updated: 2026-07-05
 
 ### 미결 (구현 세션에서 확인할 것)
 
-- 컨테이너 `fc`의 `/drone_ws/src/suridoksuri`가 호스트 마운트인지 — 아니면 logs 위치를 호스트 경로로 조정
-- RPi에 pymavlink 설치 여부 · MAVLink FTP 다운로드 실측 속도 (USB 직결 기준. 너무 느리면 SD 회수를 기본, FTP를 옵션으로 뒤집음)
+- [x] 컨테이너 `fc`의 `/drone_ws/src/suridoksuri`가 호스트 마운트인지 — **호스트 마운트 맞음(2026-07-18 확인)**, `logs/`가 컨테이너 밖에서도 그대로 보임
+- [x] RPi에 pymavlink 설치 여부 — **미설치였음이 확인돼(2026-07-18) `--user --break-system-packages`로 설치·검증 완료**, 상세는 `tools/flight_logs/README.md`·`docs/pixhawk6c_rpi4_integration_guide.md` §1.4. MAVLink 다운로드 실측 속도(~250 KB/s, 오늘 11개 ulog 회수 시 실측)는 5분 기준 여유 있게 통과 — FTP를 기본으로 유지
 - PX4 `SDLOG_PROFILE` 기본값으로 충분한지 (고빈도 디버깅 필요 시 조정)
 
 ---
