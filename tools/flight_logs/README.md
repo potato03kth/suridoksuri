@@ -38,8 +38,11 @@ clone/fetch가 계속 느려진다 — 감수하기로 함. 새 플라이트 폴
 ```
 
 동작: 플라이트 폴더 생성 → rosbag2 백그라운드 녹화 → `phase2.launch.py` 실행.
-**Ctrl-C로 launch를 끝내면** rosbag 정지 → ulog 자동 회수 → 폴더 내용 출력.
-끝나면 `notes.md` 3줄을 바로 채울 것.
+**Ctrl-C로 launch를 끝내면** rosbag 정지 → ulog 자동 회수 → 폴더 내용 출력 →
+**대화형 세션이면 "관찰"/"결론"을 그 자리에서 짧게 물어봐 `notes.md`에 바로 반영**
+(Enter로 건너뛰면 비워둔 채 나중에 직접 채워도 됨. 여러 번 재시도하는 도중이 아니라
+Ctrl-C로 완전히 끝낸 마지막에 딱 한 번만 물어본다). 비대화형 실행(파이프/cron 등)에선
+자동으로 건너뜀.
 
 환경변수: `FLIGHT_LOG_ROOT`(로그 루트), `PX4_SITL_LOG_DIR`, `PULL_ULOG_ARGS`(예: `--url /dev/ttyACM1`).
 

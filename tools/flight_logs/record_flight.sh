@@ -119,4 +119,29 @@ chown -R "$(stat -c '%u:%g' "$LOG_ROOT")" "$FLIGHT_DIR" 2>/dev/null || true
 echo
 echo "[record_flight] 수집 완료: $FLIGHT_DIR"
 ls -la "$FLIGHT_DIR"
-echo "[record_flight] notes.md 에 비행 조건/관찰/결론을 채워라."
+
+# ── 5. 비행 후 notes.md 관찰/결론 입력 (대화형 세션에서만) ──────────
+if [ -t 0 ]; then
+    echo
+    read -r -p "[record_flight] 관찰 (Enter로 건너뜀): " NOTE_OBS
+    read -r -p "[record_flight] 결론 (Enter로 건너뜀): " NOTE_CONCL
+    if [ -n "$NOTE_OBS" ] || [ -n "$NOTE_CONCL" ]; then
+        python3 - "$FLIGHT_DIR/notes.md" "$NOTE_OBS" "$NOTE_CONCL" <<'PYEOF'
+import sys
+path, obs, concl = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path, encoding="utf-8") as f:
+    text = f.read()
+if obs:
+    text = text.replace("- **관찰:**", "- **관찰:** " + obs, 1)
+if concl:
+    text = text.replace("- **결론:**", "- **결론:** " + concl, 1)
+with open(path, "w", encoding="utf-8") as f:
+    f.write(text)
+PYEOF
+        echo "[record_flight] notes.md 반영 완료"
+    else
+        echo "[record_flight] notes.md 입력 건너뜀 — 나중에 직접 채워도 됨"
+    fi
+else
+    echo "[record_flight] 비대화형 실행 — notes.md 는 나중에 직접 채울 것"
+fi
