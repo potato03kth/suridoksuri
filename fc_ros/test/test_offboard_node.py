@@ -80,13 +80,41 @@ def test_entry_not_done_heading_misaligned():
 
 
 # ── 작업 C: CLIMBING 판정 (climbing_reached) ────────────────────
+# 2026-07-18: MC 오프보드 실비행에서 목표고도 바로 아래 정착 시(예 -0.1m) 단측
+# 판정(>=)이 절대 만족되지 않아 CLIMBING 무한대기가 관찰됨 → 목표고도를 점이
+# 아닌 반경 alt_tol(기본 0.5m) 구간으로 완화. 아래 테스트는 그 허용 구간 경계를
+# 검증한다 (경계값 포함: <= alt_tol).
 
 def test_climb_reached():
     assert climbing_reached(50.1, 50.0) is True
 
 
 def test_climb_not_reached():
-    assert climbing_reached(49.9, 50.0) is False
+    # 목표보다 1.0m 낮음 → 허용오차(0.5m) 밖 → 미도달.
+    assert climbing_reached(49.0, 50.0) is False
+
+
+def test_climb_reached_within_tolerance_below():
+    # 목표보다 0.1m 낮음 → 허용오차 안 → 도달 (2026-07-18 관찰 문제의 재현/수정 확인).
+    assert climbing_reached(49.9, 50.0) is True
+
+
+def test_climb_reached_at_lower_tolerance_boundary():
+    assert climbing_reached(49.5, 50.0) is True
+
+
+def test_climb_not_reached_just_outside_lower_tolerance():
+    assert climbing_reached(49.49, 50.0) is False
+
+
+def test_climb_reached_at_upper_tolerance_boundary():
+    assert climbing_reached(50.5, 50.0) is True
+
+
+def test_climb_not_reached_beyond_upper_tolerance():
+    # 과상승(overshoot)이 허용오차를 넘으면 미도달 — 목표고도가 점이 아닌 구간이 된
+    # 의도된 결과. CLIMBING 중 지속적 과상승 버그가 있다면 이 조건이 이를 드러낸다.
+    assert climbing_reached(50.6, 50.0) is False
 
 
 def test_climb_exact_alt():
@@ -102,14 +130,14 @@ def test_climb_reached_with_ground_ref():
 
 
 def test_climb_not_reached_with_ground_ref():
-    # 로컬 h_up=1.0 → 지면 기준 (1.0-(-2.11))=3.11 < 4.0 → 미도달.
+    # 로컬 h_up=1.0 → 지면 기준 (1.0-(-2.11))=3.11, 목표 4.0과의 차 0.89 → 허용오차 밖 → 미도달.
     assert climbing_reached(1.0, 4.0, -2.11) is False
 
 
 def test_climb_ground_ref_defaults_to_zero():
     # ground_ref 미지정 시 기존 동작(원점≈지면)과 동일.
     assert climbing_reached(50.1, 50.0) is True
-    assert climbing_reached(49.9, 50.0) is False
+    assert climbing_reached(49.0, 50.0) is False
 
 
 # ── 작업 C: TRANSITION_FW 완료 판정 (vtol_is_fw) ────────────────

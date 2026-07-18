@@ -7,16 +7,27 @@ import numpy as np
 
 
 def climbing_reached(pos_ned_up: float, transition_alt: float,
-                     ground_ref_up: float = 0.0) -> bool:
-    """천이 고도 도달 여부 (이륙 지점 지면 기준 AGL).
+                     ground_ref_up: float = 0.0, alt_tol: float = 0.5) -> bool:
+    """천이 고도 도달 여부 (이륙 지점 지면 기준 AGL, ±alt_tol 허용).
 
     pos_ned_up = VehicleState.pos_ned[2] (h_up, 양수=위)는 EKF 로컬 원점 기준
     상대고도이며, 로컬 원점이 실제 지면과 일치하지 않을 수 있다
     (2026-07-07 실측: 로컬 원점이 지면보다 2.11m 높음 → 원점 기준 판정은 실제 AGL과
     어긋나 CLIMBING 무한대기를 유발한다). 이륙 순간 지면 높이(ground_ref_up)를 빼
     실제 AGL로 판정한다. ground_ref_up 기본 0.0은 원점≈지면일 때 기존 동작과 동일.
+
+    기존 "AGL >= transition_alt" 단측 판정은 실비행(2026-07-18 MC 오프보드 테스트)에서
+    바로미터/EKF 잡음으로 목표고도 바로 아래(예 -0.1m)에 정착해 정확히 그 값을
+    넘지 못하면 CLIMBING이 무한 대기하는 문제가 있었다. 목표고도를 점이 아닌
+    반경 alt_tol 구간으로 취급해 |AGL - transition_alt| <= alt_tol 이면 도달로
+    판정한다.
+
+    N,E(수평)은 포함하지 않는다: CLIMBING 중 수평 위치는 PX4 AUTO.TAKEOFF가
+    자체 관리하며 이 노드는 목표 N,E를 갖지 않는다. 표준 GPS(비-RTK) 수평 오차는
+    통상 alt_tol(0.5m)보다 커, 수평 조건까지 추가하면 실비행에서 CLIMBING이
+    영구 대기하는 더 심각한 회귀를 유발할 수 있어 의도적으로 제외했다.
     """
-    return (pos_ned_up - ground_ref_up) >= transition_alt
+    return abs((pos_ned_up - ground_ref_up) - transition_alt) <= alt_tol
 
 
 def vtol_is_fw(vtol_state: int, FW: int = 4) -> bool:
