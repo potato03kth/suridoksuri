@@ -3,7 +3,7 @@
 **규약: 비행 1회 = 폴더 1개.** 전 테스트 트랙(🚁 mc-실기체 / 🛩 sitl-vtol / ✈ vtol-실기체) 공용.
 
 ```
-logs/2026-07-06_flight01/          ← .gitignore 처리됨 (로그는 git 밖, 결론만 docs에)
+logs/2026-07-06_flight01/          ← git 커밋 대상 (2026-07-18부터, 아래 업로드 방침 참조)
 ├── rosbag/                        rosbag2 녹화 (토픽: topics.txt)
 ├── launch.log                     ros2 launch 터미널 출력 전체
 ├── rosbag_record.log              rosbag2 자체 stdout (진단용)
@@ -11,9 +11,13 @@ logs/2026-07-06_flight01/          ← .gitignore 처리됨 (로그는 git 밖, 
 └── notes.md                       비행 조건 / 관찰 / 결론 (사람이 채움)
 ```
 
-**업로드 방침 (2026-07-06 결정):** GitHub 업로드 안 함. 로그의 목적지는 분석하는 곳
-= 개발컴 (`fetch_logs.ps1`로 직접 회수). 공유가 필요한 ulog만 선택적으로
-[PX4 Flight Review](https://logs.px4.io)에 업로드.
+**업로드 방침 (2026-07-06 결정 → 2026-07-18 번복):** 여러 기기(RPi·개발컴·노트북)에서
+git만으로 로그를 공유·접속하기 위해 **일반 git 커밋**으로 전환(사용자 결정, LFS 아님) —
+`.gitignore`에서 `logs/`를 제외, rosbag(`.db3`)·ulog(`.ulg`) 그대로 커밋한다.
+**인지된 트레이드오프:** git 이력이 로그만큼 영구히 커지고(되돌려도 이력 크기는 안 줄어듦)
+clone/fetch가 계속 느려진다 — 감수하기로 함. 새 플라이트 폴더가 생기면 평소 커밋 워크플로에
+포함시킬 것(`[main]`/`[mc-hw]` 등 태그). 공유·웹 분석이 필요한 ulog는 선택적으로
+[PX4 Flight Review](https://logs.px4.io)에도 업로드 가능.
 
 ---
 

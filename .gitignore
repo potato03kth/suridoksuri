@@ -2,8 +2,10 @@
 node_modules/
 
 # Logs
-logs/
+# logs/ 는 의도적으로 미포함 — 비행 로그(rosbag+ulog)를 git으로 다기기 공유하기로
+# 결정(2026-07-18). tools/flight_logs/README.md "업로드 방침" 참조.
 *.log
+!logs/**/*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

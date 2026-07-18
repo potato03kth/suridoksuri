@@ -24,21 +24,25 @@ project: suridoksuri-1
 - **오늘(07-18) 비행 11개 ulog 전량 회수** — RPi 호스트에 pip 부트스트랩(`--user --break-system-packages`)으로 pymavlink 설치 → FC에서 직접 `.ulg` 11개 다운로드. 8개(id3~10)는 기존 `flight01~08`(rosbag+launch.log) 폴더와 시각 매칭해 완전한 폴더로 합침, 3개(id0~2, `record_flight.sh` 쓰기 전 로그)는 대응 rosbag/launch.log 없이 `logs/2026-07-18_unlogged/`에 "비행기록 부족함"으로 보관. root 소유 폴더 문제로 RPi 쪽 직접 write는 실패해 staging 폴더 경유 → 이 개발컴으로 scp 후 로컬에서 재조립
 - **`record_flight.sh` 수정** — 종료 시 `$FLIGHT_DIR`을 `$LOG_ROOT` 소유자로 chown(best-effort, 실패해도 스크립트 안 죽음)해 향후 비행부터 root 소유 문제 방지. `bash -n` 통과. (`test_flight_logs.py`는 이 WSL에 pytest/pymavlink 미설치라 로컬 실행 못함 — 대상이 `pull_ulog.py` 순수함수라 이 변경과 무관해 회귀 위험은 낮음)
 - **`docs/flight_plan.md` 작업 G 표 최신화** — "계획 확정, 미착수" → "✅ 완료"로 수정 (실제로는 이미 완료·검증됨)
+- **RPi `git pull` (서브에이전트 위임)** — 처음엔 `origin`에 `07681d3`가 미푸시 상태라 반영 안 됨을 서브에이전트가 정확히 진단·보고 → 사용자 승인으로 push 후 재실행, RPi에 chown 수정 반영 확인(`grep chown record_flight.sh`)
+- **RPi 소유권 정리 확인 + 07-18 로그 RPi 원본도 완결** — 사용자가 RPi에서 `sudo chown -R suri:suri logs/` 직접 실행 → SSH로 확인. 로컬 스테이징에 있던 07-18 ulog 8개도 (이제 쓰기 가능해진) RPi 원본 `flight01~08` 폴더로 이동해 RPi 쪽 사본도 완전해짐
+- **비행로그 git 커밋 방침 전환** — "GitHub 업로드 안 함"(2026-07-06 결정) 재검토를 사용자에게 요청 → **일반 git 커밋으로 전환**(LFS 아님, 트레이드오프 인지하고 승인) 결정. `.gitignore` 루트의 `logs/` 제외 규칙 제거(`*.log`는 유지하되 `!logs/**/*.log`로 예외 처리해 `launch.log`/`rosbag_record.log`도 추적되게), `tools/flight_logs/README.md`·`flight_plan.md` "업로드 방침" 갱신. 오늘 07-18 로그 53개 파일(rosbag+ulog+launch.log 등) 커밋
 
 ### 결정
 
-- 서브에이전트에 `record_flight.sh` 수정을 위임 시도했으나 `isolation: worktree`가 오래된 브랜치에서 갈라진 고아 워크트리를 만들어 `tools/flight_logs/`가 아예 없는 상태로 실패 — **이 프로젝트는 세션이 in-place로 작업하도록 설정돼 있어 worktree 격리를 쓰면 안 됨**(에이전트는 이를 정확히 감지하고 파일을 지어내지 않은 채 보고했음 → 직접 적용). 향후 서브에이전트 위임 시 isolation 옵션 쓰지 말 것
+- 서브에이전트에 `record_flight.sh` 수정을 위임 시도했으나 `isolation: worktree`가 오래된 브랜치에서 갈라진 고아 워크트리를 만들어 `tools/flight_logs/`가 아예 없는 상태로 실패 — **이 프로젝트는 세션이 in-place로 작업하도록 설정돼 있어 worktree 격리를 쓰면 안 됨**(에이전트는 이를 정확히 감지하고 파일을 지어내지 않은 채 보고했음 → 직접 적용). 향후 서브에이전트 위임 시 isolation 옵션 쓰지 말 것. 반대로 순수 SSH/git 원격 작업(RPi git pull)은 isolation 없이 위임해 문제없이 완결됨
+- **비행 로그를 git에 그대로 커밋하기로 번복** — 2026-07-06 "GitHub 업로드 안 함"(대용량 바이너리 이력 팽창 우려) 결정을 사용자가 다기기 공유 편의를 우선해 뒤집음. git 이력이 로그만큼 영구히 커지고 clone이 느려지는 트레이드오프는 알고 승인한 것 — 되돌리려면 히스토리 재작성(rebase/filter-repo) 같은 파괴적 작업이 필요해짐을 유의
 
 ### 다음 세션
 
 1. **✈ vtol-실기체 vs 🚁 mc-실기체 정체 확인** — "부활한 MC 테스트기체"가 결함 있던 그 VTOL 기체인지 별도 기체인지 사용자에게 확인 후 두 트랙 블록 정리
-2. **`record_flight.sh` chown 수정 커밋 + RPi에 `git pull`** — 안 하면 다음 비행도 root 소유 문제 재발
-3. **RPi pymavlink 설치를 임시 우회(`~/.local`, `--break-system-packages`)에서 영구화** — 컨테이너 이미지 또는 셋업 스크립트/문서에 반영
-4. 07-17·07-18 14회 비행 notes.md(관찰/결론) 전부 비어있음 — 조종사가 채워야 실제 비행 평가 가능
+2. **RPi pymavlink 설치를 임시 우회(`~/.local`, `--break-system-packages`)에서 영구화** — 컨테이너 이미지 또는 셋업 스크립트/문서에 반영
+3. 07-17·07-18 14회 비행 notes.md(관찰/결론) 전부 비어있음 — 조종사가 채워야 실제 비행 평가 가능
+4. 앞으로 `record_flight.sh`로 생기는 새 플라이트 폴더는 평소 커밋 워크플로에 포함(잊지 말 것 — 더는 `.gitignore` 자동 제외가 아님)
 
 ### 주의
 
-> `logs/2026-07-18_flight01~08`·`logs/2026-07-18_unlogged/`가 이 개발컴에 새로 생김(`.gitignore` 대상, 커밋 안 됨) — 분석 시 참조.
+> `logs/` 방침이 바뀌어 이제 **비행 로그는 커밋 대상**이다 — 새 플라이트 폴더 생성 후 커밋을 잊지 말 것. 저장소 용량이 계속 늘어나는 것은 의도된 트레이드오프.
 > RPi `sudo`/`docker` 권한이 이 세션엔 없음(비밀번호 필요) — 컨테이너 안쪽 작업이 필요하면 사용자에게 요청할 것.
 
 ---
