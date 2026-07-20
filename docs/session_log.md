@@ -11,6 +11,39 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-20 — [mc-hw] RPi5 WiFi 장기끊김 근본원인 확정(brcmfmac 커널버그) + 완화조치 적용
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 사용자가 "flight01 비행 직후에도 연결끊김이 있었다, 원인분석하라"고 요청 → 실제 원인분석 수행 + 해결책 적용
+
+### 완료
+
+- **재발 확인** — `~/wifi_watch.log`에서 flight01 착륙(16:19:29) 약 1분 뒤부터 wlan0 `carrier=0`가 **8분 25초**(16:20:32~16:28:57) 지속 확인. `last reboot`/`journalctl --list-boots` 대조 결과 이 구간에 **재부팅 없음**(현재 부팅이 전날 00:07부터 계속 이어짐) — 시스템 자체는 살아있었고 WiFi 링크만 끊김
+- **커널로그 정밀조사 → 근본 메커니즘 확정** — 이 구간 `journalctl -k`에 `brcmfmac: brcmf_set_channel: set chanspec 0x____ fail, reason -52`가 11초 간격으로 4개 채널(0xd022/0xd026/0xd02a/0xd090)을 순환하며 **164회** 반복. 같은 부팅 전체로는 총 164회, 16:20:36~16:28:57 사이에 집중. wpa_supplicant 로그는 이 구간에 전무(더 상위 계층은 시도조차 못함 — 드라이버/펌웨어 레벨에서 막힘)
+- **웹서치로 원인 특정** — 동일 에러 시그니처가 **RPi5 브로드컴 WiFi 드라이버(brcmfmac)의 알려진 미해결 커널 버그**([raspberrypi/linux#6049](https://github.com/raspberrypi/linux/issues/6049))와 정확히 일치함을 확인. `gh issue view`로 코멘트 전체 검토: ① 메인테이너(pelwell)는 "이런 다중 서브시스템 동시 장애는 전형적 전원부족 증상"이라 언급(단, 우리 쪽은 `vcgencmd get_throttled`=0x0이라 하드웨어 감지 언더볼트는 아님) ② r41k0u가 GDB/SWD로 직접 디버깅한 결과: disconnect-reconnect 사이클 중 regulatory-domain 플래그가 `restore_custom_reg_settings`에서 stale한 `orig_flags`로 복원되며 채널설정이 계속 거부되는 구조적 버그 — 즉 **일단 한번 끊기면 이 버그 때문에 재연결이 정상(수십 초)보다 훨씬 오래(8분+) 걸리는 것**이 핵심 메커니즘 ③ 다른 사용자(bsdelf)는 country code 불일치+PMF 조합이 실제 원인이었고 `roamoff=1 feature_disable=0x282000` 모듈 파라미터로 해소 보고
+- **우리 환경 점검** — regdomain은 `ieee80211w`아님`ieee80211_regdom`=KR(정상), `wireless-regdb` 패키지 설치돼있음(명백한 누락 원인 아님). `iw`가 미설치라 AP가 실제 방송하는 country IE와 정확히 일치하는지는 확인 못함(sudo 필요, 미해결)
+- **완화조치 2건 적용 (사용자 직접 실행, 명령어 그대로 복붙 형태로 전달)**
+  1. `sudo iw dev wlan0 set power_save off` + `/etc/udev/rules.d/70-wifi-powersave-off.rules`로 영구화 — **적용 확인됨**(`iw dev wlan0 get power_save` → "Power save: off", 재부팅 로그에 `power save disabled`)
+  2. `/etc/modprobe.d/brcmfmac.conf`에 `options brcmfmac roamoff=1 feature_disable=0x282000` — 파일 반영·재부팅 완료. `/sys/module/brcmfmac/parameters/`엔 `roamoff`만 파일로 존재(root 전용 읽기라 값 미확인), `feature_disable`은 이 드라이버 빌드에서 sysfs 비노출이라 파일 자체가 없음 — 단 부팅로그에 "Unknown parameter" 경고가 없어 두 파라미터 다 모듈 로드 시 정상 인식된 것으로 추정
+- **사용자 피드백 반영** — 처음엔 "원인분석 + 추가정보 필요"까지만 보고하고 실제 해결책(모듈 파라미터 등)을 빠뜨렸는데, 사용자가 "해결방안은 어디갔는가"라고 지적 → GitHub 이슈에 이미 있던 커뮤니티 검증 우회책을 다시 정리해 제공
+
+### 결정
+
+- **이 버그는 업스트림에 정식 패치 없음** — 적용한 두 조치는 커뮤니티에서 반복 검증된 우회책이지 근본 수정이 아님. 완전히 안 끊기게 보장하는 건 아니고, 다음 비행 결과로 실효성 검증 필요
+- **최초 트리거(왜 16:20:32에 처음 끊겼는지)는 규명 범위 밖으로 남김** — 신호거리/RC 2.4GHz 간섭/전원 sag 후보가 경합 중이나 이번 조치로 "한번 끊겨도 금방 복구되게"는 만들었으므로 실용적 우선순위는 낮춤
+
+### 다음 세션
+
+1. **다음 비행 후 `~/wifi_watch.log`에서 장기(수 분 단위) `carrier=0` 재발 여부 확인** — 이번 조치의 실질 검증
+2. 재발 시: `sudo cat /sys/module/brcmfmac/parameters/roamoff`로 실제 적용값 확인, `iw`로 AP의 실제 country IE와 커널 "KR" 일치 여부 대조, 필요 시 netplan 네트워크 블록에 `ieee80211w=0`(PMF 비활성화) 추가 시도
+3. 최초 트리거 규명하려면 wpa_supplicant 로그레벨을 debug로 올려 다음 발생 시 실제 deauth/assoc-reject reason code 캡처 필요(현재 INFO라 이번 8분 구간엔 로그 자체가 없었음), 재발 시점에 RC 조작 여부도 육안 기록
+
+### 주의
+
+> 이 버그의 프록시먼트(진짜 첫 트리거)는 여전히 미해결 — 완화조치는 "한번 끊겨도 빨리 복구"를 목표로 한 것이지 "안 끊기게"가 아님. 실비행 중 tailscale 끊김이 짧게(수십 초 이내) 발생해도 더 이상 놀라지 않아도 되나, 길게(수 분) 지속되면 이번 조치가 안 먹힌 것이니 재보고할 것.
+
+---
+
 ## 2026-07-20 — [mc-hw] flight01 제어상실 사고 — 근본원인 규명 + STREAMING/FOLLOWING 위치 setpoint 슬루레이트 제한 (아래 "기록 전용" 세션의 후속)
 
 **브랜치:** `dev--vision-computing-module`
@@ -227,68 +260,5 @@ project: suridoksuri-1
 
 > 개발컴만 `.venv` 준비됨 — **개발노트북·그 wsl·rpi는 미설치**(필요 단계에서 `vision/requirements.txt`, rpi는 headless 변형).
 > 대회 상세규정 여전히 대기(`vision_plan.md` §10: ArUco ID·③빨간십자·초록 스펙·성공판정·CC 인터페이스).
-
----
-
-## 2026-07-11 — [main][mc-hw] 이륙실패 ulog 진단 + AMSL 이륙고도 수정
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** MC 테스트기체 마지막 이륙 실패(사용자 제공 ulog) 원인 분석 → 수정
-
-### 완료
-
-- **마지막 MC 이륙 실패 근본원인 확정** — 2026-07-07 광주 실비행 ulog(`02_17_49`, `logs/2026-07-07_0217_last/`에 저장·notes.md 분석)를 pyulog 직접 파싱. ARM·CommandTOL(NAV_TAKEOFF param7=4.0, lat/lon=NaN) 모두 ACCEPTED됐으나 navigator `Already higher than takeoff altitude` → 모터 미가동(출력 0.002) → 10초 후 `Disarmed by auto preflight disarming`. 배터리(12.15V, 새그 없음)·GPS(3D 22위성)·SD·OFFBOARD 전부 정상이라 무관 — 이전 실패(07-03 전압새그, 07-07 SD)와 다른 새 원인
-- **원인 = AMSL/relative 프레임 버그(07-06 열린 질문의 실측 종결)** — `CommandTOL.altitude`(→ NAV_TAKEOFF param7)는 AMSL 절대고도인데 `transition_alt`(4.0, 지면 상대)를 그대로 실어 지면 AMSL(19.2m)보다 낮은 목표가 됨. SITL은 `transition_alt:=50`>지면(≈0)이라 그동안 가려졌음
-- **수정 커밋 `9451861`** — ① `takeoff_request_fields(transition_alt, home_amsl)` → `altitude=home_amsl+transition_alt`, `/mavros/home_position/home` 구독, home 미수신 시 이륙 보류 ② CLIMBING 게이트 `climbing_reached(…, ground_ref_up)` 지면기준 AGL 보정(로컬 원점≠지면 2.11m — 안 고치면 이륙해도 CLIMBING 무한대기) ③ pytest fc_ros 60/fc_bridge 44 pass(신규 7)
-- **SITL 재검증 체크리스트 작성** — `sitl_verification_log.md` "작업 H-2". 재현엔 `PX4_HOME_ALT`로 지면 AMSL>transition_alt 세팅 필수 + geoid(geo.altitude가 AMSL인지) 확인
-
-### 결정
-
-- 이륙 목표고도는 항상 **AMSL 절대고도(home_amsl + transition_alt)** 로 전송 — transition_alt 직접 전달 금지
-- CLIMBING 판정은 이륙 순간 캡처한 지면 높이 기준 AGL로
-
-### 다음 세션
-
-1. **SITL 재검증(작업 H-2)** — `sitl_verification_log.md` 체크리스트대로. `PX4_HOME_ALT=100` 등으로 버그 재현 조건을 만든 뒤 수정 확인, **geoid 정합 반드시 확인**
-2. PASS 시 "transition_alt를 MIS_TAKEOFF_ALT 이하로" 임시조치 완전 제거
-3. 실기체 검증은 ✈ vtol-실기체 결함 해소 후
-
-### 주의
-
-> 수정은 **단위테스트만 통과, SITL 재검증 전**이다 — 실비행 반영 금지. geoid 미확인 리스크(MAVROS `geo.altitude`가 ellipsoid면 과상승) 있음, SITL 로그로 판별
-> ulog·분석 notes는 `logs/`(git 제외)에 있음 — GitHub엔 없다
-
----
-
-## 2026-07-09 — [vision] 정밀착륙 계획 확정 + 트랙 분리
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** 비전 객체인식 본격 개발 전 고려사항 컨설팅(블라인드스팟·unknown-unknowns 중심) → 계획 확정·문서화
-
-### 완료
-
-- **착수 전 컨설팅 완료** — 타겟 3종 확정(①버티포트 원형 3m+중앙 50cm ArUco ②초록 매트+흰 박스, 박스 옆 착륙 ③빨간 십자, 규정 대기), 물리 제약 정량화(GSD/고도·tilt 오차·GPS 한계), 검출 전략(고전 CV, 타겟별 coarse→fine 2단)
-- **하드웨어 갈림길 해소** — 카메라 mono OV9285→컬러 필요 판명→**RPi Cam Module 3 Wide 표준(IR-cut)** 확정(롤링셔터 수용+완화·초점 무한대·수동노출), 짐벌 없음(나디르+고무댐핑)→**자세 de-rotation 필수**, 라이다 1D 40m급
-- **변경내성/관측성 설계** — ports&adapters, 레이어드 config+현장 색 캘리브레이터, 구조적 로깅(터미널+파일 JSONL, 비차단), 기록/재생, 세 화면(전송/연산/연출)+격리 규칙, FPV 인코더 어댑터(Pi5 무-HW인코더→USB2 raw 대역폭 벽)
-- **문서화** — `docs/vision_plan.md` 신규(계획 정본), 루트 `CLAUDE.md` 의존관계 `vision→fc_ros`(상대 pose)로 교체(`pixel_to_gps` 폐기), `vision/CLAUDE.md` 재설계 배너
-- **vision 트랙 분리** — `docs/vision_status.md` 신규(vision 전용 진입점, FC와 컨텍스트 격리), `/session-log` 도메인 라우팅 + `[vision]` 태그 추가, 메모리 `project_vision_plan.md` 신규
-
-### 결정
-
-- **검출은 고전 CV(ML 없음)** — 타겟이 전부 피듀셜/고대비 색·형상, 결정론=신뢰도(대회 오인식 절대불가)
-- **측위: GPS 접근 + 30cm는 비전 폐루프** — 일반 GPS 절대좌표 한계, `geo_project.pixel_to_gps` 폐기
-- **통합: 독립 ROS2 노드 + offboard 정밀착륙 서브상태**, 출력=상대 pose(LANDING_TARGET 피벗 호환)
-- **vision은 FC와 별도 트랙·진입점** — 콜드스타트 컨텍스트 격리 우선(상호 안 읽음), 서술 로그만 공용
-
-### 다음 세션
-
-1. **카메라 인트린식+왜곡 캘리브레이션** (102° 광각, 없으면 pose 거짓)
-2. **관측성 골격 먼저** — `vision/main.py` headless-safe 수정 + 구조적 로깅/JSONL 스캐폴딩
-3. 실기체 데이터 수집(고도별 3타겟) 착수
-
-### 주의
-
-> **대회 상세규정 미공개** — ArUco 딕셔너리/ID·③빨간십자 규정·초록 색·치수 스펙 대기(`vision_plan.md` §10). 하드웨어(카메라/Pi4 인코더/라이다)도 변경 가능 → 전부 어댑터로 흡수 설계.
-> **이번 세션 변경 미커밋**(문서만, 코드 착수 전). `.claude/commands/session-log.md` 라우팅 편집은 git 무시라 로컬만 반영.
 
 ---

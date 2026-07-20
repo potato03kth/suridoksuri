@@ -11,6 +11,69 @@ period: 2026-07-03 ~
 
 ---
 
+## 2026-07-11 — [main][mc-hw] 이륙실패 ulog 진단 + AMSL 이륙고도 수정
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** MC 테스트기체 마지막 이륙 실패(사용자 제공 ulog) 원인 분석 → 수정
+
+### 완료
+
+- **마지막 MC 이륙 실패 근본원인 확정** — 2026-07-07 광주 실비행 ulog(`02_17_49`, `logs/2026-07-07_0217_last/`에 저장·notes.md 분석)를 pyulog 직접 파싱. ARM·CommandTOL(NAV_TAKEOFF param7=4.0, lat/lon=NaN) 모두 ACCEPTED됐으나 navigator `Already higher than takeoff altitude` → 모터 미가동(출력 0.002) → 10초 후 `Disarmed by auto preflight disarming`. 배터리(12.15V, 새그 없음)·GPS(3D 22위성)·SD·OFFBOARD 전부 정상이라 무관 — 이전 실패(07-03 전압새그, 07-07 SD)와 다른 새 원인
+- **원인 = AMSL/relative 프레임 버그(07-06 열린 질문의 실측 종결)** — `CommandTOL.altitude`(→ NAV_TAKEOFF param7)는 AMSL 절대고도인데 `transition_alt`(4.0, 지면 상대)를 그대로 실어 지면 AMSL(19.2m)보다 낮은 목표가 됨. SITL은 `transition_alt:=50`>지면(≈0)이라 그동안 가려졌음
+- **수정 커밋 `9451861`** — ① `takeoff_request_fields(transition_alt, home_amsl)` → `altitude=home_amsl+transition_alt`, `/mavros/home_position/home` 구독, home 미수신 시 이륙 보류 ② CLIMBING 게이트 `climbing_reached(…, ground_ref_up)` 지면기준 AGL 보정(로컬 원점≠지면 2.11m — 안 고치면 이륙해도 CLIMBING 무한대기) ③ pytest fc_ros 60/fc_bridge 44 pass(신규 7)
+- **SITL 재검증 체크리스트 작성** — `sitl_verification_log.md` "작업 H-2". 재현엔 `PX4_HOME_ALT`로 지면 AMSL>transition_alt 세팅 필수 + geoid(geo.altitude가 AMSL인지) 확인
+
+### 결정
+
+- 이륙 목표고도는 항상 **AMSL 절대고도(home_amsl + transition_alt)** 로 전송 — transition_alt 직접 전달 금지
+- CLIMBING 판정은 이륙 순간 캡처한 지면 높이 기준 AGL로
+
+### 다음 세션
+
+1. **SITL 재검증(작업 H-2)** — `sitl_verification_log.md` 체크리스트대로. `PX4_HOME_ALT=100` 등으로 버그 재현 조건을 만든 뒤 수정 확인, **geoid 정합 반드시 확인**
+2. PASS 시 "transition_alt를 MIS_TAKEOFF_ALT 이하로" 임시조치 완전 제거
+3. 실기체 검증은 ✈ vtol-실기체 결함 해소 후
+
+### 주의
+
+> 수정은 **단위테스트만 통과, SITL 재검증 전**이다 — 실비행 반영 금지. geoid 미확인 리스크(MAVROS `geo.altitude`가 ellipsoid면 과상승) 있음, SITL 로그로 판별
+> ulog·분석 notes는 `logs/`(git 제외)에 있음 — GitHub엔 없다
+
+---
+
+## 2026-07-09 — [vision] 정밀착륙 계획 확정 + 트랙 분리
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 비전 객체인식 본격 개발 전 고려사항 컨설팅(블라인드스팟·unknown-unknowns 중심) → 계획 확정·문서화
+
+### 완료
+
+- **착수 전 컨설팅 완료** — 타겟 3종 확정(①버티포트 원형 3m+중앙 50cm ArUco ②초록 매트+흰 박스, 박스 옆 착륙 ③빨간 십자, 규정 대기), 물리 제약 정량화(GSD/고도·tilt 오차·GPS 한계), 검출 전략(고전 CV, 타겟별 coarse→fine 2단)
+- **하드웨어 갈림길 해소** — 카메라 mono OV9285→컬러 필요 판명→**RPi Cam Module 3 Wide 표준(IR-cut)** 확정(롤링셔터 수용+완화·초점 무한대·수동노출), 짐벌 없음(나디르+고무댐핑)→**자세 de-rotation 필수**, 라이다 1D 40m급
+- **변경내성/관측성 설계** — ports&adapters, 레이어드 config+현장 색 캘리브레이터, 구조적 로깅(터미널+파일 JSONL, 비차단), 기록/재생, 세 화면(전송/연산/연출)+격리 규칙, FPV 인코더 어댑터(Pi5 무-HW인코더→USB2 raw 대역폭 벽)
+- **문서화** — `docs/vision_plan.md` 신규(계획 정본), 루트 `CLAUDE.md` 의존관계 `vision→fc_ros`(상대 pose)로 교체(`pixel_to_gps` 폐기), `vision/CLAUDE.md` 재설계 배너
+- **vision 트랙 분리** — `docs/vision_status.md` 신규(vision 전용 진입점, FC와 컨텍스트 격리), `/session-log` 도메인 라우팅 + `[vision]` 태그 추가, 메모리 `project_vision_plan.md` 신규
+
+### 결정
+
+- **검출은 고전 CV(ML 없음)** — 타겟이 전부 피듀셜/고대비 색·형상, 결정론=신뢰도(대회 오인식 절대불가)
+- **측위: GPS 접근 + 30cm는 비전 폐루프** — 일반 GPS 절대좌표 한계, `geo_project.pixel_to_gps` 폐기
+- **통합: 독립 ROS2 노드 + offboard 정밀착륙 서브상태**, 출력=상대 pose(LANDING_TARGET 피벗 호환)
+- **vision은 FC와 별도 트랙·진입점** — 콜드스타트 컨텍스트 격리 우선(상호 안 읽음), 서술 로그만 공용
+
+### 다음 세션
+
+1. **카메라 인트린식+왜곡 캘리브레이션** (102° 광각, 없으면 pose 거짓)
+2. **관측성 골격 먼저** — `vision/main.py` headless-safe 수정 + 구조적 로깅/JSONL 스캐폴딩
+3. 실기체 데이터 수집(고도별 3타겟) 착수
+
+### 주의
+
+> **대회 상세규정 미공개** — ArUco 딕셔너리/ID·③빨간십자 규정·초록 색·치수 스펙 대기(`vision_plan.md` §10). 하드웨어(카메라/Pi4 인코더/라이다)도 변경 가능 → 전부 어댑터로 흡수 설계.
+> **이번 세션 변경 미커밋**(문서만, 코드 착수 전). `.claude/commands/session-log.md` 라우팅 편집은 git 무시라 로컬만 반영.
+
+---
+
 ## 2026-07-07 — [main][mc-hw] ulog 재진단·작업 H 확정 + 실비행 SD카드 실패
 
 **브랜치:** `dev--vision-computing-module`
