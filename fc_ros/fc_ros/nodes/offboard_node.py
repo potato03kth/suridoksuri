@@ -7,8 +7,8 @@ OffboardNode: create_timer 기반 상태머신으로 Offboard 경로 추종.
   ARM_TAKEOFF   : ARM + AUTO.TAKEOFF 명령
   CLIMBING      : 천이 고도 도달 대기
   TRANSITION_FW : MC→FW 천이 명령 + vtol_state==FW 대기
-  STREAMING     : 세트포인트 스트리밍 후 OFFBOARD 전환 요청
-                  (FW: lookahead 위치 setpoint / MC: 0속도 홀드)
+  STREAMING     : 위치 세트포인트 스트리밍 후 OFFBOARD 전환 요청
+                  (FW: lookahead 위치 setpoint / MC: 현재위치 홀드)
   ENTRY         : entry_mode="mid_flight" 시에만 통과; WP0 진입 + 헤딩 정렬 대기
   FOLLOWING     : L1Guidance 기반 경로 추종
   TRANSITION_MC : FW→MC 역천이 명령 + vtol_state==MC 대기 (직선 감속)
@@ -209,6 +209,8 @@ class OffboardNode(Node):
         self._stream_ticks = 0
         self._follow_ticks = 0
         self._current_mode = ""
+        # MC STREAMING/FOLLOWING 위치 setpoint 슬루레이트 제한용 (2026-07-20 사고 대응).
+        self._mc_pos_ramp = None
         # ARM_TAKEOFF 시퀀스 플래그
         self._arm_sent = False
         self._takeoff_sent = False
@@ -321,13 +323,17 @@ class OffboardNode(Node):
 
         elif self._sm == _State.STREAMING:
             if self._is_mc:
-                # MC의 PX4 OFFBOARD는 속도 setpoint를 정상 추종한다(FW와 달리
-                # flower-pattern 회피용 lookahead가 불필요). 제자리 유지(0속도)로
-                # 스트리밍해 OFFBOARD 진입 순간 세트포인트가 현재 위치와 무관한
-                # 먼 절대좌표로 점프하지 않게 한다(2026-07-20 실비행: 클라이밍
-                # 오버슈트 중 FW lookahead가 WP1로 순간점프 발행 → 급격한 자세
-                # 보정으로 제어상실, 조종사 수동 회수).
-                self._setpoint.publish(np.zeros(3))
+                # MC도 최종 VTOL 기체와 동일하게 위치기반 세트포인트를 유지한다
+                # (이 테스트기체의 목적이 최종기체 제어로직 검증이므로 속도
+                # setpoint로 전환할 이유가 없음). OFFBOARD 확정 전까지는 매 틱
+                # 현재위치를 그대로 스트리밍해, PX4가 확정 순간 이어받는
+                # setpoint가 항상 실제위치와 일치하게 한다 — FW의 lookahead
+                # 목표점(경로 끝점 WP1로 클램프됨, 아래)을 그대로 쓰면 실제
+                # 위치와 무관한 먼 절대좌표가 되어(2026-07-20 실비행: 클라이밍
+                # 오버슈트 중 이 값이 그대로 발행돼 OFFBOARD 확정 순간 PX4가
+                # 급격한 자세보정을 시도 → 제어상실, 조종사 수동 회수) 위험함.
+                self._mc_pos_ramp = np.array(state.pos_ned, dtype=float)
+                self._publish_pos_setpoint(self._mc_pos_ramp)
             else:
                 # FW 위치 setpoint로 lookahead 추종 (속도 setpoint는 FW가 무시 → flower-pattern).
                 tgt = self._guidance.target_point_ned(state.pos_ned, _FW_LOOKAHEAD)
@@ -776,21 +782,32 @@ class OffboardNode(Node):
     def _step_following(self, state: VehicleState) -> bool:
         """경로 추종. 경로 끝 도달 시 True.
 
-        FW는 위치 setpoint만 추종하므로(TECS가 속도를, 위치 setpoint z가
-        고도를 제어) lookahead 위치를 발행한다. MC는 OFFBOARD 속도 setpoint를
-        정상 추종하므로 L1 guidance의 NED 속도 명령을 직접 발행한다 — FW용
-        lookahead(70m)를 MC의 짧은 경로에 적용하면 목표점이 경로 끝점으로
-        고정돼 현재 위치와 무관한 절대좌표 점프가 된다(2026-07-20 실비행
-        제어상실 원인, STREAMING과 동일 문제 — 위 주석 참조).
+        FW·MC 둘 다 위치 setpoint를 발행한다(MC도 최종 VTOL 기체의 제어로직을
+        그대로 검증해야 하므로 속도 setpoint로 전환하지 않음). FW는 lookahead
+        위치를 그대로 발행 — 경로가 충분히 길어(선회반경보다 큼) 전방 목표가
+        현재 위치와 크게 어긋나지 않는다. MC는 짧은 경로(선회반경 개념이
+        없음)에서 같은 lookahead(70m)를 그대로 쓰면 목표점이 경로 끝점으로
+        고정돼 현재 위치와 무관한 절대좌표가 될 수 있다(2026-07-20 실비행
+        제어상실 원인). STREAMING에서 이어지는 `self._mc_pos_ramp`를 그 lookahead
+        목표로 슬루레이트(≤`v_approach` m/s) 제한 하에 점진 접근시켜 순간점프를 막는다.
         cte는 진단용으로만 계산(조향엔 미사용).
         """
         pos = state.pos_ned
 
         if self._is_mc:
-            vel_cmd = self._guidance.ned_velocity_cmd(pos, state.vel_ned)
+            tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)
             _, _, cte = self._guidance.compute(pos, state.vel_ned)
-            tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)  # 진단 로그용
-            self._setpoint.publish(vel_cmd)
+            raw_target = np.array([tgt[0], tgt[1], self._cruise_alt])
+            if self._mc_pos_ramp is None:
+                self._mc_pos_ramp = np.array(pos, dtype=float)
+            delta = raw_target - self._mc_pos_ramp
+            dist = float(np.linalg.norm(delta))
+            max_step = self._v_approach * self._dt
+            if dist > max_step:
+                self._mc_pos_ramp = self._mc_pos_ramp + delta * (max_step / dist)
+            else:
+                self._mc_pos_ramp = raw_target
+            self._publish_pos_setpoint(self._mc_pos_ramp)
         else:
             tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)
             _, _, cte = self._guidance.compute(pos, state.vel_ned)  # 진단용 cte

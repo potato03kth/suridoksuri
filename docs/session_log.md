@@ -11,7 +11,7 @@ project: suridoksuri-1
 
 ---
 
-## 2026-07-20 — [mc-hw] flight01 제어상실 사고 — 근본원인 규명 + STREAMING/FOLLOWING MC 속도제어 전환 (아래 "기록 전용" 세션의 후속)
+## 2026-07-20 — [mc-hw] flight01 제어상실 사고 — 근본원인 규명 + STREAMING/FOLLOWING 위치 setpoint 슬루레이트 제한 (아래 "기록 전용" 세션의 후속)
 
 **브랜치:** `dev--vision-computing-module`
 **목적:** 사용자가 직전 실비행에서 "기체가 제어를 잃어 수동 착륙했다"고 보고, 회수한 ulog로 원인 규명 요청
@@ -21,12 +21,14 @@ project: suridoksuri-1
 - **사고 로그 위치·특정** — `mc-hw-rpi5-wifi-diag` worktree(다른 세션, lock 보유— 읽기만 함)의 `logs/2026-07-20_flight01/`에서 발견. `log_18_2026-07-20-07-19-30.ulg`(38.7초, 본비행)와 `log_16`/`log_17`(각 1초 미만, 무관)을 pyulog로 직접 분석
 - **타임라인 재구성:** t=1.9s CommandTOL 이륙(목표 AMSL 52.31=지면48.3+4.0m) → t=9.3~9.9s `climbing_reached()`가 AGL≈3.5~4.0m에서 정상 판정(허용오차 수정 유효 확인) → **t=9.9~11.3s AUTO.TAKEOFF가 계속 상승해 실고도 최대 7.6m 도달(목표 4.0m의 거의 2배 오버슈트)** → t=11.3s nav_state AUTO.TAKEOFF→OFFBOARD 전환 **바로 그 순간 OFFBOARD 첫 세트포인트가 `(N,E,Z)=(0,0,-4.0)`, yaw=90°로 순간점프 발행 — 실제 위치는 `(-4.4,1.2,-7.3)`, yaw≈-80°(수평 4.5m+수직 3.3m+요 170° 불연속)** → t=11.5~13.0s 격렬한 자세급변(roll -16°, pitch -30.8°, yaw rate 최대 186°/s) → t=16.4s 조종사 스틱 입력 감지(수동 회수 시작) → t=37.7s disarm. EKF `quat_reset_counter`는 이 구간 내내 불변 — 센서/EKF 결함 아님, 세트포인트 자체가 원인임을 확인
 - **근본원인 확정:** `offboard_node.py` STREAMING(321행)과 `_step_following()`(775행) 둘 다 `L1Guidance.target_point_ned(pos, _FW_LOOKAHEAD=70.0)` + 절대위치 PoseStamped 발행 방식을 MC/FW 구분 없이 공용 — 70m lookahead는 FW가 목표점 근처에서 flower-pattern으로 도는 것을 막기 위한 FW 전용 기법(목표점을 항상 선회반경 밖에 둬 "도착"을 안 일어나게 하는 pursuit 유도)인데, 이번 비행 경로 총길이(~12m)보다 훨씬 커서 항상 경로 끝점(WP1)을 그대로 반환 — 기체의 실제 현재위치와 무관한 고정 절대좌표가 됨. 여기에 클라이밍 중 고도 오버슈트(AUTO.TAKEOFF→OFFBOARD 모드전환 확정까지 수 초 지연되는 동안 계속 상승, `session_status.md` 기존 문서화된 "home_position.alt 드리프트 잔여리스크"가 실제로 재현된 것으로 추정)까지 겹쳐 OFFBOARD 진입 첫 순간의 실제 오차가 구조적으로 클 수밖에 없었음
-- **수정 (`fc_ros/fc_ros/nodes/offboard_node.py`):** MC는 PX4 OFFBOARD 속도 세트포인트를 정상 추종한다(FW와 달리 무시 안 함, 코드 기존 주석에도 명시)는 점에 근거해 MC 전용 분기 추가 — ① STREAMING: MC는 절대위치 대신 0속도 스트리밍(제자리 유지, 점프 없음) ② `_step_following()`: MC는 `L1Guidance.ned_velocity_cmd()`(기존에 이미 존재하던, 속도 기반 L1 유도 인터페이스)로 속도 세트포인트 발행, FW는 기존 lookahead 위치 방식 그대로 유지(FW엔 여전히 필요한 로직이므로 미변경). `fc_bridge`(rclpy 비의존)로 사고 시점 실측 좌표를 넣어 수정 전/후 명령값을 직접 비교 검증 — 수정 전엔 즉시 4.54m 절대변위 요구, 수정 후엔 유한 속도(≈2m/s, 경로 v_profile과 일치)만 명령됨을 확인
-- **미검증:** `offboard_node.py`는 rclpy 의존이라 이 WSL 샌드박스(pytest·rclpy 모두 미설치)에서 실행 단위테스트 불가 — 문법 검사(`py_compile`)와 `fc_bridge` 순수함수 레벨 수치 검증만 수행. **다음 실비행 전 반드시 SITL(`gz_x500` MC) 회귀검증 필요**
+- **수정 1차 (속도제어 전환) → 사용자 지적으로 정정:** 처음엔 "MC는 PX4 OFFBOARD 속도 세트포인트를 정상 추종한다"는 점에 근거해 STREAMING을 0속도 스트리밍, FOLLOWING을 `L1Guidance.ned_velocity_cmd()`(속도기반 인터페이스)로 전환했으나, **사용자가 즉시 지적: "최종기체(VTOL)는 위치기반으로 동작할 것이고, 이 MC 테스트기체는 최종기체의 동작을 검증하기 위한 것인데 MC만 속도기반으로 바꿀 이유가 없다."** 정곡을 찌르는 지적 — 실제로 최종 VTOL은 `vehicle_type:=vtol`(`is_mc=False`)로만 운용돼 STREAMING/FOLLOWING의 FW 위치기반 경로만 타므로, MC 전용 속도제어 분기를 만들어봤자 최종기체가 실행할 코드와 다른 코드를 검증하는 셈이 되어 이 테스트기체의 존재 이유(최종기체 avionics·제어로직의 벤치 검증)에 반함
+- **수정 2차 (최종, 위치기반 유지):** `fc_ros/fc_ros/nodes/offboard_node.py` — MC도 FW와 동일하게 `/mavros/setpoint_position/local` 위치 setpoint를 계속 발행하되(제어로직 자체는 미분기), 실제 발행값만 불연속을 없애도록 수정. ① **STREAMING:** MC는 매 틱 **현재위치 그대로**를 위치 setpoint로 스트리밍(`self._mc_pos_ramp = state.pos_ned`) — OFFBOARD 확정 순간 PX4가 이어받는 값이 항상 그 순간의 실제 위치와 일치해 점프가 없음. FW는 기존 lookahead 로직 완전 미변경(이미 SITL 검증됨, 건드리지 않음) ② **`_step_following()`:** MC는 기존과 동일하게 `target_point_ned()`로 lookahead 목표를 계산하되, 그 목표로 즉시 점프하지 않고 `self._mc_pos_ramp`를 `v_approach`(기존 ENTRY 상태 파라미터 재사용, 5.0m/s)로 슬루레이트 제한해 점진 접근시킨 값을 발행 — FW는 여기도 미변경. `fc_bridge`(rclpy 비의존) 순수 로직으로 사고 시점 실측오차(수평4.5m+수직3.3m)를 대입해 시뮬레이션 — 틱당 최대 이동량 0.5m로 약 1.2초에 걸쳐 수렴함을 확인(수정 전엔 즉시 4.54m+ 순간점프)
+- **미검증:** `offboard_node.py`는 rclpy 의존이라 이 WSL 샌드박스(pytest·rclpy 모두 미설치)에서 실행 단위테스트 불가 — 문법 검사(`py_compile`)와 `fc_bridge` 순수 로직 레벨 수치 검증만 수행. **다음 실비행 전 반드시 SITL(`gz_x500` MC) 회귀검증 필요**
 
 ### 결정
 
-- STREAMING/FOLLOWING의 FW lookahead 로직은 FW 전용으로 명확히 분리하고 MC는 속도 세트포인트 경로로 전환 — "MC에서 lookahead 값만 줄이는" 식의 임시조치는 채택하지 않음(여전히 절대위치 점프 방식이라 근본해결 아님)
+- **MC 테스트기체는 항상 최종 VTOL과 동일한 위치기반 세트포인트 경로를 타야 한다** — 사용자가 명시적으로 정정한 원칙. 앞으로 MC 전용 분기가 필요할 때도 "제어 신호의 종류(위치 vs 속도)"는 FW와 통일하고, 값 계산·슬루레이트 등 "얼마나/어떻게 접근하는가"만 MC 전용으로 조정할 것
+- STREAMING/FOLLOWING의 FW lookahead *계산 로직* 자체는 그대로 두고(짧은 경로에서 경로끝점으로 클램프되는 것 자체가 문제가 아님), 그 계산결과를 실제로 발행하는 방식(즉시 vs 슬루레이트 제한)만 MC에서 조정 — "MC에서 lookahead 값만 줄이는" 임시조치나 "MC를 속도제어로 바꾸는" 방식 둘 다 채택하지 않음
 - HOLD 상태(MC가 FOLLOWING 완료 후 거치는 마지막 착륙 대기)는 이번 수정 범위에서 제외 — 이미 WP1 끝점을 직접 위치 목표로 쓰는 MC 인지 코드였고(주석에 명시), FOLLOWING 종료조건(`d_end_thresh=10m`) 때문에 진입 시점 오차가 이번 사고 규모(4.5m+) 만큼 커질 구조가 아니라 위험도가 다름
 
 ### 다음 세션
