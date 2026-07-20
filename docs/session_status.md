@@ -2,7 +2,7 @@
 doc_type: session_status
 project: suridoksuri-1
 scope: FC 세션 유일 진입점 — 트랙 보드(병행 작업 상태) + 환경 절차
-last_updated: 2026-07-18
+last_updated: 2026-07-19
 ---
 
 # FC 세션 진입 상태 문서
@@ -39,7 +39,9 @@ last_updated: 2026-07-18
 - **확인됨 (2026-07-18, 사용자):** 이 "부활한 MC 기체"는 ✈ vtol-실기체 트랙의 결함 기체와 **다른 물리 개체** — Pixhawk·ESC 모두 신규 유닛으로 교체, 외형 프레임만 이전과 동일해 보이는 것뿐. 따라서 ✈ vtol-실기체의 결함과 **무관**(해소 여부와 별개 사안). FC에 07-17 이전 ulog가 전혀 없던 이유도 이걸로 설명됨 — 신규 Pixhawk이라 로그 저장소 자체가 새것.
 - **미확인 (다음 세션):** 07-17·07-18 14회 비행의 실제 결과(관찰/결론) — notes.md 채우기 필요(별도 작업으로 진행 중)
 - **로그 인프라 버그 2건 발견 (2026-07-18, main-code 트랙에서 상세):** ulog 자동회수가 지금까지 한 번도 성공한 적 없었음 — (a) RPi 호스트에 pymavlink 자체가 미설치 (b) `record_flight.sh`를 컨테이너 `fc` 안 root로 실행해 `logs/` 하위 폴더가 root 소유가 되어 suri 계정 쓰기 불가. 상세·수정 상태는 🔧 main-code 트랙 참조.
-- **주의:** AUTO.TAKEOFF는 GPS 락 필수(실내/벤치 불가) · 실기체 FC는 PX4인지 확인부터 · **비행 전 SD카드 삽입 확인 (2026-07-07 이걸로 비행 실패 이력)**
+- **실비행 중 RPi5 tailscale/WiFi 반복 끊김 진단 (2026-07-18~19):** 07-18 재비행에서도 수차례 끊김 재발 → 사용자가 비행 중단. SSH 원격 진단 결과 근본 원인은 **RC 2.4GHz ↔ WiFi 핫스팟 2.4GHz 동일대역 간섭**으로 유력 판단(5GHz는 GPS 간섭 우려로 문서 권고상 못 씀 — 대역 전환으로 회피 불가). 부수적으로 RPi5 브로드컴 WiFi 드라이버의 **전원관리(power save) 활성 상태**도 확인돼 있음(`sudo iw dev wlan0 set power_save off` 처방, 사용자 실행 확인 아직 안 됨). 다음 비행부터 대조 가능하게 **`~/wifi_watch.log`**(RPi5, 5초 간격 wlan0 carrier/ping 기록, `~/scripts/wifi_watch.sh` + crontab `@reboot`로 상시 실행) 배포 완료. 상세 진단 경과·오진단 이력은 Claude 메모리(`project_rpi5_tailscale_wifi_drops.md`) 참조.
+- **RPi5 USB-C 전원 협상 완화 (2026-07-19):** 비행 중엔 공식 5V/5A PD 어댑터를 못 쓰고 BEC 등 비-PD 5V 전원을 쓰므로, EEPROM `PSU_MAX_CURRENT`를 기본값(5000, 미설정 시)에서 **1600으로 변경**(사용자 직접 실행·확인 완료) — 5A 강제 협상 없이 최소 협상으로 부팅 진행. 상세는 Claude 메모리(`project_rpi5_usbc_power_psu_max_current.md`) 참조.
+- **주의:** AUTO.TAKEOFF는 GPS 락 필수(실내/벤치 불가) · 실기체 FC는 PX4인지 확인부터 · **비행 전 SD카드 삽입 확인 (2026-07-07 이걸로 비행 실패 이력)** · **비행 중 tailscale/WiFi 간헐적 끊김 가능성 있음**(위 진단 참조 — RC/Pixhawk 텔레메트리 링크와는 무관, SSH/tailscale 원격접속 편의 채널만의 문제)
 - **참조:** **`docs/mc_flight_procedure.md`(비행 절차 전체 — 로깅 사용/미사용 둘 다, "절차는?" 질문엔 이 문서 그대로 출력)** · `flight_plan.md` 작업 H·SITL-5 섹션 · `pixhawk6c_rpi4_integration_guide.md` · `fc_ros/fc_ros/nodes/offboard_node.py`(`_step_arm_takeoff`/CLIMBING·OFFBOARD 상태머신) · `logs/2026-07-18_flight01~08`·`logs/2026-07-18_unlogged/`(이번에 회수한 원본)
 
 ### 🔧 main-code — ⏸ 대기
@@ -83,6 +85,9 @@ last_updated: 2026-07-18
 | ROS2 | Docker `ros:humble` 컨테이너 (이름 `fc`, 항상 `sudo`). 네이티브 Jazzy 미채택 |
 | 설치물 | MAVROS·numpy 설치됨. fc_ros는 colcon 빌드, fc_bridge+vtol_sim은 `PYTHONPATH=/drone_ws/src/suridoksuri` |
 | 기동 | `phase2.launch.py vehicle_type:=mc` |
+| 무선 환경 | 원격조종 RC **2.4GHz**, 인터넷 백홀은 폰 핫스팟(`DepartmentOfAgriculture`) **2.4GHz**(5GHz는 GPS 간섭 우려로 문서 권고상 미사용). 비행 중 tailscale/SSH가 간헐적으로 끊기는 이슈 있음 — RC-WiFi 동일대역 간섭 유력, 진단 경과는 Claude 메모리(`project_rpi5_tailscale_wifi_drops.md`) 참조 |
+| 상시 모니터링 | `~/wifi_watch.log`(RPi5) — 5초 간격 wlan0 carrier/ping, `~/scripts/wifi_watch.sh` + crontab `@reboot`로 자동 재기동 (2026-07-19 배포) |
+| 전원 | USB-C 급전, 비행 중 5V/5A PD 불가(BEC 등 사용) → EEPROM `PSU_MAX_CURRENT=1600`으로 완화 적용 (2026-07-19, 사용자 확인) |
 
 > **개발컴은 22.04/Humble 유지** — 업그레이드하지 않는다 (검증된 환경 재현 우선).
 

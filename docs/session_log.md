@@ -11,6 +11,37 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-19 — [mc-hw] RPi5 tailscale/WiFi 끊김 진단 + USB-C 전원 협상 완화
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 실비행 중 tailscale SSH 연결이 자꾸 끊긴다는 사용자 보고 원인 규명 + 비행용 비-PD 전원에서도 안정 부팅되게 조치
+
+### 완료
+
+- **WiFi 끊김 진단 (SSH 원격, 여러 차례 재접속하며 반복 조사):** 초기엔 재부팅 루프·tailscale 노드 중복(`doksuri-3` 등)을 의심했으나 둘 다 사용자가 정정(각각 "방금 비행 위해 켠 것", "계정 재사용으로 인한 정상 현상") — 오진단으로 폐기. `journalctl -u systemd-networkd`에서 wlan0가 재부팅 없이도 `Lost carrier`→재연결을 반복하는 패턴 확인(같은 AP `DepartmentOfAgriculture`·같은 IP로 매번 재연결). `journalctl -k`에서 `brcmfmac: brcmf_cfg80211_set_power_mgmt: power save enabled` 확인 — RPi5 브로드컴 WiFi 칩의 절전모드 활성으로 인한 잘 알려진 결함 가능성. 이후 사용자가 재비행에서도 수차례 끊김 재현 보고 → **RC 2.4GHz + WiFi 핫스팟 2.4GHz 동일대역 간섭**이 더 유력한 근본원인으로 격상(사용자 확인: RC 수신기 2.4GHz, 핫스팟도 2.4GHz 사용 중 — 5GHz는 "GPS 간섭 우려" 문서 권고로 회피 중이라 대역 전환으로 해결 불가). 최종 확정은 못했고 복수 가설 공존 상태.
+- **`sudo iw dev wlan0 set power_save off` 처방 전달** — sudo 비밀번호 필요 + EEPROM/드라이버 급 변경이라 자동 적용하지 않고 사용자 직접 실행용 명령 전달(적용 여부 미확인).
+- **비-root 상시 모니터링 배포 (`~/wifi_watch.sh` → `~/wifi_watch.log`)** — 사용자 명시적 승인 후 RPi5에 배포. 5초 간격 wlan0 carrier/operstate/gateway ping 기록, nohup 백그라운드 + crontab `@reboot`로 재부팅 후에도 자동 재기동. 배포 중 SSH 세션이 두 차례 exit 255로 끊겨(원인 불명, 어쩌면 같은 WiFi 불안정성의 방증) `nohup ... </dev/null >/dev/null 2>&1 &` 형태로 재시도해 성공.
+- **EEPROM `PSU_MAX_CURRENT=1600` 적용** — RPi5는 USB-C 급전인데 비행 중엔 5V/5A PD 어댑터를 못 쓰고 BEC 등 비-PD 전원을 씀. 기본값(5000, 미설정)은 5A negotiation을 요구해 이런 전원에서 부팅 불안정을 유발할 수 있음 — 공식 문서상 표준 완화값 1600으로 변경하는 명령을 전달, 사용자가 직접 실행 후 확인 완료.
+- **Claude 메모리 갱신** — `project_rpi5_tailscale_wifi_drops.md`(WiFi 진단 경과 전체, 오진단 포함) 신규, `project_rpi5_usbc_power_psu_max_current.md`(PSU_MAX_CURRENT 조치) 신규. `docs/session_status.md` 🚁 mc-실기체 트랙 + "실기체(RPi5)" 환경참조 표에 반영.
+
+### 결정
+
+- **모니터링 스크립트 배포는 자동실행 차단됨(auto-mode 분류기)** — 실비행 컴퓨터에 백그라운드 상시 프로세스+crontab을 자율적으로 심는 건 위험도가 높은 작업으로 분류돼 1차 시도가 거부됨. 우회하지 않고 사용자에게 설명 후 명시적 승인을 받고서야 재시도해 배포함 — 이런 종류(실비행 하드웨어의 지속 상태 변경)는 앞으로도 먼저 설명하고 승인받을 것.
+- **EEPROM 변경은 자동 적용하지 않음** — 부트로더 재굽기는 되돌리기 어려운 하드웨어급 변경이라 사용자가 직접 실행하는 방식으로 진행(WiFi power_save 처방도 동일 원칙 적용, sudo 비밀번호 벽도 겹침).
+- WiFi 끊김은 **미해결 상태로 세션 종료** — 다음 비행 결과로 검증 필요.
+
+### 다음 세션
+
+1. 다음 비행 후 `~/wifi_watch.log`(carrier=0/ping=LOSS 구간)를 FC 텔레메트리(스로틀·자세·고도)와 대조해 끊김이 거리/시간 비례(전원관리·RF거리)인지 특정 기동·RC 활성 순간에 몰리는지(RC 간섭) 구분
+2. 사용자가 `sudo iw dev wlan0 set power_save off` 실행했는지 미확인 — 재확인 필요
+3. RC-WiFi 2.4GHz 간섭이 최종 확정되면 완화책(안테나 물리적 이격, RC 송신출력 하향, 차폐) 검토 필요 — 5GHz 전환은 GPS 간섭 우려로 불가
+
+### 주의
+
+> RPi5 EEPROM(`PSU_MAX_CURRENT`)·WiFi 드라이버 설정은 SSH로 원격 확인은 가능해도 변경 적용엔 sudo 비밀번호가 필요(그룹 미가입, 기존 기록과 일치) — 앞으로도 이런 처방은 사용자 직접 실행 명령으로 전달할 것.
+
+---
+
 ## 2026-07-18 — [mc-hw] 현장 원격 리빌드 + flight09 로그수집 + 고도미달 진단
 
 **브랜치:** `dev--vision-computing-module`
@@ -232,33 +263,3 @@ project: suridoksuri-1
 
 > **RPi에 최신 코드(`458d626`까지) 미전파** — RPi에서 `git pull` 필요(정본 `~/drone_ws/src/suridoksuri`, `potato03kth`). WSL(`~/suridoksuri-1`)은 pull·재빌드 완료됨.
 > `CommandTOL.altitude`가 AMSL/relative 중 어느 쪽으로 해석되는지 SITL에서 명확히 확인 안 됨 — 실기체 검증 시 함께 확인.
-
----
-
-## 2026-07-06 — [main] planner 이식(다른 repo 회수) + transition_alt 오버라이드
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** 실기체 OFFBOARD 실패 관련 — 다른 계정 repo(Fable 작업)의 planner 수정 회수 + MC 저고도 테스트 배선
-
-### 완료
-
-- **RPi 저장소 구조 규명** — 정본은 `~/drone_ws/src/suridoksuri`(`potato03kth`, `-v ~/drone_ws:/drone_ws` 마운트, 컨테이너엔 git 없음 → 호스트에서 `git pull`). nested `~/drone_ws/suridoksuri/suridoksuri`는 **다른 계정(`suridouksuri`) repo**라 무관 — 그동안 여기서 git해 어긋났던 원인. 정본에서 pull하면 됨(정리 불필요)
-- **planner 2종 본선 이식** (stray repo Fable 5 작업, `584cff3`): ① eta3 **v3.3** — 2D 퇴화 WP(이륙점 수직 상방 천이고도 WP) 병합 + s strictly-increasing → `np.gradient` NaN 제거(offboard 경로추종 미시작 근본결함). 우리 SITL-3 코드에 수동 병합 ② **StraightLinePlanner(신규)** — 3D 직선·NR 없음·수직 NaN 불가 ③ **자동선택** `resolve_planner_name`: `planner:"auto"` 기본 → mc=straight/vtol=eta3, 명시 우선. sim 검증 vtol_sim 6·fc_bridge 44(신규 resolve 6)·fc_ros 82 pass + e2e 스모크
-- **transition_alt launch 오버라이드** (`356ae5a`) — 07-03 OFFBOARD 미진입 원인(`transition_alt:50` 미도달→CLIMBING 무한대기) 대응. 계획했던 `transition_alt:=4.0` 인자가 **미선언이라 무시되던 것**을 실제 먹히게 함(v_cruise/waypoints와 동일 패턴)
-
-### 결정
-
-- planner **기체 타입 자동선택**(mc→straight, vtol→eta3), `planner` 명시 시 우선 — 요구사항 반영
-- stray repo `suridouksuri`는 **폐기** — 필요한 planner 코드 다 회수함
-- RPi 정본 = `potato03kth`, pull 위치 = `~/drone_ws/src/suridoksuri`
-
-### 다음 세션
-
-1. **mc-실기체 첫 실질 OFFBOARD 테스트** — RPi `git pull`(356ae5a까지)+`colcon build --packages-select fc_ros` 후 `vehicle_type:=mc transition_alt:=4.0 waypoints:="[0,0,4, 8,0,4]"`. transition_alt(CLIMBING 통과)+straight(짧은 레그 NaN 없음)가 맞물려야 첫 OFFBOARD
-2. main-code: RPi pull_ulog 실측(작업 G 속도 판정) + 남은 V-unit(V1은 재작성으로 갱신 필요)
-3. planner·transition_alt 벤치·실비행 검증
-
-### 주의
-
-> planner·transition_alt는 **sim만 검증, 실기체 미검증.** RPi는 `git pull`(356ae5a까지)+rebuild 후 비행 — 584cff3까지만 받았으면 launch 변경 누락으로 transition_alt 또 무시됨.
-> 07-03 배터리 새그(12V→10.2V 페일세이프)·나침반 결함·가속도계 클리핑은 **하드웨어 점검** 항목(코드 무관).
