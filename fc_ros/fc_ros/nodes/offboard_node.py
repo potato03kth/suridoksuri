@@ -7,7 +7,8 @@ OffboardNode: create_timer 기반 상태머신으로 Offboard 경로 추종.
   ARM_TAKEOFF   : ARM + AUTO.TAKEOFF 명령
   CLIMBING      : 천이 고도 도달 대기
   TRANSITION_FW : MC→FW 천이 명령 + vtol_state==FW 대기
-  STREAMING     : FW 더미 세트포인트(전진속도) 발행 후 OFFBOARD 전환 요청
+  STREAMING     : 세트포인트 스트리밍 후 OFFBOARD 전환 요청
+                  (FW: lookahead 위치 setpoint / MC: 0속도 홀드)
   ENTRY         : entry_mode="mid_flight" 시에만 통과; WP0 진입 + 헤딩 정렬 대기
   FOLLOWING     : L1Guidance 기반 경로 추종
   TRANSITION_MC : FW→MC 역천이 명령 + vtol_state==MC 대기 (직선 감속)
@@ -319,10 +320,19 @@ class OffboardNode(Node):
             self._step_transition_fw(state)
 
         elif self._sm == _State.STREAMING:
-            # FW 위치 setpoint로 lookahead 추종 (속도 setpoint는 FW가 무시 → flower-pattern).
-            tgt = self._guidance.target_point_ned(state.pos_ned, _FW_LOOKAHEAD)
-            self._publish_pos_setpoint(
-                np.array([tgt[0], tgt[1], self._cruise_alt]))
+            if self._is_mc:
+                # MC의 PX4 OFFBOARD는 속도 setpoint를 정상 추종한다(FW와 달리
+                # flower-pattern 회피용 lookahead가 불필요). 제자리 유지(0속도)로
+                # 스트리밍해 OFFBOARD 진입 순간 세트포인트가 현재 위치와 무관한
+                # 먼 절대좌표로 점프하지 않게 한다(2026-07-20 실비행: 클라이밍
+                # 오버슈트 중 FW lookahead가 WP1로 순간점프 발행 → 급격한 자세
+                # 보정으로 제어상실, 조종사 수동 회수).
+                self._setpoint.publish(np.zeros(3))
+            else:
+                # FW 위치 setpoint로 lookahead 추종 (속도 setpoint는 FW가 무시 → flower-pattern).
+                tgt = self._guidance.target_point_ned(state.pos_ned, _FW_LOOKAHEAD)
+                self._publish_pos_setpoint(
+                    np.array([tgt[0], tgt[1], self._cruise_alt]))
 
             if self._current_mode == "OFFBOARD":
                 self.get_logger().info("OFFBOARD 확인 → FOLLOWING")
@@ -764,17 +774,27 @@ class OffboardNode(Node):
     # ── FOLLOWING ────────────────────────────────────────────
 
     def _step_following(self, state: VehicleState) -> bool:
-        """FW 위치 setpoint 경로 추종. 경로 끝 도달 시 True.
+        """경로 추종. 경로 끝 도달 시 True.
 
-        FW는 위치 setpoint만 추종하므로 lookahead 위치를 발행한다.
-        속도는 PX4 TECS가, 고도는 위치 setpoint z가 제어한다.
+        FW는 위치 setpoint만 추종하므로(TECS가 속도를, 위치 setpoint z가
+        고도를 제어) lookahead 위치를 발행한다. MC는 OFFBOARD 속도 setpoint를
+        정상 추종하므로 L1 guidance의 NED 속도 명령을 직접 발행한다 — FW용
+        lookahead(70m)를 MC의 짧은 경로에 적용하면 목표점이 경로 끝점으로
+        고정돼 현재 위치와 무관한 절대좌표 점프가 된다(2026-07-20 실비행
+        제어상실 원인, STREAMING과 동일 문제 — 위 주석 참조).
         cte는 진단용으로만 계산(조향엔 미사용).
         """
         pos = state.pos_ned
 
-        tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)
-        _, _, cte = self._guidance.compute(pos, state.vel_ned)  # 진단용 cte
-        self._publish_pos_setpoint(np.array([tgt[0], tgt[1], self._cruise_alt]))
+        if self._is_mc:
+            vel_cmd = self._guidance.ned_velocity_cmd(pos, state.vel_ned)
+            _, _, cte = self._guidance.compute(pos, state.vel_ned)
+            tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)  # 진단 로그용
+            self._setpoint.publish(vel_cmd)
+        else:
+            tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)
+            _, _, cte = self._guidance.compute(pos, state.vel_ned)  # 진단용 cte
+            self._publish_pos_setpoint(np.array([tgt[0], tgt[1], self._cruise_alt]))
 
         # 진입 첫 틱 및 20틱마다 진단 로그 (경로 추종 / OFFBOARD 유지 확인)
         if self._follow_ticks == 0:
