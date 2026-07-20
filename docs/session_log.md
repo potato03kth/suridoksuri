@@ -11,6 +11,33 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-20 — [mc-hw] climbing_reached 허용오차 도입 + 병렬 세션 정리·병합
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 실비행 중 "고도가 정확히 일치해야만 천이한다"는 사용자 보고 대응 + 그 시점 병렬로 진행 중이던 다른 세션들(worktree)의 로컬 작업을 확인·정리해 브랜치에 반영
+
+### 완료
+
+- **`climbing_reached()` 판정을 단측 임계값 → ±0.5m 허용구간으로 변경** — 기존 `AGL >= transition_alt`는 목표고도 바로 아래(예 -0.1m)에 정착하면 절대 만족되지 않아 CLIMBING이 무한 대기하는 문제가 있었음(사용자 보고, flight09 실측과도 일치 — 아래 참조). `abs(AGL - transition_alt) <= alt_tol`(기본 0.5m)로 변경. **N,E(수평)은 의도적으로 제외** — CLIMBING 중 수평은 PX4 AUTO.TAKEOFF가 자체 관리해 이 노드에 목표 N,E가 없고, 비-RTK GPS 수평오차가 통상 0.5m를 넘어 수평까지 조건에 넣으면 CLIMBING 영구대기라는 더 심각한 회귀를 유발할 위험이 컸음. `fc_ros/test/test_offboard_node.py`에 경계값(하한/상한/직전값) 테스트 추가·기존 케이스 갱신 — pytest 미설치 환경이라 동일 입력값으로 순수 스크립트 재현해 수동 검증(fc_bridge/execution/state_logic.py는 rclpy 의존 없음)
+- **flight09 진단과의 교차검증** — 병합 도중 다른 세션이 이미 dev 브랜치에 올린 flight09 진단(PX4가 목표 4.0m 중 3.63m에서 자체적으로 `AUTO.LOITER` 복귀, OFFBOARD 진입 전무)을 발견. 4.0−3.63=0.37m로 새 허용오차(0.5m) 안에 들어가 이번 수정이 그 케이스를 실제로 구제할 가능성 확인 — 다만 "PX4가 왜 목표 전에 스스로 포기하는지"는 별도 미해결 원인(`MIS_TAKEOFF_ALT`·배터리 등 후보, 미확정)으로 남음
+- **PR 대신 직접 병합** — 처음엔 별도 브랜치+draft PR로 진행했으나 사용자가 "이미 main에서 분리된 dev 브랜치인데 PR 왜 하냐, 머지해라" 지적 → PR 닫고 `dev--vision-computing-module`에 직접 fast-forward/병합 push로 전환(이 프로젝트는 전 트랙이 이 dev 브랜치를 공용하며 SITL-5 안정화 후에나 main 병합을 결정하는 구조라 PR 절차가 불필요했음)
+- **병렬 worktree 세션 감사** — 병합 시점에 로컬에 worktree 5개가 동시 존재(`agent-ab2c62d6605ef80b6`, `mc-hw-rpi5-wifi-diag`〈다른 활성 세션이 lock 보유, 손대지 않음〉, `mc-hw-transition-alt-tol`〈이 세션〉, `serene-crunching-cocoa`, 메인 체크아웃) 확인. `agent-*`(27eb6d2, want_takeoff 판별자+배터리 정량화 진단)와 `serene-crunching-cocoa`(0779f3d, flight09 진단)의 커밋은 이미 다른 경로로 `dev--vision-computing-module`에 병합돼 있었음을 확인 — 로컬에만 있던 작업 없음. `mc-hw-rpi5-wifi-diag`(b725538, WiFi 진단+USB-C 전원 조치)도 그 세션이 직접 push해 이미 dev에 반영된 상태였음(확인만, 병합은 그 세션이 수행). 메인 체크아웃(`/home/suri/suridoksuri`)의 로컬 브랜치 ref가 origin 대비 6커밋 뒤처져 있어 fast-forward로 최신화(작업 내용 없음, 안전한 정리)
+
+### 결정
+
+- **PR 워크플로 사용 안 함** — 이 저장소의 `dev--vision-computing-module`은 이미 사실상의 통합 브랜치이고 전 트랙이 여기 직접 커밋·push하는 관례라, 앞으로 이 브랜치로 향하는 작업은 별도 PR 없이 직접 병합·push한다(main으로 향할 때만 필요시 재검토)
+- **`mc-hw-rpi5-wifi-diag` worktree는 lock 보유 세션이 있어 건드리지 않음** — 다른 활성 세션과 충돌 방지가 우선
+
+### 다음 세션
+
+1. **다음 MC 오프보드 실비행에서 CLIMBING→STREAMING이 ±0.5m 허용구간으로 정상 트리거되는지 확인** — 이번 수정의 실질 검증
+2. **PX4가 목표고도 도달 전 스스로 `AUTO.LOITER`로 복귀하는 근본원인 규명(flight09, 미해결)** — FC 전원 재연결 후 ulog id=13 회수 + `MIS_TAKEOFF_ALT` 파라미터 조회. 이번 허용오차 수정과 별개로 필요(허용오차 밖으로 크게 미달하면 여전히 무한대기)
+3. **`_step_climbing()`에 AUTO.TAKEOFF 이탈 자체를 감지·대응하는 로직 추가 여부** — flight09 트랙 기록에 "코드 수정 보류, 사용자 판단 필요"로 남아있음, 아직 미결정
+4. **실기체 pytest 환경 부재** — 이 개발컴(WSL)엔 pytest/venv 구성이 안 돼 있어 이번 테스트 갱신도 수동 재현으로만 확인함. 필요 시 최소 `python3-venv` 설치 여부 확인
+5. 정리 후보(급하지 않음): 이미 dev에 반영된 `agent-ab2c62d6605ef80b6`·`serene-crunching-cocoa`·`mc-hw-transition-alt-tol`(이 세션) worktree/브랜치 정리, origin의 stale `mc-hw/transition-alt-tolerance` 원격 브랜치 삭제
+
+---
+
 ## 2026-07-19 — [mc-hw] RPi5 tailscale/WiFi 끊김 진단 + USB-C 전원 협상 완화
 
 **브랜치:** `dev--vision-computing-module`
@@ -232,34 +259,3 @@ project: suridoksuri-1
 > **오늘 실비행 시도 실패 — SD카드 미삽입으로 arming 거부, 비행 데이터 없음.** 작업 H는 여전히 SITL PASS만 확보된 상태, 실기체 미검증.
 > `docs/mc_flight_procedure.md`가 이제 절차의 단일 진입점 — 이후 절차 변경 시 이 문서부터 갱신할 것.
 
----
-
-## 2026-07-06 — [main][sitl] 작업 H: CommandTOL 이륙 + SITL PASS
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** 작업 H(`AUTO.TAKEOFF`→`CommandTOL` 목표고도 명시 전달) 구현 → SITL 검증 → 커밋
-
-### 완료
-
-- **작업 H 구현** — `offboard_node.py` `_step_arm_takeoff`: `SetMode("AUTO.TAKEOFF")` → `CommandTOL(/mavros/cmd/takeoff, altitude=transition_alt)` 교체. 요청 필드 조립은 순수함수 `fc_bridge/execution/state_logic.py::takeoff_request_fields()`로 분리(Windows에 rclpy 없어 mock client 대신 이 방식 채택, 계획 대비 구현 방식만 변경). 커밋 `7414c1d`
-- **1차 SITL 실패 → 원인 진단 → 수정 → 재검증 PASS** — `latitude=0.0, longitude=0.0`을 "현재 위치 사용"으로 가정했으나 틀림: MAVLink `MAV_CMD_NAV_TAKEOFF` 관례상 "현재 위치"는 **NaN**, `0.0/0.0`은 실좌표(null island)로 해석됨. 1차 SITL에서 QGC 모드는 AUTO.TAKEOFF로 전환됐으나 고도 미상승 → PX4 preflight 안전 disarm으로 실패 재현. `takeoff_request_fields()`의 lat/lon을 `NaN`으로 수정(`000f478`) 후 WSL gz_standard_vtol(`transition_alt:=50.0`) 재검증 PASS(정상 상승·CLIMBING 통과)
-- **잔존 경고 원인 규명** — `mavros.guided_target: PositionTargetGlobal failed because no origin`는 우리 코드와 무관한 MAVROS humble의 알려진 QoS 코스메틱 이슈(웹 검색으로 확인, PX4 포럼에서도 "정상 동작"으로 보고됨) — 조치 불필요
-- **pytest** — vtol_sim 6·fc_bridge 44·fc_ros 82 = 130~151 전부 통과(단계별)
-- **커밋 3건 + 푸시 + WSL git pull·재빌드** — `7414c1d`(CommandTOL 교체) → `000f478`(NaN 수정) → `458d626`(SITL PASS 기록, sitl_verification_log.md·flight_plan.md·session_status.md 갱신)
-- **문서 갱신** — `flight_plan.md`·`session_status.md`·`sitl_verification_log.md`에 작업 H 완료·PASS 반영
-
-### 결정
-
-- **CommandTOL 요청 필드는 lat/lon=NaN 고정** — 0.0/0.0 재도입 금지(실좌표로 해석되는 실측 확인된 버그)
-- **작업 H 실기체 검증 전까지 🚁 트랙의 "transition_alt 낮게" 임시조치 유지** — SITL PASS는 실기체 보증 아님
-
-### 다음 세션
-
-1. **🚁 mc-실기체 트랙에서 작업 H 실기체 검증** — 다음 비행에서 CommandTOL 이륙 정상 동작 확인. PASS 시 "transition_alt 낮게" 임시조치 제거
-2. **RPi 배포 검증** — pull_ulog 실측 속도·byte 동일(작업 G 속도 판정 최종)
-3. 남은 V-unit(V1·V3·V4·V5) + 작업 F(임의 WP 견고성)
-
-### 주의
-
-> **RPi에 최신 코드(`458d626`까지) 미전파** — RPi에서 `git pull` 필요(정본 `~/drone_ws/src/suridoksuri`, `potato03kth`). WSL(`~/suridoksuri-1`)은 pull·재빌드 완료됨.
-> `CommandTOL.altitude`가 AMSL/relative 중 어느 쪽으로 해석되는지 SITL에서 명확히 확인 안 됨 — 실기체 검증 시 함께 확인.
