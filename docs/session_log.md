@@ -11,6 +11,41 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-20 — [mc-hw] flight01 오프보드 전환 직후 제어상실 사고 — 기록 전용(분석 별도 세션)
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** climbing_reached 수정 후 실비행(flight01) 로그수집 요청 → 도중 사용자가 "실제로는 사고였다"고 정정 → 원인 분석 없이(별도 세션 예정) 놓치는 사실 없게 원본·타임라인·데이터 가용성 기록
+
+### 완료
+
+- **초기 오판 → 사용자 정정:** launch.log만 보고 "ARM→CLIMBING(4.0m)→OFFBOARD 확인→FOLLOWING→WP1→LANDING→disarmed"(16:18:50~16:19:29, 39초)를 **"첫 오프보드 성공"으로 assistant가 잘못 판단**. 사용자가 직접 정정: 수직 상승 완료 직후(오프보드 전환 전후로 추정) 기체가 순간 제어를 잃고 **북서쪽으로 픽 쓰러지며 roll**, 즉시 RC로 조종권 회수. **launch.log의 OFFBOARD 이후 기록은 실제 자율비행 수행이 아니라 조종사가 수동 회수한 기체 위치를 소프트웨어가 그대로 읽은 것일 가능성이 높음**(미확정) — 이 정정을 `docs/session_status.md` 🚁 트랙과 `logs/2026-07-20_flight01/notes.md`에 반영
+- **launch.log 유닉스 타임스탬프 → KST 정밀 변환:** ARM 16:18:50 · CommandTOL 이륙(alt=52.3m AMSL) 16:18:53 · 운용고도 4.0m 도달 16:19:00 · OFFBOARD 전환 요청 16:19:02 · **OFFBOARD 확인→FOLLOWING 16:19:03(사고 발생 추정 시각)** · WP1 홀드 16:19:05 · WP1 도달→LANDING·AUTO.LAND 16:19:06 · 착륙완료(disarmed) 16:19:29. OFFBOARD 진입 후 전체 시퀀스가 26초 만에 끝나는 것도 실제 자율 경로추종치고는 지나치게 빠름 — 사고설과 정합적
+- **ulog 회수 — 최초 실패 후 성공:** FC 최초 확인 시 `/dev/ttyACM0` 없음(flight09와 동일 패턴)으로 회수 실패 기록했으나, **사용자가 Pixhawk 전원을 재연결**해줘서 재시도 → 성공. FC 로그 목록에 오늘자 3건: id16(UTC 07:18:28, 156,843B)·id17(UTC 07:18:28, 156,277B — id16과 같은 초, 원인 미확인)·**id18(UTC 07:19:30, 1,729,984B — 이 비행의 본 로그로 추정)**. UTC+9=KST로 비행 시각대(16:18~16:19 KST)와 정확히 일치 확인 후 3개 전부 `logs/2026-07-20_flight01/`로 다운로드. **pyulog가 RPi에 미설치라 내용 분석은 하지 않음**(다음 세션 몫)
+- **rosbag 토픽 점검:** 설정된 11개 중 10개만 실제 기록됨 — **`/fc_ros/override`가 이번엔 기록 안 됨**(RC 오버라이드 개입 시점을 이 토픽으로 직접 특정 불가). `/mavros/imu/data`는 기록됨(자세 쿼터니언·각속도 포함) — ulog 분석 전이라도 이걸로 roll 이벤트 자체는 먼저 확인 가능
+- **wifi_watch.log 대조(참고자료, 인과관계 미확정):** 게이트웨이 ping 무응답이 비행 시작 전 16:15경부터 이미 간헐 발생 중이었음. wlan0 `carrier=0`(인터페이스 완전 다운)은 16:20:38~16:26:14(약 5분 36초)로 **사고 시점(16:19경)보다 약 1분 뒤에 시작** — 타이밍상 사고와 직접 겹치지 않으나, 사용자가 "중간에 끊겼다"고 보고한 사실과는 일치. 인과관계 주장은 하지 않고 사실만 기록
+- **flight01 `notes.md` 갱신** — 조종사 증언(사고 경위)·ulog 회수 상태·assistant 오판 정정 사실을 모두 반영해 다음 분석 세션이 이 폴더만 봐도 전체 맥락을 알 수 있게 정리
+
+### 결정
+
+- **이번 세션에서는 사고 원인 분석을 하지 않음** — 사용자가 "분석은 다른 세션에서 진행할 테니 놓치는 점 없이 메모만 하라"고 명시적으로 범위를 제한함. 데이터 수집·원본 보존·정확한 타임라인 기록에만 집중
+- **launch.log의 "정상완주" 겉모습을 향후에도 그대로 신뢰하지 않기** — 소프트웨어 상태머신 로그만으로 실제 비행 성패를 판단하면 안 된다는 걸 이번에 직접 겪음(assistant 본인의 오판 사례로 기록)
+
+### 다음 세션
+
+1. **id18 ulog를 pyulog로 분석** — `vehicle_attitude`(roll/pitch/yaw)·`vehicle_angular_velocity`·`vehicle_local_position`으로 16:19:03(UTC 07:19:0x) 전후 실제 roll 이벤트·자세 급변 구간 특정 (RPi에 `pip install pyulog` 먼저 필요)
+2. id16·id17(같은 초 156KB 2건)이 무엇을 기록한 로그인지 확인
+3. `vehicle_command`/`manual_control_setpoint`로 RC 오버라이드 개입 정확한 시각 특정, rosbag `/mavros/state` 모드 전이와 교차검증
+4. `MIS_TAKEOFF_ALT` 등 PX4 파라미터 조회(flight09 잔여 미확정 사항과 함께)
+5. 이 사고가 ✈vtol-실기체 트랙의 과거 결함과 연관 있는지 검토
+6. wifi_watch.log의 carrier=0 구간(16:20:38~16:26:14)이 이 사고와 무관한 별개 이슈인지, 혹은 관련 있는지 판단(현재는 타이밍상 직접 겹치지 않음만 확인됨)
+
+### 주의
+
+> **이 사고 이후 다음 실비행 전 반드시 근본원인 분석부터 완료할 것** — 원인 미상인 채로 재비행하면 동일 사고 재현 위험. `docs/session_status.md` 🚁 트랙 "마지막"·"주의" 항목에 경고 표시해둠.
+> launch.log·notes.md의 "정상완주"처럼 보이는 문구를 이후 세션에서 그대로 인용하지 말 것 — 이 기록의 정정 내용을 먼저 확인.
+
+---
+
 ## 2026-07-20 — [mc-hw] climbing_reached 허용오차 도입 + 병렬 세션 정리·병합
 
 **브랜치:** `dev--vision-computing-module`
@@ -224,38 +259,4 @@ project: suridoksuri-1
 
 > **대회 상세규정 미공개** — ArUco 딕셔너리/ID·③빨간십자 규정·초록 색·치수 스펙 대기(`vision_plan.md` §10). 하드웨어(카메라/Pi4 인코더/라이다)도 변경 가능 → 전부 어댑터로 흡수 설계.
 > **이번 세션 변경 미커밋**(문서만, 코드 착수 전). `.claude/commands/session-log.md` 라우팅 편집은 git 무시라 로컬만 반영.
-
----
-
-## 2026-07-07 — [main][mc-hw] ulog 재진단·작업 H 확정 + 실비행 SD카드 실패
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** "20m 지정했는데 3m만 남" 사용자 재보고 → ulog 직접 재분석으로 원인 재확정, 실기체 배포 절차 정리, 다음 비행 시도
-
-### 완료
-
-- **ulog(`b9fc748d-...`) pyulog 직접 파싱으로 원인 재진단** — 이전 세션의 "transition_alt 기본값 미반영" 가설은 이 비행에는 **틀렸음**을 확인(사용자가 매번 수동 override했다고 반박, 근거 있음). 재분석 결과: `nav_state`가 AUTO_TAKEOFF→AUTO_LOITER만 거치고 **OFFBOARD 요청 자체가 `vehicle_command` 로그에 전무**(`flag_control_offboard_enabled` 비행 내내 0). 실측 고도(~19.7m)는 `home_alt(17.2)+MIS_TAKEOFF_ALT(2.5)`의 우연 일치였을 뿐, waypoint 20m와 무관
-- **근본원인 확정** — `offboard_node.py` `_step_arm_takeoff`가 `SetMode("AUTO.TAKEOFF")`만 보내고 목표고도를 전혀 안 실어보냄 → PX4가 자체 `MIS_TAKEOFF_ALT`까지만 상승 후 자동 AUTO_LOITER. `transition_alt` 게이트가 그 실제 도달고도보다 높으면 OFFBOARD 요청이 영원히 안 나감
-- **작업 H 계획 → main-code 트랙에 등록 → (세션 중 반영 확인)** `CommandTOL(/mavros/cmd/takeoff, altitude=transition_alt)`로 교체, SITL PASS·pytest 130 통과까지 완료된 상태를 문서(`flight_plan.md`/`session_status.md`)에서 확인 — lat/lon은 NaN(0.0/0.0은 실좌표로 오인식되는 실측 버그) 사용
-- **RPi5 실비행 배포 절차 정리** — 최초 절차 설명에서 MAVROS 기동 단계가 누락됐던 것을 사용자가 지적해 보완(호스트 git pull → 컨테이너 `fc` 빌드 → MAVROS 별도 기동 → phase2 launch 순서 확정)
-- **작업 G(record_flight.sh) 로깅 도구를 절차에 통합** — phase2.launch.py 직접 호출 대신 `record_flight.sh`로 감싸는 방식 + MAVROS와 pull_ulog 간 시리얼 포트 경쟁(종료 순서) 반영
-- **PX4 SD카드 prearm check 확인** — SD카드 미삽입 시 arming 자체가 거부됨(웹 검색으로 확인). 오늘 실비행 시도가 **SD카드를 컴퓨터에 꽂아둔 채 까먹어 실패** — 작업 H 실기체 검증 아직 미완료
-- **`docs/mc_flight_procedure.md` 신규 작성** — 로깅 사용(A)/미사용(B) 절차 전부 + 0단계 비행 전 체크리스트(SD카드 포함)를 고정 문서화, 다음 세션 "절차는?" 질문에 그대로 인용하도록 트랙 참조에 등록
-- **메모리 갱신** — `project_rpi5_mc_bringup.md`에 이번 재진단으로 이전 오진단 정정, `feedback_flight_procedure_output.md` 신규(향후 "절차는?" 질문엔 두 버전 다 출력)
-
-### 결정
-
-- **"절차는?" 질문엔 로깅 사용/미사용 절차를 항상 둘 다 출력** — `docs/mc_flight_procedure.md`를 그대로 인용
-- 비행 전 체크리스트에 **SD카드 삽입 확인**을 0순위 항목으로 고정
-
-### 다음 세션
-
-1. **🚁 mc-실기체 — 작업 H 실기체 검증 (최우선, 아직 미시도)** — `docs/mc_flight_procedure.md` 절차대로, SD카드 확인부터. `CommandTOL` 이륙이 실기체에서 정상 동작하는지, `altitude` AMSL/relative 해석 확인
-2. PASS 시 "transition_alt를 MIS_TAKEOFF_ALT 이하로 낮춰라"는 임시조치 문서에서 제거
-3. RPi 배포 검증(pull_ulog 실측 속도) 및 남은 V-unit
-
-### 주의
-
-> **오늘 실비행 시도 실패 — SD카드 미삽입으로 arming 거부, 비행 데이터 없음.** 작업 H는 여전히 SITL PASS만 확보된 상태, 실기체 미검증.
-> `docs/mc_flight_procedure.md`가 이제 절차의 단일 진입점 — 이후 절차 변경 시 이 문서부터 갱신할 것.
 
