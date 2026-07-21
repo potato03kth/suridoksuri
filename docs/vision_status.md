@@ -2,7 +2,7 @@
 doc_type: session_status
 project: suridoksuri-1
 scope: vision 세션 유일 진입점 — 트랙 보드 + 설계 포인터
-last_updated: 2026-07-21b
+last_updated: 2026-07-21c
 ---
 
 # vision 세션 진입 상태 문서
@@ -25,18 +25,19 @@ last_updated: 2026-07-21b
 
 ## 트랙 보드
 
-### 👁 vision-정밀착륙 — ▶ 활성 (카메라 캘리브레이션 브링업은 RPi 작업 허가 대기 중 — 그 사이 §7.9 4번 대체 트랙 완료)
+### 👁 vision-정밀착륙 — ▶ 활성 (카메라 캘리브레이션 브링업은 RPi 작업 허가 대기 중 — 그 사이 §7.9 4·6번 대체 트랙 완료)
 
 - **내용:** 착륙지점 인식·정밀착륙 시스템(RPi5 온보드). 고전 CV, 타겟별 coarse→fine 2단, 비전 폐루프 <30cm. 설계 정본 `docs/vision_plan.md`.
-- **직전 완료(2026-07-21b, 노트북/WSL 로컬 세션 — RPi/실카메라 작업 금지 하에 진행):** §7.9 "지금 당장 할 일" 4번 — `FrameSource` 어댑터(Live/Dir/Bag) + 재생 CLI + blackbox/logger를 main.py에 실연결. 커밋 `6a241e3`, push 완료. 상세:
-  - `vision/utils/frame_source.py`: `FrameRecord` + `LiveFrameSource`(실카메라 연결 재시도→명확한 `ConnectionError`, 실장치 검증은 RPi 허가 후)/`DirFrameSource`(녹화폴더=프레임파일+선택적 `telemetry.jsonl`)/`BagFrameSource`(단일 비디오+선택적 사이드카 `<basename>.jsonl`) + `open_dir_or_bag` 팩토리(디렉터리/파일 자동판별)
-  - `vision/replay.py`: `python -m vision.replay <녹화폴더|bag> --preset ...` 오프라인 재생 CLI(§7.5/§7.9 (a)) — 동일 `Pipeline`으로 결정론적 재생, 로거+블랙박스 기록, `--output`으로 주석 mp4 저장
-  - `vision/main.py`: 이중싱크 로거(provenance 헤더=git해시+config)+JSONL 블랙박스를 실제 파이프라인에 연결(`--log-dir`/`--log-name`, 항상 on) — 이제 `python -m vision.main` 실행마다 실제 `.log`/`.jsonl`이 남는다
-  - **진짜 테스트로 검증**: Dir/Bag은 실제 png/mp4 파일을 실제로 디코딩(순서·telemetry 매칭·결정론 확인), Live는 실카메라 없어 `cv2.VideoCapture`만 몽키패치해 재시도/에러 계약 검증, main.py/replay.py는 실제 파이프라인 1회 실행 후 디스크의 JSONL 내용까지 assert. `pytest vision/tests/` **83 passed**(기존 59 + 신규 24)
-- **🟡 카메라 인트린식 캘리브레이션 브링업 — RPi 작업 허가 대기 중 (이번 세션 미착수, 의도적 보류):** 직전 세션(2026-07-21a)에서 libcamera가 RPi5용 PiSP IPA 모듈 없이 빌드돼 있어 카메라 브링업이 막힌 채 중단됨. **사용자가 실비행 나가면서 이번 세션엔 RPi SSH 접속·실카메라 작업을 전면 금지**했음 — 그래서 이번 세션은 그 대신 위 §7.9 4번(카메라 독립 트랙)을 진행했다. RPi 작업 재개 허가가 떨어지면 아래 "다음"의 1번부터 이어간다. 상세 경과·진단명령·4개 선택지는 메모리 `project_rpi5_ubuntu_camera_stack.md`에 그대로 보존됨(재조사 불필요).
+- **직전 완료(2026-07-21c, 노트북/WSL 로컬 세션 — RPi/실카메라 작업 금지 하에 진행):** §7.9 "지금 당장 할 일" 6번 — JSONL 뷰어/플롯 최소본. 커밋 `2e02e29`, push 완료. 상세:
+  - `vision/tools/jsonl_view.py`: `BlackBoxLogger`가 쌓는 JSONL(새 스키마 아님, 그대로 읽음)을 시간축 score/latency/state 3단 플롯(PNG)으로. score=`chosen.confidence` 우선, 없으면 그 프레임 `detections` 중 최고 `confidence`. rejection 레코드는 score 서브플롯에 세로 점선. state가 전부 None(상태머신 미구현)이면 안내 텍스트만 표시. 결측은 라인을 nan으로 끊어 옆 프레임과 잘못 이어붙이지 않음(포인트 수 = JSONL type=frame 행 수와 항상 일치). `matplotlib` Agg 백엔드로 headless-safe(GUI 강제 호출 없음). CLI: `python vision/tools/jsonl_view.py <jsonl> [--output out.png] [--x-axis ts|frame_id]`
+  - `vision/requirements.txt`에 `matplotlib` 추가, `.venv`에 설치 완료
+  - `vision/CLAUDE.md`: 파일역할표에 `tools/jsonl_view.py` 행 추가 + tools/ import 규칙에 "하드웨어 비의존 CLI 도구는 예외(.venv 설치+pytest 대상)" 명시 + 테스트 규칙표에 행 추가
+  - **진짜 테스트로 검증**: `vision.main`을 실제 실행(색상 필터+rect_detector 직결 임시 preset, edge/morphology 조합은 합성 테스트 도형엔 안 맞아 우회 — 기존 presets/*.yaml·검출 로직은 미변경)해 진짜 JSONL 생성 → 그 파일을 뷰어에 먹여 `load_records()` 행 수=JSONL 행 수, `build_figure()` 각 라인 포인트 수=행 수, 결측 위치에 실제 nan 구멍 존재, PNG 실파일 생성(size>0)까지 assert. rejection/다중 state 경계 케이스는 `BlackBoxLogger`를 직접 호출해 만든 실제 JSONL로 검증(수기 JSON 아님). `pytest vision/tests/` **91 passed**(기존 83 + 신규 8)
+- **🟡 카메라 인트린식 캘리브레이션 브링업 — RPi 작업 허가 대기 중 (이번 세션도 미착수, 의도적 보류):** 직전 세션(2026-07-21a)에서 libcamera가 RPi5용 PiSP IPA 모듈 없이 빌드돼 있어 카메라 브링업이 막힌 채 중단됨. **사용자가 실비행 나가면서 RPi SSH 접속·실카메라 작업을 계속 전면 금지**하고 있음 — 그래서 이번 세션도 그 대신 §7.9 6번(카메라 독립 트랙)을 진행했다. RPi 작업 재개 허가가 떨어지면 아래 "다음"의 1번부터 이어간다. 상세 경과·진단명령·4개 선택지는 메모리 `project_rpi5_ubuntu_camera_stack.md`에 그대로 보존됨(재조사 불필요).
 - **다음 (진입하면 이 순서):**
   1. **[RPi 작업 허가 필요]** 카메라 브링업 4개 선택지(V4L2 RAW 직접캡처 권장/libcamera 재빌드/RPi OS 재설치/보류) 중 어느 걸로 갈지 사용자에게 확인 → 메모리 `project_rpi5_ubuntu_camera_stack.md` 먼저 읽고 진입
   2. 선택된 방향으로 카메라 캡처 도구(`vision/tools/rpi_capture.py`) 완성 → 실제 체커보드 촬영 → 카메라 인트린식/왜곡 캘리브레이션
-  3. (카메라 독립, 대체 가능) §7.9 항목5 이후 — 라이브 스트림 어댑터(`compute_tap` VGA → MJPEG/ROS image)·JSONL 뷰어/플롯·골든셋 폴더 스캐폴드
-- **주의:** Pi4 인코더/라이다 40m급 미확정 · 기존 `vision/` 틀은 폐기 아님(§12) · `geo_project.pixel_to_gps` 폐기 예정 · **버티포트 V 형상매칭은 실물 규격 미확인 상태의 합성테스트로만 검증됨** — 실기체 데이터 확보 후 `BlackVMatcher` 참조 V 템플릿(두께/종횡비)·`max_match_distance` 재검증 필요 · **카메라 화각이 계획서 가정(102°)과 다름(75°) — coarse 캐스케이드 탐지거리 가정 재검토 여지 있음** · `LiveFrameSource`는 인터페이스 계약만 검증됨, 실장치 연결은 RPi 허가 후 검증 필요 · 세부 정정 이력·논의는 `docs/session_log.md` 참조
+  3. (카메라 독립, 대체 가능) §7.9 항목5 — 라이브 스트림 어댑터(`compute_tap` VGA → MJPEG/ROS image)
+  4. (카메라 독립, 대체 가능) §7.9 항목7 — 골든셋 폴더 스캐폴드(라벨 프레임, 고도·타겟별) + 재생 회귀 assert
+- **주의:** Pi4 인코더/라이다 40m급 미확정 · 기존 `vision/` 틀은 폐기 아님(§12) · `geo_project.pixel_to_gps` 폐기 예정 · **버티포트 V 형상매칭은 실물 규격 미확인 상태의 합성테스트로만 검증됨** — 실기체 데이터 확보 후 `BlackVMatcher` 참조 V 템플릿(두께/종횡비)·`max_match_distance` 재검증 필요 · **카메라 화각이 계획서 가정(102°)과 다름(75°) — coarse 캐스케이드 탐지거리 가정 재검토 여지 있음** · `LiveFrameSource`는 인터페이스 계약만 검증됨, 실장치 연결은 RPi 허가 후 검증 필요 · **`jsonl_view.py`의 state 서브플롯은 실기체 데이터 없음** — main.py/replay.py가 아직 `state`를 채우지 않아(§5.1 상태머신 미구현) 실사용 시엔 항상 "no state data" 안내만 뜬다. 상태머신 연결되면 자동으로 실데이터가 나타남(코드 변경 불필요, 이미 대응돼 있음) · 세부 정정 이력·논의는 `docs/session_log.md` 참조
 - **참조:** `docs/vision_plan.md` §2(타겟 스펙)/§5.2(버티포트 coarse 캐스케이드)/§5.5(색 항상성)/§7.5(기록·재생)/§7.9(관측성 워크플로) · `vision/CLAUDE.md`(파일역할표·테스트 규칙표) · 메모리 `project_rpi5_ubuntu_camera_stack.md`(카메라 브링업 전체 경과·진단명령·재현법)

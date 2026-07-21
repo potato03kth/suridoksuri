@@ -11,6 +11,70 @@ period: 2026-07-03 ~
 
 ---
 
+## 2026-07-18 — [mc-hw] 현장 원격 리빌드 + flight09 로그수집 + 고도미달 진단
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 사용자가 비행장에서 RPi5 터미널에 접근 못하는 상태로 "리빌드해달라" 요청 → 이후 비행(flight09) 로그 수집·고도미달("천이 명령 미하달") 원인 진단까지 이어서 처리
+
+### 완료
+
+- **원격 리빌드** — SSH로 RPi5 접속, `docker exec fc colcon build --packages-select fc_ros` 실행. 처음엔 `sudo docker exec`가 비밀번호 요구로 막혔으나 사용자가 `suri`를 `docker` 그룹에 추가해줘서 sudo 없이 해결. 빌드 성공 확인 + `install/`이 최신 소스와 `diff` 일치 확인. 이 리빌드가 별도 백그라운드 세션이 동시에 진단 중이던 "flight01~08 stale colcon build" 근본원인을 실제로 해소한 조치였음(교차참조, 아래 결정 참조)
+- **flight09 로그 수집** — 리빌드 직후 사용자가 실비행(`transition_alt:=4.0`, 삼각 왕복 웨이포인트) 진행. `record_flight.sh`로 rosbag+launch.log는 정상 수집(`logs/2026-07-18_flight09/`). ulog는 FC(Pixhawk)가 비행 후 전원이 내려간 것으로 판단돼(USB enumeration은 유지, `/dev/ttyACM0` 3초간 0바이트 수신) 회수 실패 — 사용자가 바빠서 재시도 보류, 미회수 상태로 종료
+- **고도미달 진단** — 사용자 보고("목표 4.0m인데 3.6m가 최대, 천이 명령 미하달")를 rosbag 직접 디코드(`rosbag2_py`+`deserialize_message`로 `/mavros/state`·`/mavros/local_position/pose` 추출)로 검증. AMSL 계산(`home_amsl+transition_alt`)은 정확했음(리빌드 덕분) — 실제 원인은 PX4가 `AUTO.TAKEOFF` 진입 4.66초 만에 자체적으로 `AUTO.LOITER`로 복귀(`pose.z` 최댓값 3.63m)하고, 이후 조종사 재이륙 시도도 동일 패턴 반복 후 42초간 LOITER 고착 — **OFFBOARD 모드 진입이 이 비행 내내 한 번도 없었음**. `offboard_node._step_climbing()`이 PX4 모드 이탈을 감지하지 않는 순수 폴링 설계라 소프트웨어가 이를 알아채지 못했던 것으로 결론
+- **RPi5 네트워크 단절 대응** — 진단 도중 RPi5가 Tailscale에서 완전히 끊겨(ping 100% 손실) 약 한 턴 동안 재접속 대기. 사용자가 "지금 연결했다"고 알려온 뒤에도 실제 재접속까지 재시도 필요했음(즉시 복구 아님)
+- **다른 백그라운드 세션과의 협업** — flight01~08을 전수분석 중이던 별도 세션이 `worktree-agent-*` 브랜치에 남긴 커밋(근본원인: stale colcon build)을 발견 → `dev--vision-computing-module`로 fast-forward 병합 후 이 세션의 flight09 발견과 교차참조해 `session_status.md`에 함께 기록
+
+### 결정
+
+- **ulog 재시도 중단** — 사용자가 "바쁘니까 받지 마라"고 명시적으로 중단 지시. rosbag 기반 분석만으로 원인 결론은 이미 확정적이라고 판단해 그대로 수용, ulog는 다음 기회로 미룸
+- **코드 수정은 보류** — `_step_climbing()`의 PX4 모드 이탈 감지 부재를 발견했지만 이번 세션에선 진단까지만 하고 실제 코드 변경은 하지 않음(사용자 판단 대기)
+
+### 다음 세션
+
+1. FC 전원 재연결 시 ulog id=13 회수 + `MIS_TAKEOFF_ALT` 파라미터 확인으로 "PX4가 왜 3.6m대에서 자체 이륙완료 처리했는지" 근본원인 확정
+2. flight09 rosbag엔 배터리 토픽이 없어 전압붕괴 가설(위 flight01~08 분석 ④) 재현 여부 확인 불가 — ulog 확보 후 대조
+3. `_step_climbing()` AUTO.TAKEOFF 이탈 감지·재시도 로직 추가 여부 사용자와 논의
+4. `logs/2026-07-18_flight09/`가 아직 git 미커밋 — 다음 로그 커밋 배치에 포함
+
+---
+
+## 2026-07-18 — [main][mc-hw] 라파5 원격 로그 조사 → 문서 뒤처짐·인프라 버그 2건 발견
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 사용자가 완료한 실비행의 로그 확인 요청 → SSH 원격 접속 체계 구축 → 실제 접속해 조사 → 발견 사항 정리
+
+### 완료
+
+- **Tailscale SSH 키 등록** — RPi5(`100.67.27.83`, hostname `doksuri`)에 이 WSL 개발컴용 ed25519 키(`claude-code-wsl-suridoksuri`) 등록. 이후 세션에서 비밀번호 없이 바로 SSH 가능(`sudo`/`docker`는 여전히 비밀번호 필요, 그룹 미가입)
+- **원격 조사로 문서-현실 괴리 발견** — `docs/session_status.md`엔 "✈ vtol-실기체: 07-09 이후 기체 결함으로 비행 보류"로 남아있었으나, 실제 `logs/` 디렉터리엔 07-07·07-11·07-17(6회)·07-18(8회, 오늘) 비행 폴더가 존재. 07-17·07-18 14회는 문서에 전혀 기록되지 않은 채 진행됨(`vehicle_type:=mc`)
+- **작업 G(로그 인프라) 실사용 버그 2건 확정** — ① RPi 호스트에 pymavlink 미설치로 `pull_ulog.py` 자동회수가 지금까지 한 번도 성공한 적 없었음(실패가 어디에도 기록 안 돼 발견이 늦어짐) ② `record_flight.sh`를 컨테이너 `fc` 안 root로 실행해 `logs/<날짜>_flightNN/`이 root 소유가 되어 `suri` 계정 쓰기 불가
+- **오늘(07-18) 비행 11개 ulog 전량 회수** — RPi 호스트에 pip 부트스트랩(`--user --break-system-packages`)으로 pymavlink 설치 → FC에서 직접 `.ulg` 11개 다운로드. 8개(id3~10)는 기존 `flight01~08`(rosbag+launch.log) 폴더와 시각 매칭해 완전한 폴더로 합침, 3개(id0~2, `record_flight.sh` 쓰기 전 로그)는 대응 rosbag/launch.log 없이 `logs/2026-07-18_unlogged/`에 "비행기록 부족함"으로 보관. root 소유 폴더 문제로 RPi 쪽 직접 write는 실패해 staging 폴더 경유 → 이 개발컴으로 scp 후 로컬에서 재조립
+- **`record_flight.sh` 수정** — 종료 시 `$FLIGHT_DIR`을 `$LOG_ROOT` 소유자로 chown(best-effort, 실패해도 스크립트 안 죽음)해 향후 비행부터 root 소유 문제 방지. `bash -n` 통과. (`test_flight_logs.py`는 이 WSL에 pytest/pymavlink 미설치라 로컬 실행 못함 — 대상이 `pull_ulog.py` 순수함수라 이 변경과 무관해 회귀 위험은 낮음)
+- **`docs/flight_plan.md` 작업 G 표 최신화** — "계획 확정, 미착수" → "✅ 완료"로 수정 (실제로는 이미 완료·검증됨)
+- **RPi `git pull` (서브에이전트 위임)** — 처음엔 `origin`에 `07681d3`가 미푸시 상태라 반영 안 됨을 서브에이전트가 정확히 진단·보고 → 사용자 승인으로 push 후 재실행, RPi에 chown 수정 반영 확인(`grep chown record_flight.sh`)
+- **RPi 소유권 정리 확인 + 07-18 로그 RPi 원본도 완결** — 사용자가 RPi에서 `sudo chown -R suri:suri logs/` 직접 실행 → SSH로 확인. 로컬 스테이징에 있던 07-18 ulog 8개도 (이제 쓰기 가능해진) RPi 원본 `flight01~08` 폴더로 이동해 RPi 쪽 사본도 완전해짐
+- **비행로그 git 커밋 방침 전환** — "GitHub 업로드 안 함"(2026-07-06 결정) 재검토를 사용자에게 요청 → **일반 git 커밋으로 전환**(LFS 아님, 트레이드오프 인지하고 승인) 결정. `.gitignore` 루트의 `logs/` 제외 규칙 제거(`*.log`는 유지하되 `!logs/**/*.log`로 예외 처리해 `launch.log`/`rosbag_record.log`도 추적되게), `tools/flight_logs/README.md`·`flight_plan.md` "업로드 방침" 갱신. 오늘 07-18 로그 53개 파일(rosbag+ulog+launch.log 등) 커밋
+
+### 결정
+
+- 서브에이전트에 `record_flight.sh` 수정을 위임 시도했으나 `isolation: worktree`가 오래된 브랜치에서 갈라진 고아 워크트리를 만들어 `tools/flight_logs/`가 아예 없는 상태로 실패 — **이 프로젝트는 세션이 in-place로 작업하도록 설정돼 있어 worktree 격리를 쓰면 안 됨**(에이전트는 이를 정확히 감지하고 파일을 지어내지 않은 채 보고했음 → 직접 적용). 향후 서브에이전트 위임 시 isolation 옵션 쓰지 말 것. 반대로 순수 SSH/git 원격 작업(RPi git pull)은 isolation 없이 위임해 문제없이 완결됨
+- **비행 로그를 git에 그대로 커밋하기로 번복** — 2026-07-06 "GitHub 업로드 안 함"(대용량 바이너리 이력 팽창 우려) 결정을 사용자가 다기기 공유 편의를 우선해 뒤집음. git 이력이 로그만큼 영구히 커지고 clone이 느려지는 트레이드오프는 알고 승인한 것 — 되돌리려면 히스토리 재작성(rebase/filter-repo) 같은 파괴적 작업이 필요해짐을 유의
+
+### 다음 세션
+
+1. **RPi pymavlink 설치를 임시 우회(`~/.local`, `--break-system-packages`)에서 영구화** — 컨테이너 이미지 또는 셋업 스크립트/문서에 반영
+2. 07-17·07-18 14회 비행 notes.md(관찰/결론) 전부 비어있음 — 조종사가 채워야 실제 비행 평가 가능
+3. 앞으로 `record_flight.sh`로 생기는 새 플라이트 폴더는 평소 커밋 워크플로에 포함(잊지 말 것 — 더는 `.gitignore` 자동 제외가 아님)
+
+> ✈ vtol-실기체 vs 🚁 mc-실기체 정체 확인은 **해결됨(2026-07-18, 사용자 확인)** — 별도 물리 기체(Pixhawk·ESC 모두 다름, 외형만 동일)로 두 트랙 블록 정리 완료.
+
+### 주의
+
+> `logs/` 방침이 바뀌어 이제 **비행 로그는 커밋 대상**이다 — 새 플라이트 폴더 생성 후 커밋을 잊지 말 것. 저장소 용량이 계속 늘어나는 것은 의도된 트레이드오프.
+> RPi `sudo`/`docker` 권한이 이 세션엔 없음(비밀번호 필요) — 컨테이너 안쪽 작업이 필요하면 사용자에게 요청할 것.
+
+---
+
 ## 2026-07-15 — [vision] 계획 갭 반영·headless main.py·테스트환경
 
 **브랜치:** `dev--vision-computing-module`

@@ -11,6 +11,51 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-21c — [vision] JSONL 뷰어/플롯 최소본(tools/jsonl_view.py)
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 사용자가 실비행 중이라 이번 세션도 RPi SSH 접속·실카메라 작업 전면 금지 유지. 직전 세션이 연결한 blackbox JSONL이 "쌓이기만 하고 안 보이는" 상태라, `docs/vision_status.md` "다음" 3번(§7.9 항목6 — JSONL 뷰어/플롯 최소본, 카메라 브링업과 독립적으로 진행 가능)을 노트북(WSL) 로컬에서만 진행
+
+### 완료
+
+- **`vision_plan.md` §7.9 정독** — "JSONL은 쌓기만 하면 안 보인다 → 뷰어가 필수", "시간축으로 검출점수·latency·state·alt를 플롯" 요구를 확인. §7.9 항목6은 "최소본"으로 명시 — Foxglove 연동 등 과설계는 범위 밖으로 확정
+- **`vision/tools/jsonl_view.py` 신규** — `BlackBoxLogger`(vision/utils/blackbox.py)가 실제로 쓰는 JSONL 스키마를 그대로 읽는 3개 함수:
+  - `load_records(path)` — `type=frame`/`type=rejection` 레코드를 `FrameRow` 리스트 + rejection ts 리스트로 분리. score는 `chosen.confidence` 우선, 없으면 그 프레임 `detections` 중 최고 confidence(`confidence`/`score` 키 둘 다 방어)
+  - `build_figure(frame_rows, rejection_ts, x_field="ts"|"frame_id")` — score/latency/state 3단 subplot. 결측값은 필터링해 이어붙이지 않고 **nan으로 채워 라인을 끊는다** — "검출 0인 프레임이 옆 프레임과 매끄럽게 이어진 것처럼" 보이는 오해를 방지. 이 덕분에 각 라인의 포인트 수(`len(xdata)`)가 항상 JSONL의 `type=frame` 행 수와 정확히 같음. rejection은 score 서브플롯에 빨간 세로 점선. state가 전부 None(현재 상태머신 미구현이라 실사용 시 항상 이 케이스)이면 빈 플롯 대신 안내 텍스트
+  - `save_figure(fig, path)` — PNG로 저장(`matplotlib` **Agg 백엔드 고정** — headless-safe, GUI 강제 호출 없음)
+  - CLI: `python vision/tools/jsonl_view.py <jsonl> [--output out.png] [--x-axis ts|frame_id] [--title ...]`
+- **`vision/requirements.txt`에 `matplotlib>=3.7` 추가** — `.venv`에 설치 완료(9개 의존 패키지 함께 설치됨)
+- **텍스트를 영문으로** — 처음엔 플롯 안내문구를 한글로 썼다가 `matplotlib` 기본 폰트(DejaVu Sans)에 한글 글리프가 없어 `UserWarning`(글리프 깨짐)이 남 → `vision/utils/visualize.py`의 기존 관례(이미지 위 텍스트는 영문 "CONFIRMED")를 따라 플롯 내부 텍스트만 영문으로 전환
+- **진짜 테스트 (모킹만으로 통과하는 pseudo 테스트 금지 요건 준수)** — `tests/test_jsonl_view.py`(8개):
+  - `vision.main`을 실제로 1회 실행(비디오 4프레임, 그중 1프레임은 빈 화면)해 디스크에 진짜 `.jsonl` 생성 → `load_records()` 결과 행 수가 실제 JSONL의 `type=frame` 행 수(4)와 일치, `build_figure()`의 score/latency 라인 포인트 수도 4(결측 프레임 위치에 실제 `math.isnan()` 구멍 존재 확인), `save_figure()`가 실제 PNG 파일(size>0)을 남기는지 assert
+  - 이 테스트용으로 `color_filter→rect_detector` 직결 임시 preset(tmp_path에만 존재, `presets/*.yaml` 미변경)을 썼음 — `single_frame.yaml`의 `edge_detector→morphology(open, kernel 5)` 조합이 얇은 Canny 엣지를 지워버려 합성 사각형 테스트 도형에서 검출이 0이 되는 걸 확인했기 때문(실제 착륙지점 규모용 튜닝이라 튜닝 로직 자체는 정상, 건드리지 않음)
+  - rejection 세로선·다중 state 케이스는 `BlackBoxLogger.log_frame`/`log_rejection`을 직접 호출해 만든 실제 JSONL로 검증(수기로 JSON 문자열을 쓴 게 아님)
+  - CLI 진입점(`main()`)도 subprocess가 아니라 함수 직접 호출로 실제 파일 경로 인자를 태워 종단 검증
+- **`vision/CLAUDE.md` 갱신** — 파일역할표에 `tools/jsonl_view.py` 행 추가, import 규칙의 `tools/` 항목에 "하드웨어 비의존 CLI 도구는 예외(.venv 설치+pytest 대상)" 명시(기존 `rpi_capture.py` 전용 규칙과 구분), 테스트 규칙표에 행 추가
+- **실행 결과 육안 확인** — scratchpad에서 `vision.main` → `jsonl_view.py` CLI를 수동으로도 1회 더 실행해 PNG를 실제로 열어봄. score 라인이 빈 프레임 위치에서 정확히 끊기는 것(nan 처리) 확인
+- **`pytest vision/tests/` 91 passed** (기존 83 + 신규 8). 커밋 `2e02e29`, push 완료
+
+### 결정
+
+- **score 필드 정의: `chosen.confidence` 우선, 없으면 detections 중 최고 confidence** — JSONL 스키마에 명시적 "score" 필드가 없고(§7.4 원문도 `detections[점수·위치]`로만 서술), main.py/replay.py는 현재 `TemporalFusion`을 안 쓰는 preset에선 `chosen`이 항상 None이라 detections 최고값으로 폴백하는 경로가 실제로 자주 탐. 대회 규정과 얽힌 "어떤 점수를 반드시 봐야 하는가" 같은 판단은 아니라고 보고 진행(막힘 아님) — 상태머신(§5.1) 연결 후 `chosen`이 실제로 채워지면 그쪽이 우선되도록 이미 구현돼 있음
+- **결측을 nan으로 끊기 vs 필터링해 이어붙이기** — 처음엔 필터링(있는 점만 이어붙임)으로 구현했다가 수동 PNG 확인 중 "검출 0 프레임이 옆 프레임과 매끄럽게 이어진 것처럼" 보이는 게 디버깅 뷰어로서 오해를 부른다고 판단해 nan 방식으로 바꿈. 부수효과로 "포인트 수 = JSONL 행 수" 불변식이 더 명확해짐
+- **`tools/` 디렉터리에 배치하되 CLAUDE.md의 기존 "tools/=미테스트" 규칙에 예외 신설** — 세션 지시가 `vision/tools/jsonl_view.py` 위치를 권장했고, 기존 관례 문구("tools/는 RPi 하드웨어 전용, .venv 밖, pytest 대상 아님")는 `rpi_capture.py`(picamera2/GStreamer 의존)를 염두에 둔 것이었음. `jsonl_view.py`는 하드웨어 의존이 전혀 없어 그 근거가 적용 안 됨 → 위치는 유지하되 CLAUDE.md에 예외를 명문화(다음 세션이 혼동하지 않도록)
+- **테스트용 임시 preset을 tmp_path에만 만듦** — `presets/*.yaml`이나 검출 로직(`edge.py`/`morphology.py`)을 건드리지 않는다는 이번 세션 제약을 지키기 위한 선택. `single_frame.yaml`의 edge+morphology 조합이 실제로 튜닝 버그가 있는 건 아님(합성 테스트 도형과 실제 착륙지점 텍스처가 다를 뿐)이라고 판단해 원본은 그대로 둠
+
+### 다음 세션
+
+1. **[RPi 작업 허가 필요]** 카메라 브링업 재개 — `docs/vision_status.md` "🟡" 블록의 4개 선택지 확인부터. 메모리 `project_rpi5_ubuntu_camera_stack.md`에 경과 다 있음
+2. (카메라 독립, 대체 가능) §7.9 항목5 — 라이브 스트림 어댑터(`compute_tap` VGA → MJPEG/ROS image)
+3. (카메라 독립, 대체 가능) §7.9 항목7 — 골든셋 폴더 스캐폴드(라벨 프레임, 고도·타겟별) + 재생 회귀 assert
+4. 상태머신(§5.1)이 실제로 연결되면 `jsonl_view.py`의 state 서브플롯이 자동으로 실데이터를 보여주는지(현재는 코드상 대응만 돼 있고 실데이터로 확인은 못 함) 재확인
+
+### 주의
+
+> `docs/vision_status.md` 트랙보드가 이미 갱신됨 — 다음 세션은 그 문서만 읽으면 됨.
+> `jsonl_view.py`의 state 서브플롯은 실기체 데이터로 검증된 적 없음 — main.py/replay.py가 `state`를 채우는 코드 경로 자체가 아직 없기 때문(항상 "no state data" 안내만 뜬다). 상태머신 연결은 다음 세션 이후 몫.
+
+---
+
 ## 2026-07-21b — [vision] FrameSource(Live/Dir/Bag) 어댑터 + 재생CLI + blackbox/logger를 main.py에 연결
 
 **브랜치:** `dev--vision-computing-module`
@@ -234,68 +279,4 @@ project: suridoksuri-1
 ### 주의
 
 > RPi5 EEPROM(`PSU_MAX_CURRENT`)·WiFi 드라이버 설정은 SSH로 원격 확인은 가능해도 변경 적용엔 sudo 비밀번호가 필요(그룹 미가입, 기존 기록과 일치) — 앞으로도 이런 처방은 사용자 직접 실행 명령으로 전달할 것.
-
----
-
-## 2026-07-18 — [mc-hw] 현장 원격 리빌드 + flight09 로그수집 + 고도미달 진단
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** 사용자가 비행장에서 RPi5 터미널에 접근 못하는 상태로 "리빌드해달라" 요청 → 이후 비행(flight09) 로그 수집·고도미달("천이 명령 미하달") 원인 진단까지 이어서 처리
-
-### 완료
-
-- **원격 리빌드** — SSH로 RPi5 접속, `docker exec fc colcon build --packages-select fc_ros` 실행. 처음엔 `sudo docker exec`가 비밀번호 요구로 막혔으나 사용자가 `suri`를 `docker` 그룹에 추가해줘서 sudo 없이 해결. 빌드 성공 확인 + `install/`이 최신 소스와 `diff` 일치 확인. 이 리빌드가 별도 백그라운드 세션이 동시에 진단 중이던 "flight01~08 stale colcon build" 근본원인을 실제로 해소한 조치였음(교차참조, 아래 결정 참조)
-- **flight09 로그 수집** — 리빌드 직후 사용자가 실비행(`transition_alt:=4.0`, 삼각 왕복 웨이포인트) 진행. `record_flight.sh`로 rosbag+launch.log는 정상 수집(`logs/2026-07-18_flight09/`). ulog는 FC(Pixhawk)가 비행 후 전원이 내려간 것으로 판단돼(USB enumeration은 유지, `/dev/ttyACM0` 3초간 0바이트 수신) 회수 실패 — 사용자가 바빠서 재시도 보류, 미회수 상태로 종료
-- **고도미달 진단** — 사용자 보고("목표 4.0m인데 3.6m가 최대, 천이 명령 미하달")를 rosbag 직접 디코드(`rosbag2_py`+`deserialize_message`로 `/mavros/state`·`/mavros/local_position/pose` 추출)로 검증. AMSL 계산(`home_amsl+transition_alt`)은 정확했음(리빌드 덕분) — 실제 원인은 PX4가 `AUTO.TAKEOFF` 진입 4.66초 만에 자체적으로 `AUTO.LOITER`로 복귀(`pose.z` 최댓값 3.63m)하고, 이후 조종사 재이륙 시도도 동일 패턴 반복 후 42초간 LOITER 고착 — **OFFBOARD 모드 진입이 이 비행 내내 한 번도 없었음**. `offboard_node._step_climbing()`이 PX4 모드 이탈을 감지하지 않는 순수 폴링 설계라 소프트웨어가 이를 알아채지 못했던 것으로 결론
-- **RPi5 네트워크 단절 대응** — 진단 도중 RPi5가 Tailscale에서 완전히 끊겨(ping 100% 손실) 약 한 턴 동안 재접속 대기. 사용자가 "지금 연결했다"고 알려온 뒤에도 실제 재접속까지 재시도 필요했음(즉시 복구 아님)
-- **다른 백그라운드 세션과의 협업** — flight01~08을 전수분석 중이던 별도 세션이 `worktree-agent-*` 브랜치에 남긴 커밋(근본원인: stale colcon build)을 발견 → `dev--vision-computing-module`로 fast-forward 병합 후 이 세션의 flight09 발견과 교차참조해 `session_status.md`에 함께 기록
-
-### 결정
-
-- **ulog 재시도 중단** — 사용자가 "바쁘니까 받지 마라"고 명시적으로 중단 지시. rosbag 기반 분석만으로 원인 결론은 이미 확정적이라고 판단해 그대로 수용, ulog는 다음 기회로 미룸
-- **코드 수정은 보류** — `_step_climbing()`의 PX4 모드 이탈 감지 부재를 발견했지만 이번 세션에선 진단까지만 하고 실제 코드 변경은 하지 않음(사용자 판단 대기)
-
-### 다음 세션
-
-1. FC 전원 재연결 시 ulog id=13 회수 + `MIS_TAKEOFF_ALT` 파라미터 확인으로 "PX4가 왜 3.6m대에서 자체 이륙완료 처리했는지" 근본원인 확정
-2. flight09 rosbag엔 배터리 토픽이 없어 전압붕괴 가설(위 flight01~08 분석 ④) 재현 여부 확인 불가 — ulog 확보 후 대조
-3. `_step_climbing()` AUTO.TAKEOFF 이탈 감지·재시도 로직 추가 여부 사용자와 논의
-4. `logs/2026-07-18_flight09/`가 아직 git 미커밋 — 다음 로그 커밋 배치에 포함
-
----
-
-## 2026-07-18 — [main][mc-hw] 라파5 원격 로그 조사 → 문서 뒤처짐·인프라 버그 2건 발견
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** 사용자가 완료한 실비행의 로그 확인 요청 → SSH 원격 접속 체계 구축 → 실제 접속해 조사 → 발견 사항 정리
-
-### 완료
-
-- **Tailscale SSH 키 등록** — RPi5(`100.67.27.83`, hostname `doksuri`)에 이 WSL 개발컴용 ed25519 키(`claude-code-wsl-suridoksuri`) 등록. 이후 세션에서 비밀번호 없이 바로 SSH 가능(`sudo`/`docker`는 여전히 비밀번호 필요, 그룹 미가입)
-- **원격 조사로 문서-현실 괴리 발견** — `docs/session_status.md`엔 "✈ vtol-실기체: 07-09 이후 기체 결함으로 비행 보류"로 남아있었으나, 실제 `logs/` 디렉터리엔 07-07·07-11·07-17(6회)·07-18(8회, 오늘) 비행 폴더가 존재. 07-17·07-18 14회는 문서에 전혀 기록되지 않은 채 진행됨(`vehicle_type:=mc`)
-- **작업 G(로그 인프라) 실사용 버그 2건 확정** — ① RPi 호스트에 pymavlink 미설치로 `pull_ulog.py` 자동회수가 지금까지 한 번도 성공한 적 없었음(실패가 어디에도 기록 안 돼 발견이 늦어짐) ② `record_flight.sh`를 컨테이너 `fc` 안 root로 실행해 `logs/<날짜>_flightNN/`이 root 소유가 되어 `suri` 계정 쓰기 불가
-- **오늘(07-18) 비행 11개 ulog 전량 회수** — RPi 호스트에 pip 부트스트랩(`--user --break-system-packages`)으로 pymavlink 설치 → FC에서 직접 `.ulg` 11개 다운로드. 8개(id3~10)는 기존 `flight01~08`(rosbag+launch.log) 폴더와 시각 매칭해 완전한 폴더로 합침, 3개(id0~2, `record_flight.sh` 쓰기 전 로그)는 대응 rosbag/launch.log 없이 `logs/2026-07-18_unlogged/`에 "비행기록 부족함"으로 보관. root 소유 폴더 문제로 RPi 쪽 직접 write는 실패해 staging 폴더 경유 → 이 개발컴으로 scp 후 로컬에서 재조립
-- **`record_flight.sh` 수정** — 종료 시 `$FLIGHT_DIR`을 `$LOG_ROOT` 소유자로 chown(best-effort, 실패해도 스크립트 안 죽음)해 향후 비행부터 root 소유 문제 방지. `bash -n` 통과. (`test_flight_logs.py`는 이 WSL에 pytest/pymavlink 미설치라 로컬 실행 못함 — 대상이 `pull_ulog.py` 순수함수라 이 변경과 무관해 회귀 위험은 낮음)
-- **`docs/flight_plan.md` 작업 G 표 최신화** — "계획 확정, 미착수" → "✅ 완료"로 수정 (실제로는 이미 완료·검증됨)
-- **RPi `git pull` (서브에이전트 위임)** — 처음엔 `origin`에 `07681d3`가 미푸시 상태라 반영 안 됨을 서브에이전트가 정확히 진단·보고 → 사용자 승인으로 push 후 재실행, RPi에 chown 수정 반영 확인(`grep chown record_flight.sh`)
-- **RPi 소유권 정리 확인 + 07-18 로그 RPi 원본도 완결** — 사용자가 RPi에서 `sudo chown -R suri:suri logs/` 직접 실행 → SSH로 확인. 로컬 스테이징에 있던 07-18 ulog 8개도 (이제 쓰기 가능해진) RPi 원본 `flight01~08` 폴더로 이동해 RPi 쪽 사본도 완전해짐
-- **비행로그 git 커밋 방침 전환** — "GitHub 업로드 안 함"(2026-07-06 결정) 재검토를 사용자에게 요청 → **일반 git 커밋으로 전환**(LFS 아님, 트레이드오프 인지하고 승인) 결정. `.gitignore` 루트의 `logs/` 제외 규칙 제거(`*.log`는 유지하되 `!logs/**/*.log`로 예외 처리해 `launch.log`/`rosbag_record.log`도 추적되게), `tools/flight_logs/README.md`·`flight_plan.md` "업로드 방침" 갱신. 오늘 07-18 로그 53개 파일(rosbag+ulog+launch.log 등) 커밋
-
-### 결정
-
-- 서브에이전트에 `record_flight.sh` 수정을 위임 시도했으나 `isolation: worktree`가 오래된 브랜치에서 갈라진 고아 워크트리를 만들어 `tools/flight_logs/`가 아예 없는 상태로 실패 — **이 프로젝트는 세션이 in-place로 작업하도록 설정돼 있어 worktree 격리를 쓰면 안 됨**(에이전트는 이를 정확히 감지하고 파일을 지어내지 않은 채 보고했음 → 직접 적용). 향후 서브에이전트 위임 시 isolation 옵션 쓰지 말 것. 반대로 순수 SSH/git 원격 작업(RPi git pull)은 isolation 없이 위임해 문제없이 완결됨
-- **비행 로그를 git에 그대로 커밋하기로 번복** — 2026-07-06 "GitHub 업로드 안 함"(대용량 바이너리 이력 팽창 우려) 결정을 사용자가 다기기 공유 편의를 우선해 뒤집음. git 이력이 로그만큼 영구히 커지고 clone이 느려지는 트레이드오프는 알고 승인한 것 — 되돌리려면 히스토리 재작성(rebase/filter-repo) 같은 파괴적 작업이 필요해짐을 유의
-
-### 다음 세션
-
-1. **RPi pymavlink 설치를 임시 우회(`~/.local`, `--break-system-packages`)에서 영구화** — 컨테이너 이미지 또는 셋업 스크립트/문서에 반영
-2. 07-17·07-18 14회 비행 notes.md(관찰/결론) 전부 비어있음 — 조종사가 채워야 실제 비행 평가 가능
-3. 앞으로 `record_flight.sh`로 생기는 새 플라이트 폴더는 평소 커밋 워크플로에 포함(잊지 말 것 — 더는 `.gitignore` 자동 제외가 아님)
-
-> ✈ vtol-실기체 vs 🚁 mc-실기체 정체 확인은 **해결됨(2026-07-18, 사용자 확인)** — 별도 물리 기체(Pixhawk·ESC 모두 다름, 외형만 동일)로 두 트랙 블록 정리 완료.
-
-### 주의
-
-> `logs/` 방침이 바뀌어 이제 **비행 로그는 커밋 대상**이다 — 새 플라이트 폴더 생성 후 커밋을 잊지 말 것. 저장소 용량이 계속 늘어나는 것은 의도된 트레이드오프.
-> RPi `sudo`/`docker` 권한이 이 세션엔 없음(비밀번호 필요) — 컨테이너 안쪽 작업이 필요하면 사용자에게 요청할 것.
 
