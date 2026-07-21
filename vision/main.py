@@ -10,6 +10,10 @@ Landing zone detector — CLI 진입점.
 ⚠️ 드론은 디스플레이가 없다. GUI 호출(imshow/waitKey)은 반드시 --display window
    뒤로만 실행된다. 기본값 none 은 어떤 GUI 함수도 호출하지 않는다(헤드리스 크래시 방지).
 
+관측성 (vision_plan.md §7.4/§7.9, 항상 on): 실행할 때마다 이중싱크 사람로그(.log)와
+프레임별 JSONL 블랙박스를 --log-dir(기본 results/logs)에 남긴다. --log-name으로 파일
+basename 지정.
+
 사용 예:
   # 데스크톱에서 영상 보며 디버깅
   python -m vision.main flight.mp4 --preset presets/video.yaml --display window
@@ -20,12 +24,15 @@ Landing zone detector — CLI 진입점.
 """
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import cv2
 
 from vision.core.runner import Pipeline
+from vision.utils.blackbox import BlackBoxLogger
 from vision.utils.image_loader import load_image
+from vision.utils.logging import log_provenance_header, setup_dual_sink_logger
 from vision.utils.visualize import save_result, draw_detections
 
 
@@ -51,15 +58,46 @@ def _show_window(annotated, *, wait: int) -> bool:
         sys.exit(2)
 
 
-def _run_image(pipeline: Pipeline, input_path: Path, output: str | None, display: str) -> None:
+def _confirmed_to_dict(confirmed) -> dict | None:
+    if confirmed is None:
+        return None
+    return {"bbox": list(confirmed.bbox), "confidence": confirmed.confidence}
+
+
+def _detections_to_list(detections) -> list[dict]:
+    return [{"bbox": list(d.bbox), "confidence": d.confidence} for d in detections]
+
+
+def _run_image(
+    pipeline: Pipeline,
+    input_path: Path,
+    output: str | None,
+    display: str,
+    logger,
+    blackbox: BlackBoxLogger,
+) -> None:
     image = load_image(str(input_path))
+    t0 = time.perf_counter()
     state = pipeline.run(image)
+    latency = time.perf_counter() - t0
 
     print(f"Detections: {len(state.detections)}")
     for i, d in enumerate(state.detections):
         print(f"  [{i}] bbox={d.bbox}  confidence={d.confidence:.3f}")
     if state.confirmed:
         print(f"Confirmed: bbox={state.confirmed.bbox}")
+
+    logger.info(
+        "image %s: %d detections, confirmed=%s, latency=%.4fs",
+        input_path.name, len(state.detections), state.confirmed is not None, latency,
+    )
+    blackbox.log_frame(
+        frame_id=0,
+        ts=time.time(),
+        detections=_detections_to_list(state.detections),
+        chosen=_confirmed_to_dict(state.confirmed),
+        latency=latency,
+    )
 
     if output:
         save_result(state, output)
@@ -71,15 +109,36 @@ def _run_image(pipeline: Pipeline, input_path: Path, output: str | None, display
         cv2.destroyAllWindows()
 
 
-def _run_video(pipeline: Pipeline, input_path: Path, output: str | None, display: str) -> None:
+def _run_video(
+    pipeline: Pipeline,
+    input_path: Path,
+    output: str | None,
+    display: str,
+    logger,
+    blackbox: BlackBoxLogger,
+) -> None:
     from vision.utils.video_reader import VideoReader
 
     writer = None
     frame_count = 0
     with VideoReader(str(input_path)) as reader:
         for frame in reader:
+            t0 = time.perf_counter()
             state = pipeline.run(frame)
+            latency = time.perf_counter() - t0
             annotated = draw_detections(state.original, state.detections, state.confirmed)
+
+            blackbox.log_frame(
+                frame_id=frame_count,
+                ts=time.time(),
+                detections=_detections_to_list(state.detections),
+                chosen=_confirmed_to_dict(state.confirmed),
+                latency=latency,
+            )
+            logger.debug(
+                "frame %d: %d detections, confirmed=%s, latency=%.4fs",
+                frame_count, len(state.detections), state.confirmed is not None, latency,
+            )
             frame_count += 1
 
             if output:
@@ -95,6 +154,7 @@ def _run_video(pipeline: Pipeline, input_path: Path, output: str | None, display
     if writer:
         writer.release()
         print(f"Saved: {output}  ({frame_count} frames)")
+    logger.info("video %s 종료: %d 프레임 처리", input_path.name, frame_count)
     if display == "window":
         cv2.destroyAllWindows()
 
@@ -115,6 +175,12 @@ def main() -> None:
         help="라이브 뷰 모드. none=헤드리스 안전(기본) · window=데스크톱 GUI · "
              "file=--output 필수 · stream=미구현(§7.9)",
     )
+    parser.add_argument(
+        "--log-dir",
+        default=str(Path(__file__).parent / "results" / "logs"),
+        help="이중싱크 사람로그(.log)+JSONL 블랙박스 출력 디렉터리 (§7.4/§7.9)",
+    )
+    parser.add_argument("--log-name", default="vision", help="로그 파일 basename")
     args = parser.parse_args()
 
     if args.display == "stream":
@@ -137,10 +203,19 @@ def main() -> None:
 
     pipeline = Pipeline.from_config(args.preset)
 
-    if input_path.suffix.lower() in _VIDEO_SUFFIXES:
-        _run_video(pipeline, input_path, args.output, args.display)
-    else:
-        _run_image(pipeline, input_path, args.output, args.display)
+    logger = setup_dual_sink_logger(args.log_name, args.log_dir)
+    log_provenance_header(
+        logger,
+        {"preset": args.preset, "input": args.input, "display": args.display, "output": args.output},
+    )
+    blackbox = BlackBoxLogger(args.log_dir, name=args.log_name)
+    try:
+        if input_path.suffix.lower() in _VIDEO_SUFFIXES:
+            _run_video(pipeline, input_path, args.output, args.display, logger, blackbox)
+        else:
+            _run_image(pipeline, input_path, args.output, args.display, logger, blackbox)
+    finally:
+        blackbox.close()
 
 
 if __name__ == "__main__":
