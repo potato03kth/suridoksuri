@@ -57,6 +57,8 @@
 | `utils/video_reader.py` | 영상 파일 → 프레임 이터레이터 |
 | `utils/visualize.py` | bbox 드로잉, 결과 이미지 저장 |
 | `utils/geo_project.py` | 픽셀 좌표 → GPS 좌표 (FC 연동 시 사용) |
+| `utils/logging.py` | 이중싱크 사람로그(터미널+.log 로테이션) + provenance 헤더(config+git해시+캘리브id) (§7.4/§7.3) |
+| `utils/blackbox.py` | 프레임별 JSONL 블랙박스 + 거절이유 로깅. bounded queue+drop-oldest 비차단 (§7.4) |
 | `main.py` | CLI 진입점. 이미지/영상 자동 분기 |
 
 ---
@@ -213,6 +215,8 @@ pytest vision/tests/ -q -k main # 특정만
 | utils/video_reader | 프레임 이터레이트·fps·컨텍스트 종료 | ❌ TODO |
 | utils/visualize | draw_detections 형상·save_result 파일 생성 | ❌ TODO |
 | utils/geo_project | **폐기 예정(plan §12) — 신규 테스트 금지** | 폐기 |
+| utils/logging | 이중싱크 핸들러 구성·콘솔레벨이 파일레벨 억제 안 함·재호출 시 핸들러 중복 안 됨·provenance에 git해시/config/캘리브id | ✅ test_logging |
+| utils/blackbox | 프레임/거절이유 JSONL 기록·bounded queue drop-oldest(최신 안 잃음)·close() 큐 가득해도 안전 | ✅ test_blackbox |
 | main.py | `--display` 게이팅: **none=imshow 0회**(헤드리스 안전 불변식)·file→output 강제·stream 미구현 | ✅ test_main |
 
 **공통 규칙 (모든 모듈 테스트):**
