@@ -1,4 +1,4 @@
-# 자동분석 — /home/suri/suridoksuri/.claude/worktrees/flight-analysis-0720/logs/2026-07-21_manual
+# 자동분석 — /home/suri/suridoksuri/.claude/worktrees/vision-flight-log-analysis/logs/2026-07-21_manual
 
 (analyze_flight.py 자동생성 — 해석 없이 사실만. notes.md에 결론 작성 시 이 파일 인용)
 
@@ -7,6 +7,11 @@
 - `log_12_2026-07-18-09-18-34.ulg`: 3.7s
 - `log_14_2026-07-18-10-13-58.ulg`: 1.0s
 - `log_15_2026-07-18-10-35-36.ulg`: 17.7s
+- `log_30_2026-07-21-10-54-50.ulg`: 0.9s
+- `log_31_2026-07-21-10-55-42.ulg`: 1.0s
+- `log_32_2026-07-21-11-02-38.ulg`: 1.0s
+- `log_33_2026-07-21-11-07-14.ulg`: 8.4s
+- `log_34_2026-07-21-11-12-30.ulg`: 34.0s
 
 ## 주 로그: `log_13_2026-07-18-09-49-06.ulg` (76.55s)
 
