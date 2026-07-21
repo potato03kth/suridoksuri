@@ -37,6 +37,7 @@ from collect_new_logs import (
     notes_skeleton,
     parse_ulog_list,
     plan_dir_sync,
+    run as collect_run,
 )
 
 D = "2026-07-06"
@@ -392,6 +393,19 @@ class TestCollectedUlogIds:
         (tmp_path / "2026-07-20_flight01").mkdir()
         (tmp_path / "2026-07-20_flight01" / "launch.log").write_text("x")
         assert collected_ulog_ids(str(tmp_path)) == set()
+
+
+class TestRunTimeoutResilience:
+    def test_hard_timeout_does_not_raise(self):
+        # 실사용 중 SSH 순간끊김 하나로 전체 스크립트가 uncaught 예외로 죽던 버그의 회귀 테스트.
+        r = collect_run(["sleep", "2"], timeout=0.1)
+        assert r.returncode != 0
+        assert "타임아웃" in r.stderr
+
+    def test_normal_command_still_works(self):
+        r = collect_run(["echo", "hi"], timeout=5)
+        assert r.returncode == 0
+        assert r.stdout.strip() == "hi"
 
 
 class TestCatchallDirname:

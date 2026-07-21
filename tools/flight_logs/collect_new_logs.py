@@ -119,20 +119,39 @@ def log(msg):
     print(f"[collect_new_logs] {msg}")
 
 
-def run(cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+class _TimedOut:
+    """subprocess.run이 하드 타임아웃으로 죽었을 때 쓰는 가짜 CompletedProcess.
+
+    네트워크 순간끊김(Tailscale/WiFi) 하나로 전체 스크립트가 uncaught 예외로
+    죽는 것을 막는다 — 이 경우 호출부는 그냥 '이번 요청 실패'로 취급하면 된다.
+    """
+    returncode = 124
+    stdout = ""
+
+    def __init__(self, cmd):
+        self.stderr = f"타임아웃: {' '.join(cmd)}"
+
+
+def run(cmd, timeout=None, **kw):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **kw)
+    except subprocess.TimeoutExpired:
+        return _TimedOut(cmd)
 
 
 def ssh_run(remote, remote_cmd, timeout=30):
-    return run(["ssh", "-o", f"ConnectTimeout={min(timeout, 15)}", "-o", "BatchMode=yes",
-                remote, remote_cmd], timeout=timeout)
+    # subprocess 레벨 타임아웃은 ssh 자체 ConnectTimeout보다 여유를 둬서, 가능하면
+    # ssh가 먼저 정상적으로(비정상 종료코드로) 실패하게 하고 하드킬은 최후수단으로만 쓴다.
+    connect_timeout = min(timeout, 15)
+    return run(["ssh", "-o", f"ConnectTimeout={connect_timeout}", "-o", "BatchMode=yes",
+                remote, remote_cmd], timeout=timeout + 10)
 
 
 def rsync_pull(remote, remote_dir, local_dir, dry_run=False):
     os.makedirs(local_dir, exist_ok=True)
     args = ["rsync", "-a"] + (["--dry-run", "-v"] if dry_run else [])
     args += [f"{remote}:{remote_dir}/", f"{local_dir}/"]
-    r = run(args)
+    r = run(args, timeout=300)
     if r.returncode != 0:
         log(f"경고: rsync 실패 ({remote_dir}): {r.stderr.strip()}")
         return False
@@ -140,7 +159,7 @@ def rsync_pull(remote, remote_dir, local_dir, dry_run=False):
 
 
 def git(repo_root, *args):
-    return run(["git", "-C", repo_root, *args])
+    return run(["git", "-C", repo_root, *args], timeout=60)
 
 
 def main(argv=None):
