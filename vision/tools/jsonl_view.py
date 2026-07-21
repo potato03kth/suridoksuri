@@ -122,8 +122,15 @@ def build_figure(
     t0 = frame_rows[0].ts
 
     def _x(row: FrameRow):
-        if x_field == "frame_id" or row.ts is None or t0 is None:
+        if x_field == "frame_id":
             return row.frame_id
+        if t0 is None:
+            # 전체 행에 ts가 하나도 없으면 일관되게 frame_id 축으로 폴백(혼용 아님).
+            return row.frame_id
+        if row.ts is None:
+            # 일부 행만 ts 결측 — frame_id로 새면 나머지 ts-t0(경과초) 스케일과 섞여
+            # 시간축이 튀어 보인다. score/latency와 같은 nan-gap 철학으로 라인만 끊는다.
+            return float("nan")
         return row.ts - t0
 
     xs = [_x(r) for r in frame_rows]

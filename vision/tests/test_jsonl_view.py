@@ -186,6 +186,37 @@ def test_load_records_handles_no_frame_records(tmp_path):
     assert rc == 1
 
 
+def test_x_axis_ts_gap_does_not_mix_scale_with_frame_id(tmp_path):
+    """x축 스케일 혼용 회귀: x_field='ts'(기본값)인데 일부 행만 ts가 없으면, 그 행만
+    frame_id(정수, 보통 0~N)로 새고 나머지는 ts-t0(경과초, 보통 훨씬 작은 소수)로 찍혀
+    x축 스케일이 행마다 섞이면 안 된다. 결측 ts 행은 score/latency와 같은 nan-gap
+    철학으로 x좌표도 nan이어야 한다(라인이 끊기되 엉뚱한 스케일로 튀지 않음).
+    t0 자체가 None(전체 ts 결측)인 경우는 별개 케이스 — 그때는 전부 frame_id로 폴백해도
+    일관되므로 혼용이 아니다(이 테스트는 그 경우를 다루지 않는다)."""
+    import math
+
+    bb = BlackBoxLogger(str(tmp_path), name="tsgap", max_queue=100)
+    bb.log_frame(frame_id=0, ts=1000.0, detections=[{"bbox": [0, 0, 1, 1], "confidence": 0.5}], latency=0.01)
+    bb.log_frame(frame_id=1, ts=None, detections=[{"bbox": [0, 0, 1, 1], "confidence": 0.6}], latency=0.02)
+    bb.log_frame(frame_id=2, ts=1000.5, detections=[{"bbox": [0, 0, 1, 1], "confidence": 0.7}], latency=0.03)
+    bb.close()
+
+    jsonl_path = tmp_path / "tsgap.jsonl"
+    frame_rows, rejection_ts = load_records(jsonl_path)
+    assert [r.ts for r in frame_rows] == [1000.0, None, 1000.5]
+
+    fig = build_figure(frame_rows, rejection_ts, x_field="ts")
+    ax_score = fig.axes[0]
+    xdata = list(ax_score.lines[0].get_xdata())
+
+    assert xdata[0] == pytest.approx(0.0)
+    assert math.isnan(xdata[1]), "ts 결측 행이 frame_id(=1)로 새면 옆 프레임들의 경과초 스케일과 섞인다"
+    assert xdata[2] == pytest.approx(0.5)
+
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
 # --- 거절/다중 state 경계 케이스: 실제 BlackBoxLogger로 산출한 JSONL(수기 JSON 아님) ---
 
 def test_rejection_lines_and_multi_state_from_real_blackbox_logger(tmp_path):
