@@ -8,6 +8,9 @@ from vision.modules import (
     BackgroundSubtractor,
     KalmanTracker,
     TemporalFusion,
+    WhiteFieldDetector,
+    BlackVMatcher,
+    RedRingDetector,
 )
 
 # 이름 → 클래스 매핑. 새 모듈 추가 시 이 dict에만 등록하면 된다.
@@ -21,4 +24,7 @@ MODULES: dict[str, type] = {
     "background_subtractor": BackgroundSubtractor,
     "kalman_tracker":        KalmanTracker,
     "temporal_fusion":       TemporalFusion,
+    "white_field_detector":  WhiteFieldDetector,
+    "black_v_matcher":       BlackVMatcher,
+    "red_ring_detector":     RedRingDetector,
 }

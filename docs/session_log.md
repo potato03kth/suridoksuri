@@ -11,6 +11,37 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-21 — [vision] HSV 테스트·버티포트 coarse 캐스케이드·관측성 골격 → RPi 카메라 브링업 중 긴급 세션종료
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 트랙보드 순서대로 진행(HSV 단위테스트 → coarse 캐스케이드 → 관측성) 후 카메라 캘리브레이션 착수 → RPi 카메라가 전혀 안 잡히는 걸 발견해 브링업 디버깅으로 전환, 원인 특정까지 마쳤으나 사용자 긴급 요청으로 세션 강제 종료
+
+### 완료
+
+- **HSV 초록/빨강 단위테스트** — `test_color.py`에 7개 신규(모드별 캡처/거부/채도경계, 빨강 저/고 hue band, 빨강 단일range Hue랩어라운드 미지원 회귀테스트). 커밋 `b4f008a`
+- **버티포트 coarse 3단 캐스케이드(§5.2)** — `WhiteFieldDetector`(mask→원형 blob)/`BlackVMatcher`(matchShapes 검은V 형상검증)/`RedRingDetector`(빨강 Hue 양끝 게이팅+최소외접원 피팅, ColorFilter의 Hue랩어라운드 한계를 자체 해결). `presets/vertiport_coarse.yaml` 조립. 설계 교훈: `ColorFilter`가 `current`를 자기 mask로 지워버려 뒤 단계는 `original`을 읽게 설계. 단위3+통합1 테스트. 커밋 `7cca1fc`
+- **관측성 골격 §7.9 2번** — 이중싱크 사람로거(`utils/logging.py`, provenance 헤더=git해시+config+캘리브id) + JSONL 블랙박스(`utils/blackbox.py`, bounded queue+drop-oldest+`QueueListener` 비차단, 거절이유 로깅). 단위 12개. 커밋 `bf7fdab`. **여기까지 `pytest vision/tests/` 59 passed, 전부 push 완료, RPi 저장소도 이 지점까지 fast-forward 동기 완료**
+- **RPi 카메라 브링업 디버깅 (미완, 다음 세션 최우선 인계사항)** — 카메라 캘리브레이션 착수하려고 RPi 촬영 도구(`vision/tools/rpi_capture.py`, picamera2 기반)를 만들었으나 RPi가 Raspberry Pi OS가 아니라 **Ubuntu**라 picamera2/rpicam-apps가 apt에 없어 실패. GStreamer(`libcamerasrc`) 기반으로 재작성했으나, 그 전에 카메라 자체가 커널에도 안 잡히는 걸 발견 → 사용자가 제공한 서드파티 카메라보드(**"CAM109-IMX708AF-75", 정품 CM3 아님**) 제조사 PDF에서 정확한 해법(`camera_auto_detect=0`+명시적 `dtoverlay=imx708,cam0/cam1`) 확인 후 적용 → **커널/V4L2 레벨은 인식 성공**(`/dev/video0`=`rp1-cfe-csi2_ch0`). 그러나 **상위 libcamera 라이브러리가 여전히 카메라를 못 봄** — 원인 특정: 이 Ubuntu의 `libcamera-ipa` 패키지가 RPi5용 **PiSP ISP IPA 모듈 없이 빌드됨**(구형 vc4 IPA만 존재). picamera2/GStreamer 둘 다 이 동일 라이브러리를 거치므로 **똑같이 막힘** — 즉 `rpi_capture.py`의 GStreamer 재작성분은 현재 이 하드웨어에서 작동 불가. 사용자에게 4개 대안(V4L2 RAW 직접캡처 우회/libcamera 소스 재빌드/RPi OS 재설치/보류)을 제시했으나 **답 받기 전 사용자가 긴급 세션종료 요청** → 여기서 끊김
+
+### 결정
+
+- **패스워드리스 sudo를 RPi(`suri` 계정)에 설정** — 사용자 명시 동의 하에(`/etc/sudoers.d/suri-nopasswd`). 앞으로 Claude가 SSH로 직접 sudo 작업 가능, 매번 사용자에게 명령 전달→실행→보고 왕복 안 해도 됨
+- **장착 카메라가 정품 Raspberry Pi Camera Module 3가 아니라 서드파티 클론임을 확인** — `vision_plan.md`가 가정한 화각(102°)과 실제 스펙(75°)이 다름. coarse 캐스케이드 탐지거리 가정에 영향 줄 수 있어 재검토 여지 있음(아직 미반영)
+
+### 다음 세션
+
+1. **최우선: 카메라 브링업 4개 선택지 중 어느 걸로 갈지 사용자에게 확인** — 메모리 `project_rpi5_ubuntu_camera_stack.md`에 전체 경과·정확한 진단 명령·재현법 다 있음, 처음부터 재조사할 필요 없이 바로 이어서 진행
+2. (권장 방향이면) V4L2 RAW 직접 캡처로 `rpi_capture.py` 재작성 → 실제 체커보드 촬영 → 카메라 인트린식/왜곡 캘리브레이션
+3. 또는 카메라 이슈와 독립적으로 §7.9 3번(`FrameSource` 재생 어댑터, logger/blackbox를 main.py에 연결)으로 트랙 전환 가능
+
+### 주의
+
+> `docs/vision_status.md` 트랙보드에 이 모든 내용이 이미 반영되어 있음 — 다음 세션은 그 문서만 읽으면 됨(이 로그는 서술 상세용, 트랙보드가 실질 진입점).
+> `vision/tools/rpi_capture.py`는 커밋은 됐지만 **현재 이 RPi에서 작동 안 함** — 카메라 병목 해소 전엔 이 스크립트로 뭘 시도해도 헛수고.
+> RPi에 있는 저장소는 `/home/suri/drone_ws/src/suridoksuri`(dev--vision-computing-module) 하나뿐이고, `/home/suri/drone_ws/suridoksuri/suridoksuri`는 완전히 다른 별도 clone(다른 remote/브랜치)이라 건드리면 안 됨.
+
+---
+
 ## 2026-07-20 — [mc-hw] RPi5 WiFi 장기끊김 근본원인 확정(brcmfmac 커널버그) + 완화조치 적용
 
 **브랜치:** `dev--vision-computing-module`
@@ -230,35 +261,3 @@ project: suridoksuri-1
 > `logs/` 방침이 바뀌어 이제 **비행 로그는 커밋 대상**이다 — 새 플라이트 폴더 생성 후 커밋을 잊지 말 것. 저장소 용량이 계속 늘어나는 것은 의도된 트레이드오프.
 > RPi `sudo`/`docker` 권한이 이 세션엔 없음(비밀번호 필요) — 컨테이너 안쪽 작업이 필요하면 사용자에게 요청할 것.
 
----
-
-## 2026-07-15 — [vision] 계획 갭 반영·headless main.py·테스트환경
-
-**브랜치:** `dev--vision-computing-module`
-**목적:** vision 트랙 재개 — 목적·구현범위 점검 → 계획서 갭 반영 → 개발단계 디버깅 착수(headless main.py) → 실테스트 환경 구축
-
-### 완료
-
-- **vision 트랙 이해·구현범위 점검 → 계획서(`vision_plan.md`) 갭 8건 반영** (커밋 `af32ccf`): ④단순착륙 전략공백/내부불일치(§2 표+§5.6 신설), TERMINAL 데드레코닝·blob 타겟 스케일 융합규칙(§5.1), 빨강 ①원↔③십자 혼동 방어(§5.4), `TargetEstimate` 좌표 프레임 계약 미확정(§7.1+§10), CC 명령 수신 시임 `CommandSource`(§7.2), **개발단계 디버깅 워크플로 §7.9 신설**, 성능/지연 예산 등 §10/§11
-- **main.py headless-safe** — `--display {none|window|file|stream}`, 모든 GUI(imshow/waitKey)를 window 뒤로 격리, 기본 `none`=GUI 미호출(드론 헤드리스 크래시 원천 제거). `tests/test_main.py` 회귀 4종(none=imshow 0회 불변식)
-- **테스트 규칙 정비** — `vision/CLAUDE.md`에 테스트 방법 + 단위별 필수 테스트 표(15단위, ✅4/TODO 다수/폐기 1) + 공통 규칙 4. `vision/requirements.txt`(ASCII) 신설, `.gitignore`에 `.venv/` 등
-- **개발컴 실테스트 환경 구축·통과** — `.venv`(Python 3.10.11, opencv-python 5.0.0.93, numpy 2.2.6, PyYAML 6.0.3, pytest 9.1.1). `pytest vision/tests/` → **16 passed**
-
-### 결정
-
-- **실테스트 환경 4구분 기록·검증**(사용자 지시) — 개발컴(항상 필수, 이번에 설치완료)·개발노트북(실비행 휴대)·개발노트북의 wsl·rpi(headless=`opencv-python-headless`). 단계별 추가, **최종 단계엔 4환경 전부 검증**. 매트릭스는 메모리 `project_vision_dev_env.md`에
-- `vision/requirements.txt`는 **ASCII 유지** — 개발컴 pip(cp949)가 한글 주석에 `UnicodeDecodeError`. 한글 안내는 `vision/CLAUDE.md`에
-- `geo_project.pixel_to_gps`는 폐기 예정 → 신규 테스트 금지
-
-### 다음 세션
-
-1. **미커버 단위 테스트 채우기** — `color` HSV 초록/빨강 모드 우선(정밀착륙 직결) + edge/morphology/fusion 등. 대상·규칙은 `vision/CLAUDE.md` 단위테스트 표
-2. **또는 관측성 골격 §7.9 다음 항목** — 이중싱크 로거 + provenance 헤더(config+git해시+캘리브id)
-3. (선행 대기) 카메라 인트린식/왜곡 캘리브레이션 + 실기체 3타겟 데이터 — 골든셋·색 캘리브 착수 조건
-
-### 주의
-
-> 개발컴만 `.venv` 준비됨 — **개발노트북·그 wsl·rpi는 미설치**(필요 단계에서 `vision/requirements.txt`, rpi는 headless 변형).
-> 대회 상세규정 여전히 대기(`vision_plan.md` §10: ArUco ID·③빨간십자·초록 스펙·성공판정·CC 인터페이스).
-
----

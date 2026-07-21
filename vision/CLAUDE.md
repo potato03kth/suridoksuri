@@ -42,6 +42,9 @@
 | `background.py` | `BackgroundSubtractor` | `current`, `mask` | `mask` |
 | `tracker.py` | `KalmanTracker` | `detections` | `meta` |
 | `fusion.py` | `TemporalFusion` | `detections` | `confirmed`, `meta` |
+| `vertiport_field.py` | `WhiteFieldDetector` | `mask` | `detections`, `meta` |
+| `vertiport_v.py` | `BlackVMatcher` | `original`, `detections` | `detections`, `meta` |
+| `vertiport_ring.py` | `RedRingDetector` | `original`, `detections` | `detections`, `meta` |
 
 ### 그 외
 
@@ -54,20 +57,27 @@
 | `utils/video_reader.py` | 영상 파일 → 프레임 이터레이터 |
 | `utils/visualize.py` | bbox 드로잉, 결과 이미지 저장 |
 | `utils/geo_project.py` | 픽셀 좌표 → GPS 좌표 (FC 연동 시 사용) |
+| `utils/logging.py` | 이중싱크 사람로그(터미널+.log 로테이션) + provenance 헤더(config+git해시+캘리브id) (§7.4/§7.3) |
+| `utils/blackbox.py` | 프레임별 JSONL 블랙박스 + 거절이유 로깅. bounded queue+drop-oldest 비차단 (§7.4) |
 | `main.py` | CLI 진입점. 이미지/영상 자동 분기 |
+| `tools/rpi_capture.py` | RPi 헤드리스 캘리브레이션 촬영 — 저해상도 스냅샷 자동갱신(브라우저) + 촬영 트리거(버튼/Enter). GStreamer `libcamerasrc` 서브프로세스 기반. **⚠️ 2026-07-21 확인: 이 RPi에서 현재 작동 불가** — libcamera가 PiSP IPA 없이 빌드돼 있어 `libcamerasrc`가 카메라를 못 봄(picamera2도 동일 원인으로 막힘). 재작업 필요 — 상세·대안 4개는 메모리 `project_rpi5_ubuntu_camera_stack.md` |
 
 ---
 
 ## VisionState 필드 사용 규칙
 
 ```
-original    읽기 전용. 모든 모듈이 수정 금지. 시각화/최종 출력 전용.
+original    읽기 전용. 모든 모듈이 수정 금지. 시각화/최종 출력 + 캐스케이드 단계별 원본색상 조회용.
 current     전처리 모듈이 순차 수정하는 작업 이미지 (BGR).
 mask        이진 마스크(0/255). ColorFilter → Edge → Morphology 순으로 갱신.
-detections  RectDetector가 채운다. Tracker/Fusion이 읽는다.
+detections  RectDetector가 채운다. Tracker/Fusion이 읽는다. 캐스케이드형 검출기는 이전 단계 detections를 읽어 ROI로 쓰고 자기 결과로 덮어쓴다(§버티포트 coarse 캐스케이드).
 confirmed   TemporalFusion만 쓴다. 시간 축으로 확정된 단일 결과.
 meta        각 모듈의 진단 정보. 키는 모듈 이름으로 네임스페이스를 지킨다.
 ```
+
+**주의:** `ColorFilter`는 `current`를 자기 mask로 bitwise_and 해버려 mask 밖 픽셀 정보가 사라진다.
+버티포트 캐스케이드(`vertiport_v.py`/`vertiport_ring.py`)처럼 뒤 단계가 앞 단계 마스크에 안 걸린 색상을
+봐야 하는 경우 `current` 대신 원본이 보존된 `original`을 읽는다.
 
 ---
 
@@ -129,6 +139,7 @@ core/       ← numpy, opencv만 허용. 다른 vision 서브패키지 import �
 modules/    ← vision.core 만 import. 다른 modules 파일 import 금지.
 utils/      ← vision.core 만 import. modules import 금지.
 main.py     ← presets 경로 + utils + core 만 import.
+tools/      ← 이 규칙 밖. RPi 하드웨어 전용 운영스크립트(예: picamera2) — .venv에 안 깔림, CI/pytest 대상 아님.
 ```
 
 ---
@@ -189,7 +200,7 @@ pytest vision/tests/ -q -k main # 특정만
 |---|---|---|
 | core/runner `Pipeline` | from_config 로드·실행순서·`partial(N)`·unknown module→ValueError | ✅ test_pipeline |
 | registry | 등록 이름 전부 실제 클래스 매핑·중복 없음 | ❌ TODO |
-| color `ColorFilter` | 모드별 mask 생성·임계값 경계·meta (**HSV 초록/빨강 모드 미검증**) | △ gray만 |
+| color `ColorFilter` | 모드별 mask 생성·임계값 경계·meta | ✅ test_color (gray+color, 빨강 Hue랩어라운드 미지원은 §5.4 blind spot로 별도 회귀테스트 기록) |
 | illumination | current 변형·형상/채널 보존·meta | ❌ TODO |
 | denoise | current 변형·형상 보존 | ❌ TODO |
 | edge `EdgeDetector` | current/mask→mask 갱신·빈입력 | ❌ TODO |
@@ -198,10 +209,16 @@ pytest vision/tests/ -q -k main # 특정만
 | background | 연속프레임 mask 갱신 | ❌ TODO |
 | tracker `KalmanTracker` | detections→meta 추적·연속성 | ❌ TODO |
 | fusion `TemporalFusion` | detections→confirmed 시간확정·흔들림 억제 | ❌ TODO |
+| vertiport_field `WhiteFieldDetector` | mask→원형 blob 검출·원형도 필터·중심/반지름 meta | ✅ test_vertiport_field |
+| vertiport_v `BlackVMatcher` | original 내 어두운 영역 matchShapes 검증·1차 bbox 밖 배경 오탐 배제·불일치 시 detections 제거 | ✅ test_vertiport_v |
+| vertiport_ring `RedRingDetector` | 빨강 Hue 양끝 게이팅(랩어라운드 대응)·최소외접원 피팅·중심/반지름 meta | ✅ test_vertiport_ring |
+| 버티포트 coarse 캐스케이드 통합(`presets/vertiport_coarse.yaml`) | 3단 전체 파이프라인 end-to-end·단계별 meta 기록·빈 이미지 0검출 | ✅ test_vertiport_cascade |
 | utils/image_loader | 경로→BGR ndarray·없는 파일 에러 | ❌ TODO |
 | utils/video_reader | 프레임 이터레이트·fps·컨텍스트 종료 | ❌ TODO |
 | utils/visualize | draw_detections 형상·save_result 파일 생성 | ❌ TODO |
 | utils/geo_project | **폐기 예정(plan §12) — 신규 테스트 금지** | 폐기 |
+| utils/logging | 이중싱크 핸들러 구성·콘솔레벨이 파일레벨 억제 안 함·재호출 시 핸들러 중복 안 됨·provenance에 git해시/config/캘리브id | ✅ test_logging |
+| utils/blackbox | 프레임/거절이유 JSONL 기록·bounded queue drop-oldest(최신 안 잃음)·close() 큐 가득해도 안전 | ✅ test_blackbox |
 | main.py | `--display` 게이팅: **none=imshow 0회**(헤드리스 안전 불변식)·file→output 강제·stream 미구현 | ✅ test_main |
 
 **공통 규칙 (모든 모듈 테스트):**

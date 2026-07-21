@@ -1,8 +1,10 @@
-"""작업 G 순수 함수 테스트 — 폴더 넘버링·최신 ulog 선택.
+"""작업 G 순수 함수 테스트 — 폴더 넘버링·최신 ulog 선택·비행로그 진단.
 
 실행: cd tools/flight_logs && pytest test_flight_logs.py
-(pymavlink 불필요 — 순수 함수만 import)
+(pymavlink/pyulog 불필요 — 순수 함수만 import)
 """
+
+import math
 
 import pytest
 
@@ -16,6 +18,26 @@ from pull_ulog import (
     next_flight_dirname,
     pick_latest_log,
     ulog_filename,
+)
+from analyze_flight import (
+    arming_state_name,
+    classify_mode_transition,
+    detect_rate_onset,
+    first_sustained_nonzero,
+    motor_label,
+    nav_state_name,
+    parse_transition_alt,
+    quat_to_euler_deg,
+)
+from collect_new_logs import (
+    catchall_dirname,
+    classify_dirname,
+    collected_ulog_ids,
+    is_dated_dirname,
+    notes_skeleton,
+    parse_ulog_list,
+    plan_dir_sync,
+    run as collect_run,
 )
 
 D = "2026-07-06"
@@ -153,6 +175,259 @@ class TestCoverage:
 
     def test_empty(self):
         assert coverage([], 300) == 0
+
+
+# ---------------------------------------------------------------------------
+# analyze_flight.py 순수 함수 테스트
+# ---------------------------------------------------------------------------
+
+class TestQuatToEulerDeg:
+    def test_identity_quat_is_level(self):
+        assert quat_to_euler_deg(1, 0, 0, 0) == (0.0, 0.0, 0.0)
+
+    def test_90deg_roll(self):
+        # roll +90도 쿼터니언: (cos45, sin45, 0, 0)
+        c = math.cos(math.radians(45)); s = math.sin(math.radians(45))
+        roll, pitch, yaw = quat_to_euler_deg(c, s, 0, 0)
+        assert roll == pytest.approx(90.0, abs=1e-6)
+        assert pitch == pytest.approx(0.0, abs=1e-6)
+
+    def test_180deg_roll_wraps(self):
+        # roll 180도는 +180/-180 경계 — atan2 특성상 부호 어느 쪽이든 허용
+        roll, _, _ = quat_to_euler_deg(0, 1, 0, 0)
+        assert abs(roll) == pytest.approx(180.0, abs=1e-6)
+
+
+class TestMotorLabel:
+    def test_front_right(self):
+        assert motor_label(1.0, 1.0) == "전우"
+
+    def test_rear_left(self):
+        assert motor_label(-1.0, -1.0) == "후좌"
+
+    def test_front_left(self):
+        assert motor_label(1.0, -1.0) == "전좌"
+
+    def test_rear_right(self):
+        assert motor_label(-1.0, 1.0) == "후우"
+
+    def test_center_axis_labeled_mid(self):
+        # 육각/동축 등 PX 또는 PY가 0인 배치 — 예외 없이 "중"으로 라벨
+        assert motor_label(0.0, 1.0) == "중우"
+        assert motor_label(1.0, 0.0) == "전중"
+
+
+class TestClassifyModeTransition:
+    def test_failsafe_wins_even_if_intention_changed(self):
+        assert classify_mode_transition(True, True) == "FAILSAFE_FORCED"
+
+    def test_intentional_change(self):
+        assert classify_mode_transition(True, False) == "INTENTIONAL_CHANGE"
+
+    def test_unclassified_when_neither(self):
+        assert classify_mode_transition(False, False) == "AUTO_RECOVERY_OR_UNCLASSIFIED"
+
+
+class TestNavArmingStateNames:
+    def test_known_nav_states(self):
+        assert nav_state_name(17) == "AUTO_TAKEOFF"
+        assert nav_state_name(4) == "AUTO_LOITER"
+        assert nav_state_name(2) == "POSCTL"
+
+    def test_unknown_nav_state_falls_back(self):
+        assert nav_state_name(99) == "UNKNOWN(99)"
+
+    def test_arming_states(self):
+        assert arming_state_name(2) == "ARMED"
+        assert arming_state_name(1) == "STANDBY"
+
+
+class TestDetectRateOnset:
+    def test_no_onset_when_flat(self):
+        times = [i * 0.1 for i in range(50)]
+        rates = [0.5] * 50
+        assert detect_rate_onset(times, rates) is None
+
+    def test_detects_sustained_jump_after_baseline(self):
+        # 0~1.5s는 잡음(±1deg/s), 이후 계속 30deg/s로 튐
+        times = [i * 0.05 for i in range(80)]  # 0~3.95s
+        rates = [1.0 if t <= 1.5 else 30.0 for t in times]
+        onset = detect_rate_onset(times, rates, baseline_end_s=1.5, consec=3)
+        assert onset is not None
+        onset_t, onset_v, thresh = onset
+        assert onset_t == pytest.approx(1.55, abs=1e-6)  # baseline 직후 첫 샘플
+        assert onset_v == 30.0
+
+    def test_single_spike_does_not_trigger(self):
+        # consec=3 요구 — 단발 스파이크 1개는 무시
+        times = [i * 0.1 for i in range(30)]
+        rates = [1.0] * 30
+        rates[20] = 50.0
+        assert detect_rate_onset(times, rates, baseline_end_s=1.0, consec=3) is None
+
+    def test_insufficient_baseline_returns_none(self):
+        times = [0.1, 0.2]
+        rates = [1.0, 1.0]
+        assert detect_rate_onset(times, rates, baseline_end_s=1.5) is None
+
+
+class TestFirstSustainedNonzero:
+    def test_transient_blip_ignored(self):
+        # arm 직후(skip_before 이전) 블립은 애초에 안 봄
+        times = [0.1, 0.3, 0.6, 1.2, 1.4]
+        vals = [0.05, 0.05, 0.05, 0.0, 0.0]
+        assert first_sustained_nonzero(times, vals, skip_before=1.0) is None
+
+    def test_sustained_after_skip_detected(self):
+        times = [0.5, 1.2, 1.4, 1.6, 1.8]
+        vals = [0.05, 0.0, 0.2, 0.3, 0.4]
+        onset = first_sustained_nonzero(times, vals, skip_before=1.0, consec=3)
+        assert onset == (1.4, pytest.approx(0.2))
+
+    def test_none_when_never_sustained(self):
+        times = [1.1, 1.2, 1.3, 1.4]
+        vals = [0.2, 0.0, 0.2, 0.0]
+        assert first_sustained_nonzero(times, vals, skip_before=1.0, consec=2) is None
+
+
+class TestParseTransitionAlt:
+    def test_extracts_value(self):
+        text = "- **비행 조건:** (launch 인자: vehicle_type:=mc transition_alt:=5.0 waypoints:=[...])"
+        assert parse_transition_alt(text) == 5.0
+
+    def test_none_when_absent(self):
+        assert parse_transition_alt("아무 내용 없음") is None
+
+    def test_none_for_empty_input(self):
+        assert parse_transition_alt(None) is None
+        assert parse_transition_alt("") is None
+
+
+# ---------------------------------------------------------------------------
+# collect_new_logs.py 순수 함수 테스트
+# ---------------------------------------------------------------------------
+
+class TestIsDatedDirname:
+    def test_dated(self):
+        assert is_dated_dirname("2026-07-20_flight02")
+        assert is_dated_dirname("2026-07-20_manual")
+
+    def test_not_dated(self):
+        assert not is_dated_dirname("README.md")
+        assert not is_dated_dirname("rosbag")
+
+
+class TestClassifyDirname:
+    def test_flight_folder(self):
+        assert classify_dirname("2026-07-20_flight02") == "flight"
+        assert classify_dirname("2026-07-20_flight100") == "flight"
+
+    def test_catchall_folders(self):
+        assert classify_dirname("2026-07-20_manual") == "catchall"
+        assert classify_dirname("2026-07-18_unlogged") == "catchall"
+
+
+class TestPlanDirSync:
+    def test_new_flight_folder_gets_full_copy(self):
+        plan = plan_dir_sync(["2026-07-21_flight01"], [])
+        assert plan == [("2026-07-21_flight01", "full")]
+
+    def test_existing_flight_folder_skipped(self):
+        # 이미 로컬에 있는 flightNN 폴더는 절대 건드리지 않는다
+        plan = plan_dir_sync(["2026-07-21_flight01"], ["2026-07-21_flight01"])
+        assert plan == []
+
+    def test_catchall_always_merged_even_if_exists(self):
+        plan = plan_dir_sync(["2026-07-21_manual"], ["2026-07-21_manual"])
+        assert plan == [("2026-07-21_manual", "merge")]
+
+    def test_ignores_undated_entries(self):
+        plan = plan_dir_sync(["README.md", "2026-07-21_flight01"], [])
+        assert plan == [("2026-07-21_flight01", "full")]
+
+    def test_sorted_output(self):
+        plan = plan_dir_sync(["2026-07-21_flight02", "2026-07-21_flight01"], [])
+        assert [d for d, _ in plan] == ["2026-07-21_flight01", "2026-07-21_flight02"]
+
+
+class TestParseUlogList:
+    def test_parses_table_rows(self):
+        text = (
+            "   id  UTC 시각              크기\n"
+            "   25  2026-07-20 10:37:04     608,862\n"
+            "   26  2026-07-20 10:37:50   1,823,644\n"
+        )
+        entries = parse_ulog_list(text)
+        assert entries == [
+            (25, "2026-07-20 10:37:04", 608862),
+            (26, "2026-07-20 10:37:50", 1823644),
+        ]
+
+    def test_gps_time_missing_becomes_none(self):
+        text = "   13  (GPS 시각 없음)          3,300,000\n"
+        entries = parse_ulog_list(text)
+        assert entries == [(13, None, 3300000)]
+
+    def test_ignores_header_and_blank_lines(self):
+        text = "   id  UTC 시각              크기\n\n"
+        assert parse_ulog_list(text) == []
+
+    def test_empty_input(self):
+        assert parse_ulog_list("") == []
+
+
+class TestCollectedUlogIds:
+    def test_extracts_ids_from_various_filenames(self, tmp_path):
+        (tmp_path / "2026-07-20_flight02").mkdir()
+        (tmp_path / "2026-07-20_flight02" / "log_19_2026-07-20-10-31-12.ulg").write_text("x")
+        (tmp_path / "2026-07-18_unlogged").mkdir()
+        (tmp_path / "2026-07-18_unlogged" / "log_0_2026-07-18-03-06-52.ulg").write_text("x")
+        (tmp_path / "2026-07-06_flight01").mkdir()
+        (tmp_path / "2026-07-06_flight01" / "log_13.ulg").write_text("x")  # 시각 없는 케이스
+        assert collected_ulog_ids(str(tmp_path)) == {19, 0, 13}
+
+    def test_empty_root(self, tmp_path):
+        assert collected_ulog_ids(str(tmp_path)) == set()
+
+    def test_ignores_non_ulog_files(self, tmp_path):
+        (tmp_path / "2026-07-20_flight01").mkdir()
+        (tmp_path / "2026-07-20_flight01" / "launch.log").write_text("x")
+        assert collected_ulog_ids(str(tmp_path)) == set()
+
+
+class TestRunTimeoutResilience:
+    def test_hard_timeout_does_not_raise(self):
+        # 실사용 중 SSH 순간끊김 하나로 전체 스크립트가 uncaught 예외로 죽던 버그의 회귀 테스트.
+        r = collect_run(["sleep", "2"], timeout=0.1)
+        assert r.returncode != 0
+        assert "타임아웃" in r.stderr
+
+    def test_normal_command_still_works(self):
+        r = collect_run(["echo", "hi"], timeout=5)
+        assert r.returncode == 0
+        assert r.stdout.strip() == "hi"
+
+
+class TestCatchallDirname:
+    def test_format(self):
+        assert catchall_dirname("2026-07-21") == "2026-07-21_manual"
+
+
+class TestNotesSkeleton:
+    def test_contains_required_fields(self):
+        text = notes_skeleton("2026-07-21_manual")
+        assert "# 2026-07-21_manual" in text
+        assert "- **비행 조건:**" in text
+        assert "- **관찰:**" in text
+        assert "- **결론:**" in text
+
+    def test_never_prefills_observation_or_conclusion(self):
+        # 해석은 사람 몫 — 관찰/결론 줄은 항상 빈 채로 끝나야 한다
+        text = notes_skeleton("2026-07-21_manual")
+        obs_line = next(l for l in text.splitlines() if l.startswith("- **관찰:**"))
+        concl_line = next(l for l in text.splitlines() if l.startswith("- **결론:**"))
+        assert obs_line == "- **관찰:**"
+        assert concl_line == "- **결론:**"
 
 
 # ---------------------------------------------------------------------------

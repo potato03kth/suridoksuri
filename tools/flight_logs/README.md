@@ -76,14 +76,54 @@ sudo 불필요, 설치 상세·근거는 `docs/pixhawk6c_rpi4_integration_guide.
 `-RemotePath` 기본값 `~/drone_ws/src/suridoksuri/logs`는 **RPi 배포 검증 때 확정** —
 컨테이너 `fc`의 경로가 호스트 볼륨 마운트인지에 따라 달라진다 (아래 미결).
 
-## 4. 분석 (개발컴)
+## 3b. 개발컴 회수 — `collect_new_logs.py` (Linux/WSL, 서브에이전트용 표준절차)
 
-**가장 빠른 길: Claude에게 로그 폴더 경로를 주면 됨.** (`logs/2026-07-06_flight01/ 분석해줘`)
-
-수동 분석:
+`fetch_logs.ps1`은 Windows 전용이라 WSL 세션에서 못 쓴다. 이 스크립트는 그 Linux
+버전이면서, 그동안 수작업으로 하던 **"FC에 아직 안 받아온 ulog 찾아서 회수"** 단계까지
+합쳤다 — "비행 → 로그수집 → 로그분석 → 평가 → 비행" 사이클을 반복할 때, 로그수집은
+판단이 필요 없는 기계적 작업이라 서브에이전트가 매번 그대로 실행하도록 만든 것이다.
 
 ```bash
-pip install pyulog                       # 1회
+python3 tools/flight_logs/collect_new_logs.py                # 회수 + notes.md 스켈레톤 + analyze_flight.py + commit + push
+python3 tools/flight_logs/collect_new_logs.py --dry-run       # 아무것도 안 쓰고 계획만 확인
+python3 tools/flight_logs/collect_new_logs.py --no-push       # 로컬 커밋까지만
+python3 tools/flight_logs/collect_new_logs.py --tag '[vtol-hw]'   # 다른 트랙에서 쓸 때
+```
+
+하는 일: ①원격 신규 `logs/YYYY-MM-DD_*` 폴더 rsync(`_flightNN`류는 로컬에 없을 때만
+1회 복사, `_manual`/`_unlogged`류 catch-all은 항상 증분 병합) ②원격 `pull_ulog.py --list`로
+FC 전체 ulog id를 확인해 로컬에 하나도 없는 id를 `<오늘날짜>_manual/`로 회수
+③notes.md 없으면 스켈레톤 생성(관찰/결론은 항상 빈칸 — 해석은 사람 몫) ④새 폴더마다
+`analyze_flight.py` 실행 ⑤git add+commit+push. **원격(RPi)의 git 상태/코드는 건드리지
+않는다** — 로그 파일만 읽는다. 순수 함수(폴더 분류, id diff, notes 템플릿)는
+`test_flight_logs.py`에서 검증됨.
+
+## 4. 분석 (개발컴)
+
+**표준 진단 리포트: `analyze_flight.py`.** 2026-07-20/21 flight02·flight03 사고분석
+세션에서 pyulog 코드를 매번 새로 짜며 세션 컨텍스트를 크게 소모한 것을 계기로,
+그때 알아낸 진단 로직(쿼터니언 디코드, `CA_ROTOR*` 파라미터 기반 모터 위치매핑,
+`nav_state_user_intention`+`failsafe`로 모드전환 출처 판별, 축별 얼로케이터 포화
+(`unallocated_torque`) 시점 특정, `ground_contact` 기반 이함 순간 검출)을 고정해뒀다.
+**비행마다 이 스크립트를 서브에이전트가 실행해 구조화된 요약만 메인 세션으로 가져오는
+용도** — 세션에서 pyulog 코드를 다시 짜지 않는다.
+
+```bash
+pip install pyulog                                       # 1회
+python3 tools/flight_logs/analyze_flight.py logs/2026-07-20_flight03/
+python3 tools/flight_logs/analyze_flight.py logs/2026-07-20_flight03/ --json  # JSON 사본도 생성
+```
+
+폴더 안 `.ulg`가 여러 개면(재시동/재arm 블립 포함) 가장 긴 것을 주 로그로 전체 분석하고
+나머지는 길이만 요약한다. 기본으로 `<플라이트폴더>/analysis_auto.md`에도 저장된다
+(`--no-write`로 끔) — `notes.md` 결론 작성 시 이 파일을 인용하면 된다. **해석("원인이
+뭐다")은 하지 않는다** — 그 판단에 필요한 정확한 사실만 뽑는다. 스크립트가 명시적으로
+다루지 않는 토픽도 목록으로 출력해(§끝) 조용히 놓치는 부분이 없게 한다. 순수 함수는
+`test_flight_logs.py`에서 pytest로 검증됨.
+
+그 외 수동 분석(스크립트가 다루지 않는 토픽을 더 파고들 때):
+
+```bash
 ulog_info  logs/.../log_12_*.ulg         # 메타데이터·메시지 목록·드롭아웃
 ulog2csv   logs/.../log_12_*.ulg -o csv/ # 토픽별 CSV 변환
 ulog_messages logs/.../log_12_*.ulg      # PX4 내부 로그 메시지 (거부 사유 등)
