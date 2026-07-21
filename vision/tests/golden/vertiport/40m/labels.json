@@ -1,0 +1,25 @@
+{
+  "target": "vertiport",
+  "altitude_label": "40m (원거리, 스키마 자리표시자 — 주석 참조)",
+  "preset": "vertiport_coarse.yaml",
+  "note": "알려진 한계: white_field는 후보 1개를 내지만(경계 근처 원형도) black_v 형상매칭이 떨어져 최종 검출 0건. 저해상 스케일에서 고정 kernel_size=5 morphology가 V 노치 연결성을 깨는 것이 원인으로 보임(이 스크립트 상단 docstring 참조). 검출기 자체는 이번 세션에서 튜닝하지 않음 — 실기체 데이터 확보 후 재검증 대상.",
+  "frames": [
+    {
+      "file": "frame_000.png",
+      "expect_num_detections": 0,
+      "expect_stage_meta": {
+        "white_field": {
+          "candidates": 1
+        },
+        "black_v": {
+          "confirmed": 0,
+          "rejected": 1
+        },
+        "red_ring": {
+          "confirmed": 0
+        }
+      },
+      "known_limitation": true
+    }
+  ]
+}

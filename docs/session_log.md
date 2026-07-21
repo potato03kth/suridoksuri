@@ -11,6 +11,43 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-21d — [vision] 골든셋 폴더 스캐폴드 + 재생 회귀 assert
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 사용자가 실비행 중이라 이번 세션도 RPi SSH 접속·실카메라 작업 전면 금지 유지. `docs/vision_status.md` "다음" 4번(§7.9 항목7 — 골든셋 폴더 스캐폴드 + 재생 회귀 assert, 카메라 독립적으로 진행 가능)을 노트북(WSL) 로컬에서만 진행
+
+### 완료
+
+- **`vision_plan.md` §7.9/§7.5/§2 정독** — "골든셋 회귀 테스트: 라벨된 프레임 폴더(고도별·타겟별) 검출 유지 assert" 요구 확인. 실기체 데이터가 없어(§ vision_status.md 주의) 이번 세션은 **폴더 구조/스키마 스캐폴드**를 확정하고 합성 프레임으로 동작을 증명하는 것으로 범위를 좁힘(진짜 라벨링 데이터셋은 카메라 브링업 이후)
+- **골든셋 스키마 확정** — `vision/tests/golden/<타겟>/<고도라벨>/frame_NNN.png` + 리프 디렉터리별 `labels.json`(target/altitude_label/preset/note/frames[expect_num_detections/expect_stage_meta/known_limitation]). `DirFrameSource`가 이미지만 골라 읽으므로 `labels.json`이 같은 디렉터리에 있어도 재생에 영향 없음을 `vision/utils/frame_source.py` 확인으로 검증. 구조/스키마/재생성법/실기체 데이터 교체 절차는 `vision/tests/golden/README.md`에 문서화(§ 요구사항 4번)
+- **타겟 종류 선정 — "3종" 예시를 문자 그대로 따르지 않고 실제 구현된 검출 경로에 맞춤:** ① `vertiport`(기존 `vertiport_coarse.yaml` 3단 캐스케이드 그대로 사용) ② `distress`(전용 모듈이 없어 신규 `vision/presets/distress_coarse.yaml` 프리셋 추가 — **기존 `ColorFilter`+`RectDetector` 조합일 뿐 신규 검출 로직 없음**, §5.3 "HSV 초록+사각" 그대로) ③ 하기구역은 전용 형상판별(빨간 십자) 검출기가 없어 **의도적으로 제외**(제네릭 rect_detector로 "십자"라고 우기면 허위 검증이라 판단) + `no_target`(④ 단순착륙과 동일 조건 — 피듀셜 없는 평지에서 가장 정교한 캐스케이드조차 오탐하지 않는지, 오탐방지 회귀). 사유는 `vision/tests/golden/README.md` "빠진 것" 절에 명시
+- **고도 티어(10m/20m/40m) 픽셀 스케일을 GSD 표(§4.1)에서 정밀하게 역산하지 않기로 결정** — §4.1 GSD 표는 화각 102° 가정인데 실장착 카메라는 75°로 확인돼(`docs/vision_status.md`) 표 자체가 재검증 대기 상태. 정밀 역산은 거짓 정밀도가 되므로, "가까움/중간/멂" 스키마 자리표시자로만 고도 라벨을 씀 — `generate_synthetic.py` docstring과 README에 이 판단 근거를 명시
+- **실측으로 실제 파이프라인 스케일 민감성을 발견** — `test_vertiport_cascade.py`와 동일 비율의 합성 도형을 다양한 픽셀 스케일로 실제 `vertiport_coarse.yaml` 파이프라인에 돌려본 결과, 큰 스케일(예 흰 필드 지름 220px 이상)에서는 3단 캐스케이드 전부 확인되지만 작은 스케일(94px)에서는 `white_field`는 후보를 내고도 `black_v` 형상매칭이 탈락(rejected)해 최종 검출 0건이 됨 — 저해상에서 `MorphologyModule`의 고정 `kernel_size=5`가 V 노치 주변 화이트필드 연결성을 깨는 것이 원인으로 보임. **검출기/프리셋 파라미터는 튜닝하지 않고(이번 세션 범위 밖)**, 실측된 그대로를 `known_limitation: true`로 골든셋에 고정. `distress` 40m 티어도 유사하게 매트 픽셀 면적이 `min_area`(300) 미만이 되는, 물리적으로 타당한 미검출 케이스로 고정
+- **`vision/tests/golden/generate_synthetic.py` 신규** — 위 결정을 코드화한 합성 프레임 생성기(pytest 대상 아님, 수동 재생성 도구). 실행해 7개 리프 디렉터리(`vertiport`×3, `distress`×3, `no_target`×1)의 `frame_000.png`+`labels.json` 생성
+- **`vision/tests/test_golden_regression.py` 신규(15개 테스트)** — §요구사항의 핵심: **실제** `vision.replay.run_replay()`(`DirFrameSource`+실제 `Pipeline`, 몽키패치 없음)로 골든 폴더를 재생시켜 JSONL 블랙박스에 찍힌 실제 검출 개수를 `labels.json`과 비교. 보조로 `Pipeline.run()`을 직접 호출(이것도 실제 호출)해 캐스케이드 단계별 `state.meta`까지 검증. **진짜로 회귀를 잡는지 수동 검증** — `RedRingDetector.min_points`를 999999로 일시 변경(원복 전제)해 관련 4개 테스트가 실제로 실패하는 것 확인 후 원복
+- **`vision/CLAUDE.md` 갱신** — 파일역할표에 `presets/distress_coarse.yaml`·`tests/golden/` 행 추가, 테스트 규칙표에 골든 회귀 행 추가, 공통규칙 4번 "골든셋 회귀는 데이터 수집 후" 문구를 실제 상태(합성 데이터로 스캐폴드 시작)로 갱신
+- **`pytest vision/tests/` 106 passed** (기존 91 + 신규 15)
+
+### 결정
+
+- **"타겟 3종×고도 2~3구간" 예시를 문자 그대로 따르지 않음** — 실제로 파이프라인이 지원하는 타겟(①버티포트, ②조난자구역〈신규 프리셋으로〉)에만 골든셋을 만들고, ③(하기구역)은 전용 검출기가 없어 가짜로 채우지 않기로 판단. 대신 `no_target`(오탐방지)을 세 번째로 넣어 개수는 맞추되 정직성을 우선함
+- **고도 라벨을 GSD 표 기반 정밀 픽셀값으로 만들지 않음** — 카메라 화각 재검증 대기 상태에서 정밀 역산은 실제보다 더 신뢰도 높아 보이는 착시를 만든다고 판단, "근접/중간/원거리" 스키마 자리표시자임을 코드 docstring과 README 양쪽에 명시
+- **40m 티어의 미검출을 "버그"로 보고 파라미터를 고치지 않음** — 세션 지시("검출기 파라미터를 바꾸지 마라, 실패하면 기대값을 현재 동작에 맞게 정하라")를 그대로 따름. 다만 원인 추정(고정 kernel_size의 스케일 민감성)은 README/status에 기록해 다음 세션이 "왜 이 값인지" 재추측하지 않도록 함
+
+### 다음 세션
+
+1. **[RPi 작업 허가 필요]** 카메라 브링업 재개 — `docs/vision_status.md` "🟡" 블록의 4개 선택지 확인부터
+2. (카메라 독립, 대체 가능) §7.9 항목5 — 라이브 스트림 어댑터(`compute_tap` VGA → MJPEG/ROS image)
+3. (카메라 독립, RPi 허가 후가 자연스러움) 골든셋을 실촬영 데이터로 교체 — `vision/tests/golden/README.md` "실기체 데이터가 들어오면" 절차대로. 이때 40m `known_limitation` 두 건도 실측 재검증(현재 동작이 실물에서도 재현되는지, 아니면 합성 도형만의 아티팩트인지 확인 필요)
+
+### 주의
+
+> `docs/vision_status.md` 트랙보드가 이미 갱신됨 — 다음 세션은 그 문서만 읽으면 됨.
+> 골든셋(`vision/tests/golden/`)은 전부 합성 데이터 — 실촬영 아님. 고도 라벨(10m/20m/40m)은 GSD 정밀 매핑이 아니라 스키마 자리표시자.
+> `vertiport_coarse.yaml`의 고정 `kernel_size=5` morphology가 저해상 스케일에서 흰 필드 연결성을 깨는 스케일 민감성을 이번 골든셋 작업 중 발견 — 검출기는 미변경, 실기체 데이터로 재검증 필요.
+
+---
+
 ## 2026-07-21c — [vision] JSONL 뷰어/플롯 최소본(tools/jsonl_view.py)
 
 **브랜치:** `dev--vision-computing-module`
