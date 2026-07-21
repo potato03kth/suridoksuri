@@ -3,8 +3,11 @@
 실제 녹화 폴더(진짜 png 프레임 + telemetry.jsonl)를 실제 파이프라인으로 재생시켜
 JSONL 블랙박스가 실제로 생성되고 텔레메트리·latency가 올바르게 들어가는지 검증한다.
 """
+import http.client
 import json
 import sys
+import threading
+import time
 
 import cv2
 import numpy as np
@@ -12,6 +15,7 @@ import pytest
 
 import vision.replay as replay_mod
 from vision.utils.frame_source import BagFrameSource, DirFrameSource, open_dir_or_bag
+from vision.utils.stream import MjpegStreamer
 
 
 def _make_recording_dir(tmp_path, n=3):
@@ -113,3 +117,68 @@ def test_open_dir_or_bag_used_by_replay_dispatches_correctly(tmp_path):
     writer.write(np.zeros((10, 10, 3), dtype=np.uint8))
     writer.release()
     assert isinstance(open_dir_or_bag(video_path), BagFrameSource)
+
+
+def test_display_stream_serves_real_frames_via_replay(tmp_path, monkeypatch):
+    """§7.9 항목5 replay.py 통합: display="stream" 이 실제 MjpegStreamer로 재생 프레임을 흘리는지
+    -> 실제 HTTP GET /stream 으로 접속해 진짜 프레임 하나를 디코드해서 검증한다(pseudo 테스트 금지).
+
+    재생 자체는 결정론(§7.5)을 지키는 run_replay 그대로 쓰되, 테스트에서만 파이프라인 실행
+    사이에 약간의 지연을 줘서(Pipeline.run monkeypatch) 실제 HTTP 클라이언트가 재생이 끝나기
+    전에 접속할 시간을 확보한다 — 스트리밍 배관 자체는 실제로 동작한다.
+    """
+    from pathlib import Path
+
+    from vision.core.runner import Pipeline
+    from vision.tests.test_stream import _read_one_mjpeg_frame
+
+    rec_dir = _make_recording_dir(tmp_path, n=15)
+    log_dir = tmp_path / "logs"
+    preset_path = str(Path(replay_mod.__file__).parent / "presets" / "single_frame.yaml")
+
+    real_run = Pipeline.run
+
+    def _slow_run(self, *a, **kw):
+        time.sleep(0.03)
+        return real_run(self, *a, **kw)
+
+    monkeypatch.setattr(Pipeline, "run", _slow_run)
+
+    started = {}
+    real_start = MjpegStreamer.start
+
+    def _capturing_start(self):
+        real_start(self)
+        started["port"] = self.port
+
+    monkeypatch.setattr(MjpegStreamer, "start", _capturing_start)
+
+    result = {}
+
+    def _run():
+        result["frame_count"] = replay_mod.run_replay(
+            str(rec_dir), preset_path, display="stream", output=None,
+            log_dir=str(log_dir), log_name="streamrep", stream_host="127.0.0.1", stream_port=0,
+        )
+
+    worker = threading.Thread(target=_run)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 5.0
+        while "port" not in started and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert "port" in started, "MjpegStreamer가 재생 중 뜨지 않음"
+
+        conn = http.client.HTTPConnection("127.0.0.1", started["port"], timeout=5)
+        conn.request("GET", "/stream")
+        response = conn.getresponse()
+        assert response.status == 200
+
+        jpeg_bytes = _read_one_mjpeg_frame(response)
+        decoded = cv2.imdecode(np.frombuffer(jpeg_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+        assert decoded is not None and decoded.size > 0
+        conn.close()
+    finally:
+        worker.join(timeout=10)
+
+    assert result.get("frame_count") == 15

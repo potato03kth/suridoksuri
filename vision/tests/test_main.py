@@ -57,12 +57,43 @@ def test_display_file_requires_output(tmp_path, monkeypatch):
     assert exc.value.code == 2
 
 
-def test_display_stream_not_implemented(tmp_path, monkeypatch):
+def test_display_stream_starts_real_server_and_pushes_frame(tmp_path, monkeypatch):
+    """§7.9 항목5: --display stream이 실제 MjpegStreamer를 기동하고(실 소켓 bind+스레드),
+    처리된 프레임을 실제로 push하는지 — 딥한 HTTP/MJPEG 바이트 검증은 test_stream.py가 맡는다."""
     img_path = _write_image(tmp_path)
-    monkeypatch.setattr(sys, "argv", ["vision.main", img_path, "--display", "stream"])
-    with pytest.raises(SystemExit) as exc:
-        main_mod.main()
-    assert exc.value.code == 2
+    pushed = []
+    real_push_frame = main_mod.MjpegStreamer.push_frame
+
+    def _spy_push_frame(self, frame):
+        pushed.append(frame)
+        return real_push_frame(self, frame)
+
+    monkeypatch.setattr(main_mod.MjpegStreamer, "push_frame", _spy_push_frame)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "vision.main", img_path, "--display", "stream", "--stream-port", "0",
+            *_log_dir_args(tmp_path),
+        ],
+    )
+    main_mod.main()
+
+    assert len(pushed) == 1
+    assert pushed[0] is not None and pushed[0].size > 0
+
+
+def test_display_none_never_starts_streamer(tmp_path, monkeypatch):
+    """opt-in 불변식: --display를 stream으로 켜지 않으면 스트리머가 아예 안 뜬다(오버헤드 없음)."""
+    img_path = _write_image(tmp_path)
+    started = []
+    real_start = main_mod.MjpegStreamer.start
+    monkeypatch.setattr(
+        main_mod.MjpegStreamer, "start", lambda self: (started.append(True), real_start(self))
+    )
+    monkeypatch.setattr(sys, "argv", ["vision.main", img_path, *_log_dir_args(tmp_path)])
+    main_mod.main()
+    assert started == []
 
 
 def test_image_run_writes_real_jsonl_blackbox_and_human_log(tmp_path, monkeypatch):

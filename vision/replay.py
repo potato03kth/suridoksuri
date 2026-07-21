@@ -24,6 +24,7 @@ from vision.core.runner import Pipeline
 from vision.utils.blackbox import BlackBoxLogger
 from vision.utils.frame_source import open_dir_or_bag
 from vision.utils.logging import log_provenance_header, setup_dual_sink_logger
+from vision.utils.stream import MjpegStreamer
 from vision.utils.visualize import draw_detections
 
 _WINDOW_NAME = "Landing Zone Detector — Replay"
@@ -60,14 +61,27 @@ def run_replay(
     output: str | None,
     log_dir: str,
     log_name: str = "replay",
+    stream_host: str = "0.0.0.0",
+    stream_port: int = 8080,
 ) -> int:
-    """실제 재생 루프. main()에서 분리해 프로그램적으로도 호출/테스트 가능하게 한다."""
+    """실제 재생 루프. main()에서 분리해 프로그램적으로도 호출/테스트 가능하게 한다.
+
+    display="stream" (§7.9 항목5, opt-in): 재생 중인(annotated) 프레임을 MjpegStreamer로
+    실시간 흘려보낸다 — 비차단(§7.9 비침습 전제), 켤 때만 오버헤드 발생.
+    """
     source = open_dir_or_bag(input_path)
     pipeline = Pipeline.from_config(preset)
 
     logger = setup_dual_sink_logger(log_name, log_dir)
     log_provenance_header(logger, {"preset": preset, "input": input_path})
     blackbox = BlackBoxLogger(log_dir, name=log_name)
+
+    streamer = None
+    if display == "stream":
+        streamer = MjpegStreamer(host=stream_host, port=stream_port)
+        streamer.start()
+        logger.info("라이브 스트림 시작: %s", streamer.url)
+        print(f"라이브 스트림: {streamer.url}")
 
     writer = None
     frame_count = 0
@@ -95,6 +109,9 @@ def run_replay(
                     record.frame_id, len(state.detections), state.confirmed is not None, latency,
                 )
 
+                if streamer is not None:
+                    streamer.push_frame(annotated)  # 비차단 — 재생 루프를 지연시키지 않음
+
                 if output:
                     if writer is None:
                         h, w = annotated.shape[:2]
@@ -110,6 +127,8 @@ def run_replay(
         if display == "window":
             cv2.destroyAllWindows()
         blackbox.close()
+        if streamer is not None:
+            streamer.stop()
 
     logger.info("replay 종료: %d 프레임 처리", frame_count)
     if output:
@@ -128,9 +147,16 @@ def main() -> None:
     parser.add_argument("--output", default=None, help="주석 처리된 결과 mp4 저장 경로 (선택)")
     parser.add_argument(
         "--display",
-        choices=["none", "window"],
+        choices=["none", "window", "stream"],
         default="none",
-        help="none=헤드리스(기본) · window=데스크톱 GUI 재생 뷰어",
+        help="none=헤드리스(기본) · window=데스크톱 GUI 재생 뷰어 · "
+             "stream=라이브 MJPEG-over-HTTP(§7.9 항목5, opt-in)",
+    )
+    parser.add_argument(
+        "--stream-host", default="0.0.0.0", help="--display stream 바인딩 주소 (기본 0.0.0.0)"
+    )
+    parser.add_argument(
+        "--stream-port", type=int, default=8080, help="--display stream 포트 (기본 8080)"
     )
     parser.add_argument(
         "--log-dir",
@@ -146,7 +172,8 @@ def main() -> None:
         sys.exit(1)
 
     frame_count = run_replay(
-        str(input_path), args.preset, args.display, args.output, args.log_dir, args.log_name
+        str(input_path), args.preset, args.display, args.output, args.log_dir, args.log_name,
+        stream_host=args.stream_host, stream_port=args.stream_port,
     )
     print(f"Replayed {frame_count} frames from {input_path}")
 

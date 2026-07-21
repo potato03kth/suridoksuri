@@ -11,6 +11,45 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-21e — [vision] 라이브 스트림 어댑터(MJPEG-over-HTTP, compute_tap VGA)
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 사용자가 실비행 중이라 이번 세션도 RPi SSH 접속·실카메라 작업 전면 금지 유지. `docs/vision_plan.md` §7.9 "지금 당장 할 일" 5번(라이브 스트림 어댑터, 카메라 독립적으로 진행 가능)을 노트북(WSL) 로컬에서만 진행
+
+### 완료
+
+- **`vision_plan.md` §7.9 정독** — "작동영상 피드백 3경로" 표 (b)행("라이브 저해상 스트림 — compute_tap(VGA급) → MJPEG-over-HTTP 또는 ROS2 image_transport, 현장 랩탑 실시간")과 "비침습 전제: dev 계측이 제어루프를 지연시키면 안 된다" 확인. 세션 지시에 따라 MJPEG-over-HTTP만 구현(ROS2 경로 제외 — 도메인 간 import 금지 원칙, `rclpy`/`fc_ros` 미사용)
+- **`vision/utils/stream.py` 신규 — `MjpegStreamer`.** `push_frame()`은 bounded queue(기본 길이 2)+drop-oldest로 절대 블로킹하지 않음 — `vision/utils/blackbox.py`의 `_DropOldestQueueHandler`와 동일 패턴 재사용(새 패턴 발명 안 함, 세션 지시 준수). 다운스케일(종횡비 유지, 640x480 VGA 박스 안에 맞춤, 업스케일 없음)·JPEG 인코딩·HTTP 서빙은 전부 별도 스레드. 표준 라이브러리 `http.server.ThreadingHTTPServer`만 사용(새 무거운 의존성 없음). `/stream`(MJPEG multipart)과 `/`(브라우저 미리보기 `<img>` 페이지) 두 경로 제공
+- **동시성 버그 발견·수정** — `push_frame`을 여러 producer 스레드가 동시에 부르는 실제 테스트(느린 소비자 시나리오)에서 "가득 찬 큐에서 가장 오래된 항목 제거 후 삽입"이 락 없이 이뤄져 `queue.Full`이 새는 레이스가 실제로 재현됨(`PytestUnhandledThreadExceptionWarning`으로 발견). `threading.Lock`으로 evict+insert를 원자화해 수정 — 재현 즉시 경고 사라짐 확인. `blackbox.py`의 동일 패턴은 로거 호출 경로가 사실상 단일 producer라 이 레이스가 안 드러나 그대로 둠(근거를 `vision/CLAUDE.md`에 기록)
+- **`vision/main.py`/`vision/replay.py`에 opt-in 연결** — `--display stream`(+ `--stream-host`/`--stream-port`, 기본 `0.0.0.0:8080`). main.py에 있던 기존 "stream=미구현" placeholder(에러 종료)를 실제 구현으로 대체. 스트림을 켜지 않으면 `MjpegStreamer`가 아예 인스턴스화되지 않음(오버헤드 없음, 회귀 테스트로 고정)
+- **진짜 테스트(pseudo 아님) — `vision/tests/test_stream.py` 신규 10개:** 실제 HTTP 서버 기동(임시 포트) → 골든셋(`DirFrameSource`로 조달, `vision/tests/golden/vertiport/10m`, RPi/실카메라 미사용) 프레임을 실제로 push → 진짜 `http.client`로 `/stream` 접속 → 진짜 MJPEG 바이트를 `cv2.imdecode`로 디코드 성공 확인. VGA 박스 다운스케일(1280x960→정확히 640x480, 240x320은 업스케일 없이 그대로) 실측. 비차단 큐 자체(200회 push에도 큐 길이 상한 유지) + **실제 느린 컨슈머**(응답 연결만 하고 body를 절대 안 읽는 진짜 소켓) 붙여놓은 채로 300회 push 시간 실측(<1초) — §7.9 비침습 전제의 핵심 요구사항 실증
+- **`test_main.py`/`test_replay.py`에도 CLI 경로 통합 테스트 추가** — 기존 `test_display_stream_not_implemented`(더 이상 사실이 아님)를 실제 구현 검증 테스트로 교체. `test_replay.py`는 재생 도중 실제 HTTP GET으로 접속해 실제 프레임 디코드까지 확인(타이밍 결정론 확보용으로 `Pipeline.run`에 테스트 전용 소폭 지연 monkeypatch — 스트리밍 배관 자체는 실동작)
+- **수동 스모크(pytest 밖)** — 300프레임 재생 폴더로 `python -m vision.replay ... --display stream --stream-port 8099`를 백그라운드 프로세스로 실제 실행 → `curl`로 실제 5초간 ~1.85MB MJPEG 수신 → 프레임 디코드 성공(500x500 원본이 640x480 박스에 640x480 미만인 480x480으로 축소, 종횡비 유지 확인) → 재생 종료 후 프로세스가 스트리머 `.stop()`으로 정상 종료(좀비/행 없음) 확인
+- **`vision/CLAUDE.md` 갱신** — 파일역할표에 `utils/stream.py` 행, "라이브 스트림 어댑터 기본값" 절 신설(해상도 640x480 박스/포트 8080/바인딩 0.0.0.0/JPEG quality 80/큐 길이 2 — §7.9가 정확한 수치를 안 못박아 세션 지시에 따라 합리적 기본값으로 확정 + 근거), 테스트 규칙표에 `utils/stream` 행
+- **`docs/vision_status.md` 갱신** — §7.9 카메라 독립 대체 트랙(4·5·6·7번) 전부 완료 명시, 남은 항목(1·2·3번)이 전부 RPi 허가 필요임을 트랙 헤더/본문에 명확히 기록
+- **`pytest vision/tests/` 118 passed** (기존 106 + 신규 10 `test_stream.py` + `test_replay.py` 1건 + `test_main.py` 순증 1건)
+
+### 결정
+
+- **ROS2 image_transport 경로는 이번 세션에서 하지 않음** — §7.9 (b)행이 MJPEG-over-HTTP와 ROS2 둘을 언급하지만, 세션 지시가 MJPEG-over-HTTP만 명시적으로 요구했고 vision 도메인은 `rclpy`/`fc_ros`를 import하지 않는다는 루트 `CLAUDE.md` 원칙과도 부합. ROS2 경로가 필요해지면 별도 세션에서 도메인 간 의존 관계를 루트 `CLAUDE.md`에 먼저 기록하고 논의
+- **다운스케일은 letterbox 패딩 없이 종횡비 유지 축소** — 관찰용 브라우저 `<img>`가 알아서 맞추므로 정확히 640x480으로 패딩하는 복잡도는 불필요하다고 판단(과설계 금지 지시 준수)
+- **큐 길이 기본값 2, JPEG quality 80** — 관찰이 목적(최신 프레임 우선, 지연 누적 회피)이지 무손실 기록이 목적이 아님. 상시 기록은 기존 `--output`/mp4 덤프 경로가 담당
+
+### 다음 세션
+
+1. **[RPi 작업 허가 필요]** 카메라 브링업 재개 — `docs/vision_status.md` "🟡" 블록의 4개 선택지 확인부터
+2. **[RPi 작업 허가 필요]** 캡처 도구 완성 → 실촬영 체커보드 → 카메라 인트린식 캘리브레이션
+3. **[RPi 작업 허가 필요]** 골든셋을 실촬영 데이터로 교체 + `MjpegStreamer`를 실제 RPi↔랩탑 네트워크 환경에서 실측(지금까지는 로컬 WSL HTTP 왕복만 검증됨)
+4. **카메라 독립 대체 트랙 완전 소진** — §7.9 "지금 당장 할 일" 1~7번 중 카메라 독립 항목(4·5·6·7)이 전부 끝남. RPi 허가 없이 다음 vision 세션이 들어오면 이 트랙에서 더 진행할 카메라 독립 작업이 없다는 걸 먼저 확인할 것(다시 §7.9를 훑을 필요 없음, 이미 확인됨)
+
+### 주의
+
+> `docs/vision_status.md` 트랙보드가 이미 갱신됨 — 다음 세션은 그 문서만 읽으면 됨.
+> `MjpegStreamer`는 로컬(WSL) HTTP 왕복만 검증됨 — 실제 RPi 네트워크(대역폭/지연/Wi-Fi 끊김, `project_rpi5_tailscale_wifi_drops.md` 참조) 조건에서의 동작은 미검증.
+> `vision/utils/blackbox.py`의 `_DropOldestQueueHandler`에도 이론상 동일한 동시성 레이스가 있을 수 있음(다중 producer 스레드에서 `queue.Full` 누수) — 이번 세션에서 발견한 건 `stream.py` 쪽뿐이라 `blackbox.py`는 손대지 않았지만, 향후 blackbox를 여러 스레드에서 동시에 호출하는 상황이 생기면 재검토 필요.
+
+---
+
 ## 2026-07-21d — [vision] 골든셋 폴더 스캐폴드 + 재생 회귀 assert
 
 **브랜치:** `dev--vision-computing-module`

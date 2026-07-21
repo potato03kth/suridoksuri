@@ -5,7 +5,9 @@ Landing zone detector — CLI 진입점.
   none    창/스트림 없음. 파이프라인 + 로그(+ --output 파일)만. **드론 기본값**.
   window  cv2 GUI 창 표시. 디스플레이 있는 데스크톱 전용.
   file    창 없음, --output 필수 — 주석(annotated) 프레임을 파일로 기록.
-  stream  라이브 저해상 스트림 (§7.9 항목 5 — 미구현).
+  stream  라이브 저해상 MJPEG-over-HTTP 스트림 (§7.9 항목 5). opt-in — 켤 때만 오버헤드 발생.
+          --stream-host/--stream-port로 바인딩 주소 지정(기본 0.0.0.0:8080).
+          http://<host>:<port>/stream 으로 브라우저 접속.
 
 ⚠️ 드론은 디스플레이가 없다. GUI 호출(imshow/waitKey)은 반드시 --display window
    뒤로만 실행된다. 기본값 none 은 어떤 GUI 함수도 호출하지 않는다(헤드리스 크래시 방지).
@@ -33,6 +35,7 @@ from vision.core.runner import Pipeline
 from vision.utils.blackbox import BlackBoxLogger
 from vision.utils.image_loader import load_image
 from vision.utils.logging import log_provenance_header, setup_dual_sink_logger
+from vision.utils.stream import MjpegStreamer
 from vision.utils.visualize import save_result, draw_detections
 
 
@@ -75,6 +78,7 @@ def _run_image(
     display: str,
     logger,
     blackbox: BlackBoxLogger,
+    streamer: MjpegStreamer | None = None,
 ) -> None:
     image = load_image(str(input_path))
     t0 = time.perf_counter()
@@ -103,10 +107,13 @@ def _run_image(
         save_result(state, output)
         print(f"Saved: {output}")
 
-    if display == "window":
+    if display in ("window", "stream"):
         annotated = draw_detections(state.original, state.detections, state.confirmed)
-        _show_window(annotated, wait=0)  # 키 입력까지 대기
-        cv2.destroyAllWindows()
+        if streamer is not None:
+            streamer.push_frame(annotated)  # 비차단(§7.9 비침습 전제)
+        if display == "window":
+            _show_window(annotated, wait=0)  # 키 입력까지 대기
+            cv2.destroyAllWindows()
 
 
 def _run_video(
@@ -116,6 +123,7 @@ def _run_video(
     display: str,
     logger,
     blackbox: BlackBoxLogger,
+    streamer: MjpegStreamer | None = None,
 ) -> None:
     from vision.utils.video_reader import VideoReader
 
@@ -140,6 +148,9 @@ def _run_video(
                 frame_count, len(state.detections), state.confirmed is not None, latency,
             )
             frame_count += 1
+
+            if streamer is not None:
+                streamer.push_frame(annotated)  # 비차단(§7.9 비침습 전제) — 파이프라인 루프를 지연시키지 않음
 
             if output:
                 if writer is None:
@@ -173,7 +184,13 @@ def main() -> None:
         choices=["none", "window", "file", "stream"],
         default="none",
         help="라이브 뷰 모드. none=헤드리스 안전(기본) · window=데스크톱 GUI · "
-             "file=--output 필수 · stream=미구현(§7.9)",
+             "file=--output 필수 · stream=라이브 MJPEG-over-HTTP(§7.9 항목5, opt-in)",
+    )
+    parser.add_argument(
+        "--stream-host", default="0.0.0.0", help="--display stream 바인딩 주소 (기본 0.0.0.0)"
+    )
+    parser.add_argument(
+        "--stream-port", type=int, default=8080, help="--display stream 포트 (기본 8080)"
     )
     parser.add_argument(
         "--log-dir",
@@ -182,15 +199,6 @@ def main() -> None:
     )
     parser.add_argument("--log-name", default="vision", help="로그 파일 basename")
     args = parser.parse_args()
-
-    if args.display == "stream":
-        print(
-            "Error: --display stream 은 아직 미구현입니다 "
-            "(vision_plan.md §7.9 항목 5: compute_tap → MJPEG/ROS image).\n"
-            "       현재는 none / window / file 을 사용하세요.",
-            file=sys.stderr,
-        )
-        sys.exit(2)
 
     if args.display == "file" and not args.output:
         print("Error: --display file 은 --output 경로가 필요합니다.", file=sys.stderr)
@@ -209,13 +217,23 @@ def main() -> None:
         {"preset": args.preset, "input": args.input, "display": args.display, "output": args.output},
     )
     blackbox = BlackBoxLogger(args.log_dir, name=args.log_name)
+
+    streamer = None
+    if args.display == "stream":
+        streamer = MjpegStreamer(host=args.stream_host, port=args.stream_port)
+        streamer.start()
+        logger.info("라이브 스트림 시작: %s", streamer.url)
+        print(f"라이브 스트림: {streamer.url}")
+
     try:
         if input_path.suffix.lower() in _VIDEO_SUFFIXES:
-            _run_video(pipeline, input_path, args.output, args.display, logger, blackbox)
+            _run_video(pipeline, input_path, args.output, args.display, logger, blackbox, streamer)
         else:
-            _run_image(pipeline, input_path, args.output, args.display, logger, blackbox)
+            _run_image(pipeline, input_path, args.output, args.display, logger, blackbox, streamer)
     finally:
         blackbox.close()
+        if streamer is not None:
+            streamer.stop()
 
 
 if __name__ == "__main__":
