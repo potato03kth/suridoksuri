@@ -36,6 +36,7 @@ from fc_bridge.execution.state_logic import (
     after_climb_state, after_following_state, takeoff_request_fields,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
+from fc_bridge.utils.rotation import yaw_ned_to_quat_enu
 import enum
 import threading
 
@@ -333,12 +334,12 @@ class OffboardNode(Node):
                 # 오버슈트 중 이 값이 그대로 발행돼 OFFBOARD 확정 순간 PX4가
                 # 급격한 자세보정을 시도 → 제어상실, 조종사 수동 회수) 위험함.
                 self._mc_pos_ramp = np.array(state.pos_ned, dtype=float)
-                self._publish_pos_setpoint(self._mc_pos_ramp)
+                self._publish_pos_setpoint(self._mc_pos_ramp, state.yaw)
             else:
                 # FW 위치 setpoint로 lookahead 추종 (속도 setpoint는 FW가 무시 → flower-pattern).
                 tgt = self._guidance.target_point_ned(state.pos_ned, _FW_LOOKAHEAD)
                 self._publish_pos_setpoint(
-                    np.array([tgt[0], tgt[1], self._cruise_alt]))
+                    np.array([tgt[0], tgt[1], self._cruise_alt]), state.yaw)
 
             if self._current_mode == "OFFBOARD":
                 self.get_logger().info("OFFBOARD 확인 → FOLLOWING")
@@ -477,7 +478,7 @@ class OffboardNode(Node):
         # OFFBOARD 이탈 여부와 무관하게 위치 명령을 끊지 않는다.
         if self._fw_heading_aligned and self._fw_transition_sent:
             self._publish_pos_setpoint(
-                np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]))
+                np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]), chi_wp)
             if self._current_mode != "OFFBOARD":
                 self._request_offboard()
                 self.get_logger().warn(
@@ -544,7 +545,7 @@ class OffboardNode(Node):
         # 위치 setpoint는 MC·FW 양쪽에서 작동: MC가 WP1 방향으로 가속하며 전이 →
         # FW가 동일 위치 setpoint로 직선 추종한다. (사전가속 불필요)
         self._publish_pos_setpoint(
-            np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]))
+            np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]), chi_wp)
 
         if not self._fw_transition_sent:
             if not self._cmd_cli.service_is_ready():
@@ -559,18 +560,29 @@ class OffboardNode(Node):
 
     # ── STREAMING ────────────────────────────────────────────
 
-    def _publish_pos_setpoint(self, pos_ned: np.ndarray) -> None:
-        """NED [N, E, h_up] → ENU PoseStamped 발행 (/mavros/setpoint_position/local).
+    def _publish_pos_setpoint(self, pos_ned: np.ndarray, yaw_ned: float) -> None:
+        """NED [N, E, h_up] + 헤딩 → ENU PoseStamped 발행 (/mavros/setpoint_position/local).
 
         PX4 FW 오프보드는 위치 setpoint만 추종한다(속도/가속도 무시). PoseStamped는
         MAVROS가 위치 type_mask를 설정하므로 flower-pattern 선회를 피한다.
         local_position/pose와 동일 프레임이므로 GPS(EKF) 기준 경로를 따른다.
+
+        yaw_ned는 필수 인자다 — 과거 orientation 미설정 시 ROS2 기본값(단위쿼터니언,
+        ENU yaw=0=NED yaw=90°)이 실제 헤딩과 무관하게 그대로 발행돼, OFFBOARD
+        진입 첫 틱에 순간 yaw 점프(2026-07-21 flight04 yaw 스핀 사고)를 유발했다.
+        호출부는 현재 실제 헤딩(`state.yaw`)을 넘겨 그 틱의 setpoint가 항상 실제
+        기체 자세와 일치하게 한다(위치를 현재값으로 스트리밍하는 것과 동일한 원리).
         """
         msg = PoseStamped()
         msg.header.frame_id = "map"               # LOCAL_NED ↔ ENU world 프레임
         msg.pose.position.x = float(pos_ned[1])   # E → x_enu
         msg.pose.position.y = float(pos_ned[0])   # N → y_enu
         msg.pose.position.z = float(pos_ned[2])   # h_up = z_enu
+        w, x, y, z = yaw_ned_to_quat_enu(yaw_ned)
+        msg.pose.orientation.w = w
+        msg.pose.orientation.x = x
+        msg.pose.orientation.y = y
+        msg.pose.orientation.z = z
         self._pos_pub.publish(msg)
 
     def _request_offboard(self) -> None:
@@ -659,8 +671,9 @@ class OffboardNode(Node):
         # 끝점(근접)을 목표로 하면 FW가 근접 목표로 급선회한다(동향 꺾임).
         # 최종 진행방향으로 항상 lookahead만큼 앞선 점을 목표로 직진 유지.
         far_tgt = state.pos_ned[:2] + self._end_dir * _FW_LOOKAHEAD
+        chi_end = float(np.arctan2(self._end_dir[1], self._end_dir[0]))
         self._publish_pos_setpoint(
-            np.array([far_tgt[0], far_tgt[1], self._cruise_alt]))
+            np.array([far_tgt[0], far_tgt[1], self._cruise_alt]), chi_end)
 
         if vtol_is_mc(state.vtol_state):
             self.get_logger().info("MC 전환 완료 -> HOLD (WP1 복귀)")
@@ -694,7 +707,7 @@ class OffboardNode(Node):
         """
         wp1 = self._pts[-1]
         self._publish_pos_setpoint(
-            np.array([wp1[0], wp1[1], self._cruise_alt]))
+            np.array([wp1[0], wp1[1], self._cruise_alt]), state.yaw)
 
         if self._current_mode != "OFFBOARD":
             self._request_offboard()
@@ -807,11 +820,12 @@ class OffboardNode(Node):
                 self._mc_pos_ramp = self._mc_pos_ramp + delta * (max_step / dist)
             else:
                 self._mc_pos_ramp = raw_target
-            self._publish_pos_setpoint(self._mc_pos_ramp)
+            self._publish_pos_setpoint(self._mc_pos_ramp, state.yaw)
         else:
             tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)
-            _, _, cte = self._guidance.compute(pos, state.vel_ned)  # 진단용 cte
-            self._publish_pos_setpoint(np.array([tgt[0], tgt[1], self._cruise_alt]))
+            chi_cmd, _, cte = self._guidance.compute(pos, state.vel_ned)
+            self._publish_pos_setpoint(
+                np.array([tgt[0], tgt[1], self._cruise_alt]), chi_cmd)
 
         # 진입 첫 틱 및 20틱마다 진단 로그 (경로 추종 / OFFBOARD 유지 확인)
         if self._follow_ticks == 0:

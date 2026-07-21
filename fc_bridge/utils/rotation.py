@@ -18,3 +18,18 @@ def quat_to_euler_xyz(w: float, x: float, y: float, z: float) -> tuple[float, fl
     pitch = float(np.arcsin(np.clip(2.0 * (w*y - z*x), -1.0, 1.0)))
     yaw   = float(np.arctan2(2.0 * (w*z + x*y), 1.0 - 2.0 * (y*y + z*z)))
     return roll, pitch, yaw
+
+
+def yaw_ned_to_quat_enu(yaw_ned: float) -> tuple[float, float, float, float]:
+    """NED 헤딩(rad, 0=북·양수=동) → ENU PoseStamped용 쿼터니언 [w, x, y, z].
+
+    roll=pitch=0(수평 가정) 순수 yaw 쿼터니언. `vehicle_state_bridge.py`의
+    디코드(`yaw_ned = pi/2 - yaw_enu`)와 정확히 역변환 관계 — 이 왕복이
+    깨지면 setpoint 헤딩이 실제 기체 헤딩과 어긋난다(2026-07-21 flight04
+    yaw 스핀 사고: orientation 미설정 시 ENU 기본값 yaw=0=NED yaw=90°가
+    실제 헤딩과 무관하게 그대로 발행됨).
+    """
+    yaw_enu = np.pi / 2.0 - yaw_ned
+    w = float(np.cos(yaw_enu / 2.0))
+    z = float(np.sin(yaw_enu / 2.0))
+    return w, 0.0, 0.0, z
