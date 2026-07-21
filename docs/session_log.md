@@ -11,6 +11,44 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-21b — [vision] FrameSource(Live/Dir/Bag) 어댑터 + 재생CLI + blackbox/logger를 main.py에 연결
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 사용자가 실비행을 나가면서 이번 세션엔 RPi SSH 접속·실카메라 작업을 전면 금지 — 직전 세션에서 막힌 카메라 브링업 대신, `docs/vision_status.md` "다음" 3번(§7.9 3번 이후=`FrameSource`+재생CLI+관측성 연결, 카메라 브링업과 독립적으로 진행 가능하다고 명시된 대체 트랙)을 노트북(WSL) 로컬에서만 진행
+
+### 완료
+
+- **`vision_plan.md` §7.9 정독** — Live/Dir/Bag 세 모드 의미, 재생 CLI 요구사항(`python -m vision.replay <녹화폴더|bag> --preset ...`), §7.5 기록·재생 결정론 요구를 확인하고 설계에 반영
+- **`vision/utils/frame_source.py` 신규** — `FrameRecord`(frame_id/ts/image/telemetry) + 세 어댑터:
+  - `LiveFrameSource`: 장치(인덱스/V4L2 경로) 연결 시도, 실패 시 `retries`회 재시도 후 `ConnectionError`. 프레임 읽기 실패 시에도 `ConnectionError`. 실카메라 미보유라 `cv2.VideoCapture`만 몽키패치해 재시도/에러 계약을 검증(§7.9 "Live=보조" 인터페이스 계약만 이번 세션 범위)
+  - `DirFrameSource`: 녹화 폴더(이미지 파일들, 파일명 정렬로 결정론적 frame_id) + 선택적 `telemetry.jsonl`(frame_id로 매칭) — §7.9 (a) "재생 오버레이 뷰어" 주력 입력
+  - `BagFrameSource`: 단일 비디오 파일 + 선택적 사이드카 `<basename>.jsonl` — 이 코드베이스엔 rosbag 의존성이 없어 "bag"을 비디오+텔레메트리 사이드카로 구현(Dir보다 압축된 단일파일 재생 경로)
+  - `open_dir_or_bag()` 팩토리 — 경로가 디렉터리면 Dir, 파일이면 Bag 자동판별(재생 CLI가 사용)
+- **`vision/replay.py` 신규** — 오프라인 재생 CLI. `Pipeline.from_config` + `open_dir_or_bag`로 동일 파이프라인을 결정론적으로 재생하며 로거+블랙박스 기록, `--display window`/`--output mp4` 지원
+- **`vision/main.py`에 로거/블랙박스 실연결** — 기존엔 `utils/logging.py`/`utils/blackbox.py`가 독립 유틸로만 존재. 이제 `main()`이 매 실행마다 이중싱크 로거(provenance 헤더=git해시+config) + JSONL 블랙박스를 생성해 이미지/영상 각 프레임의 detections/latency/confirmed를 실제로 기록. `--log-dir`/`--log-name` 인자 추가(기본 `vision/results/logs`), 항상 on(드론 배치 시에도 관측성 확보가 목적)
+- **진짜 테스트 (모킹만으로 통과하는 pseudo 테스트 금지 요건 준수)** — `tests/test_frame_source.py`(18개, tmp_path에 실제 png/mp4 생성 후 실디코딩·순서·telemetry 매칭·결정론 검증 + Live 몽키패치 4개), `tests/test_replay.py`(4개, 실제 녹화폴더/bag을 재생시켜 디스크의 JSONL 내용까지 assert), `tests/test_main.py`에 2개 추가(main.py 실행 후 실제 `.jsonl`/`.log` 파일 존재·내용 검증). 기존 4개 테스트는 `--log-dir`를 `tmp_path`로 명시해 실제 저장소 `vision/results/`를 더럽히지 않게 함
+- **`vision/CLAUDE.md` 갱신** — 파일역할표에 `frame_source.py`/`replay.py` 추가, `logging.py`/`blackbox.py` 행에 "main.py/replay.py에 연결됨" 명시, 테스트 규칙표 갱신, import 규칙에 `replay.py` 행 추가
+- **`pytest vision/tests/` 83 passed** (기존 59 + frame_source 18 + replay 4 + main 2). 커밋 `6a241e3`, push 완료
+
+### 결정
+
+- **Live/Dir/Bag 재생 CLI를 main.py와 별도 파일(`replay.py`)로 분리** — main.py는 "온보드 실행 진입점"(라이브 배치용), replay.py는 "책상 재생 진입점"(§7.9 (a) 데스크 주력)이라는 역할이 달라 섞지 않음. 두 파일이 `_show_window` 같은 작은 헬퍼를 각자 얇게 중복 보유하는 쪽을 택함(과한 공유 추상화보다 단순함 우선, `vision/CLAUDE.md` "config-driven callable 패턴" 기존 철학 계승)
+- **"Bag"을 rosbag이 아니라 비디오+사이드카 텔레메트리로 구현** — 이 코드베이스엔 ROS/rosbag 의존성이 전혀 없고(vision은 독립 도메인, ROS2는 fc_ros 쪽), §7.9 원문도 "재생 CLI 엔트리(예: `python -m vision.replay <녹화폴더|bag>`)"라고만 하고 포맷을 못박지 않음 — Dir(폴더)과 대비되는 "압축된 단일파일" 의미로 해석해 비디오 파일로 구현. 추후 실제 rosbag 도입 필요성이 생기면 재검토
+- **RPi/실카메라 작업은 이번 세션에서 전면 배제** — `LiveFrameSource`는 인터페이스 계약(재시도/에러)만 구현·검증했고, 실장치 연결은 RPi 작업 허가가 떨어진 다음 세션에서
+
+### 다음 세션
+
+1. **[RPi 작업 허가 필요]** 카메라 브링업 재개 — `docs/vision_status.md` "🟡" 블록의 4개 선택지 확인부터. 메모리 `project_rpi5_ubuntu_camera_stack.md`에 경과 다 있음
+2. 브링업 완료 후 `LiveFrameSource`를 실제 RPi 카메라(V4L2 장치경로 또는 GStreamer 파이프라인 문자열)로 검증
+3. (카메라 독립, 대체 가능) §7.9 항목5 이후 — 라이브 스트림 어댑터·JSONL 뷰어·골든셋 스캐폴드
+
+### 주의
+
+> `docs/vision_status.md` 트랙보드가 이미 갱신됨 — 다음 세션은 그 문서만 읽으면 됨.
+> `vision/results/logs`·`vision/results/replay_logs`는 기본 로그 출력 위치이나 git엔 포함 안 함(루트 `CLAUDE.md` 정책) — 테스트는 전부 `tmp_path`를 써서 실저장소를 더럽히지 않는다.
+
+---
+
 ## 2026-07-21 — [vision] HSV 테스트·버티포트 coarse 캐스케이드·관측성 골격 → RPi 카메라 브링업 중 긴급 세션종료
 
 **브랜치:** `dev--vision-computing-module`
