@@ -42,6 +42,9 @@
 | `background.py` | `BackgroundSubtractor` | `current`, `mask` | `mask` |
 | `tracker.py` | `KalmanTracker` | `detections` | `meta` |
 | `fusion.py` | `TemporalFusion` | `detections` | `confirmed`, `meta` |
+| `vertiport_field.py` | `WhiteFieldDetector` | `mask` | `detections`, `meta` |
+| `vertiport_v.py` | `BlackVMatcher` | `original`, `detections` | `detections`, `meta` |
+| `vertiport_ring.py` | `RedRingDetector` | `original`, `detections` | `detections`, `meta` |
 
 ### 그 외
 
@@ -61,13 +64,17 @@
 ## VisionState 필드 사용 규칙
 
 ```
-original    읽기 전용. 모든 모듈이 수정 금지. 시각화/최종 출력 전용.
+original    읽기 전용. 모든 모듈이 수정 금지. 시각화/최종 출력 + 캐스케이드 단계별 원본색상 조회용.
 current     전처리 모듈이 순차 수정하는 작업 이미지 (BGR).
 mask        이진 마스크(0/255). ColorFilter → Edge → Morphology 순으로 갱신.
-detections  RectDetector가 채운다. Tracker/Fusion이 읽는다.
+detections  RectDetector가 채운다. Tracker/Fusion이 읽는다. 캐스케이드형 검출기는 이전 단계 detections를 읽어 ROI로 쓰고 자기 결과로 덮어쓴다(§버티포트 coarse 캐스케이드).
 confirmed   TemporalFusion만 쓴다. 시간 축으로 확정된 단일 결과.
 meta        각 모듈의 진단 정보. 키는 모듈 이름으로 네임스페이스를 지킨다.
 ```
+
+**주의:** `ColorFilter`는 `current`를 자기 mask로 bitwise_and 해버려 mask 밖 픽셀 정보가 사라진다.
+버티포트 캐스케이드(`vertiport_v.py`/`vertiport_ring.py`)처럼 뒤 단계가 앞 단계 마스크에 안 걸린 색상을
+봐야 하는 경우 `current` 대신 원본이 보존된 `original`을 읽는다.
 
 ---
 
@@ -198,6 +205,10 @@ pytest vision/tests/ -q -k main # 특정만
 | background | 연속프레임 mask 갱신 | ❌ TODO |
 | tracker `KalmanTracker` | detections→meta 추적·연속성 | ❌ TODO |
 | fusion `TemporalFusion` | detections→confirmed 시간확정·흔들림 억제 | ❌ TODO |
+| vertiport_field `WhiteFieldDetector` | mask→원형 blob 검출·원형도 필터·중심/반지름 meta | ✅ test_vertiport_field |
+| vertiport_v `BlackVMatcher` | original 내 어두운 영역 matchShapes 검증·1차 bbox 밖 배경 오탐 배제·불일치 시 detections 제거 | ✅ test_vertiport_v |
+| vertiport_ring `RedRingDetector` | 빨강 Hue 양끝 게이팅(랩어라운드 대응)·최소외접원 피팅·중심/반지름 meta | ✅ test_vertiport_ring |
+| 버티포트 coarse 캐스케이드 통합(`presets/vertiport_coarse.yaml`) | 3단 전체 파이프라인 end-to-end·단계별 meta 기록·빈 이미지 0검출 | ✅ test_vertiport_cascade |
 | utils/image_loader | 경로→BGR ndarray·없는 파일 에러 | ❌ TODO |
 | utils/video_reader | 프레임 이터레이트·fps·컨텍스트 종료 | ❌ TODO |
 | utils/visualize | draw_detections 형상·save_result 파일 생성 | ❌ TODO |

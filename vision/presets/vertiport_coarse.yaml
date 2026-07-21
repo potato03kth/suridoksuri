@@ -1,0 +1,28 @@
+# 버티포트 coarse 3단 계층 확인 캐스케이드 (vision_plan.md §5.2)
+# 흰 필드(1차) -> 검은 V 형상매칭(2차) -> 빨간 고리 색게이팅+원피팅(3차)
+pipeline:
+  color_filter:
+    mode: gray
+    sat_max: 50
+    val_min: 150
+
+  morphology:
+    ops: [close, open]
+    kernel_size: 5
+
+  white_field_detector:
+    min_area: 500
+    max_area: 2000000
+    min_circularity: 0.6
+
+  black_v_matcher:
+    val_max: 80
+    min_area: 100
+    max_match_distance: 0.5
+
+  red_ring_detector:
+    low_hue_max: 10
+    high_hue_min: 170
+    sat_min: 100
+    val_min: 80
+    min_points: 20
