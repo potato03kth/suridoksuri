@@ -16,7 +16,7 @@ last_updated: 2026-07-21
 ## 공통 상태 (2026-07-21)
 
 - **브랜치:** `dev--vision-computing-module` (현재 FC 트랙과 공용. vision 전용 브랜치 분리는 미결정)
-- **개발/테스트 환경:** **메인 개발·디버깅 주체 = 노트북으로 전환** (2026-07-21) — 비행 현장에서 실시간 피드백 가능. 노트북 `.venv` 설치 상태는 다음 세션에서 확인. 개발컴 `.venv`는 기존 준비 이력 유지(`pytest vision/tests/` **16 passed**). 그 wsl·rpi 미설치(rpi=headless). **RPi에 Camera Module 3 물리 장착 완료**(2026-07-21) — 카메라 인트린식/왜곡 캘리브레이션 착수 가능. 4환경 매트릭스·설치법 → 메모리 `project_vision_dev_env.md` / `vision/requirements.txt` / `vision/CLAUDE.md` 테스트 섹션
+- **개발/테스트 환경:** **메인 개발·디버깅 주체 = 노트북(WSL)** — 2026-07-21 **테스트 통과 확인 완료: `pytest vision/tests/` 16 passed.** `python3.12-venv` 패키지가 sudo 필요라 설치 못 해 venv는 못 만들었고, 대신 `pip3 install --break-system-packages`로 numpy/PyYAML/opencv-python/pytest를 사용자 site-packages에 직접 설치해 우회함(격리 없음, 필요시 추후 venv로 전환 권장). 개발컴 `.venv`는 기존 준비 이력 유지. rpi 미설치(headless). **RPi에 Camera Module 3 물리 장착 완료**(2026-07-21) — 카메라 인트린식/왜곡 캘리브레이션 착수 가능. 4환경 매트릭스·설치법 → 메모리 `project_vision_dev_env.md` / `vision/requirements.txt` / `vision/CLAUDE.md` 테스트 섹션
 - **커밋 규율:** vision 커밋은 메시지에 **`[vision]`** 태그
 - **설계 정본:** `docs/vision_plan.md` — 확정 결정·물리 제약·검출 전략·변경내성/관측성·빌드 순서·블라인드스팟. **이 문서는 라이브 진척만** 담는다.
 - **대회 규정(2026-07-21 대부분 확정):** ArUco=`DICT_4X4_50` ID23 **50cm×50cm**(원래 계획 가정과 일치 확인) · 버티포트 하기안전구역(빨간 원)=직경2m·선굵기5cm 고리 신규확정 · ③빨간십자·초록색/치수는 **비공개로 확정**(버티포트 유사크기+안전마진 가정) · 성공판정="매끄럽게 보이면"(정성) 확정 · ④단순착륙=GPS+라이다만 확정 · CC 인터페이스·나무조각상 판단기준만 여전히 대기 → 상세 `vision_plan.md` §10.
@@ -34,5 +34,5 @@ last_updated: 2026-07-21
   - 미해결: CC 인터페이스, 나무조각상 판정기준, 성능/지연 예산, TargetEstimate 단위·불확실성 필드.
   - (이전 진척: 2026-07-15 계획서 갭 반영 + `main.py` headless-safe. 커밋 `af32ccf`. 2026-07-21 개발주체 노트북 전환 + RPi CM3 물리장착. 커밋 `84850b9`.)
 - **다음:** ① **미커버 단위 테스트** — `color` HSV 초록/빨강 우선 + edge/morphology/fusion 등(`vision/CLAUDE.md` 표) ② **관측성 골격 §7.9 다음** — 이중싱크 로거 + provenance 헤더 ③ 카메라 인트린식+왜곡 캘리브레이션 + 실기체 3타겟 데이터(CM3 장착 완료로 착수 가능, OIS 실증도 이때) ④ 하기안전구역 Hough 원 검출기 구현(coarse, §5.2)
-- **주의:** 노트북(WSL) 개발환경 세팅 진행 중(`python3.12-venv` 설치가 sudo 필요 — 사용자 실행 대기) · 개발컴 `.venv`는 기존 이력 유지, rpi 미설치(headless) · Pi4 인코더/라이다 40m급 여전히 미확정 · 기존 `vision/` 틀은 폐기 아님 — ②조난자 구역 색 파이프라인 + ArUco 모듈 컨테이너로 재편(§12) · `geo_project.pixel_to_gps`는 폐기 예정
+- **주의:** 노트북(WSL) 개발환경은 venv 없이 사용자 site-packages 직접설치로 동작 중(`python3.12-venv` 미설치, sudo 필요 — 나중에 정식 venv로 전환 권장) · 개발컴 `.venv`는 기존 이력 유지, rpi 미설치(headless) · Pi4 인코더/라이다 40m급 여전히 미확정 · 기존 `vision/` 틀은 폐기 아님 — ②조난자 구역 색 파이프라인 + ArUco 모듈 컨테이너로 재편(§12) · `geo_project.pixel_to_gps`는 폐기 예정
 - **참조:** `docs/vision_plan.md` §2/§4.1a/§5.2/§5.6/§7.1/§7.7/§10 · `vision/CLAUDE.md`
