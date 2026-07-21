@@ -11,6 +11,50 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-22b — [vision] RPi5 카메라 V4L2 RAW 직접 캡처 브링업 완료 + 실촬영 검증
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 6세션 전(2026-07-21a) libcamera가 RPi5용 PiSP IPA 모듈 없이 빌드돼 있어 카메라 브링업이 막힌 채 중단된 상태였고, 그동안 사용자가 실비행을 이유로 RPi SSH/실카메라 작업을 전면 금지해 카메라 독립 대체 트랙(§7.9 4·5·6·7번)만 진행해 왔음. 이번 세션에서 그 금지가 해제되어 카메라 브링업을 재개, V4L2 RAW 직접 캡처(사용자 확정 방향)로 실제 완료.
+
+### 완료
+
+- **rp1-cfe 미디어 파이프라인 브링업 성공(libcamera 완전 우회).** `/dev/video0`가 MC-centric 캡처 노드라 단순 `v4l2-ctl --set-fmt-video`만으론 `VIDIOC_STREAMON`이 `-EPIPE`로 실패하던 것을, `dmesg` dynamic_debug로 커널 로그를 추적해 3개 원인(링크 비활성·field 불일치·임베디드 메타데이터 패드 폭 불일치)을 순서대로 확정·해결. 상세 명령·근거는 메모리 `project_rpi5_ubuntu_camera_stack.md` "✅ 브링업 완료" 절과 `vision/tools/rpi_capture.py` 모듈 docstring에 기록.
+- **`vision/tools/rpi_capture.py` 전면 재작성** — 작동 불가였던 GStreamer `libcamerasrc` 버전을 media-ctl/v4l2-ctl 기반 파이프라인 구성 + `unpack_raw10()`(MIPI RAW10 언패킹) + `debayer_to_bgr8()`(수동 디베이어)로 교체. `--single-shot` 플래그 신규(원격 검증용). HTTP 미리보기/촬영 서버 구조는 유지.
+- **실제 촬영 검증(pseudo 테스트 아님):** RPi에서 실제 실행해 4608x2592 실사진 획득 → 노트북으로 가져와 육안 확인(천장 조명·문·서랍장이 보이는 실제 방 사진). 두 번째 프레임과 바이트 비교해 52.8% 픽셀이 다름을 확인 — 캐시 아닌 라이브 캡처임을 통계로 증명. 640x480 요청 시 1536x864로 스냅되는 것도 실측 확인.
+- **`vision/tests/test_rpi_capture.py` 신규(8개)** — `unpack_raw10`/`debayer_to_bgr8` 순수 함수 단위 테스트(왕복 검증·경계값·RGGB 채널 순서 검증). `pytest vision/tests/` **134 passed**(기존 126 + 신규 8).
+- **`LiveFrameSource` 실장치 연결 최소 검증** — `configure_pipeline()` 이후 `cv2.VideoCapture('/dev/video0', cv2.CAP_V4L2)`를 시도해 `isOpened()`는 성공하지만 `read()`가 실패함을 확인. 즉 현재 `LiveFrameSource` 구현은 V4L2 raw+수동 디베이어 경로와 인터페이스가 안 맞음 — 무리하게 통합하지 않고 다음 세션 과제로 명확히 남김(`docs/vision_status.md` "다음" 2번).
+- **RPi 원격 저장소 동기화:** `/home/suri/drone_ws/src/suridoksuri`가 FC 도메인의 미추적 비행로그(`logs/2026-07-21_*`)로 `git pull`이 막혀 있어(다른 도메인 소관, 건드리지 않음) `git checkout origin/dev--vision-computing-module -- vision/tools/rpi_capture.py vision/tests/test_rpi_capture.py`로 필요한 두 파일만 갱신해 실기체에서 실제 커밋된 코드로 검증.
+- **커널 dynamic_debug 정리** — 진단 중 켰던 `rp1_cfe`/`v4l2-subdev.c`/`mc-entity.c` dynamic_debug를 세션 종료 전 명시적으로 껐음(런타임 상태만 변경, 영구 설정 미변경).
+- `docs/vision_status.md` 트랙 블록 갱신(FC 트랙 `docs/session_status.md`는 건드리지 않음 — 도메인 격리 유지), 메모리 `project_rpi5_ubuntu_camera_stack.md` 갱신(브링업 완료 기록).
+
+### 실제 테스트
+
+```
+python3 vision/tools/rpi_capture.py --single-shot --out /tmp/... --main-size 4608x2592
+  # [단발촬영] .../single_shot.png shape=(2592, 4608, 3) dtype=uint8 mean=23.13 std=25.32 min=16 max=255
+# 두 번째 독립 촬영과 비교: byte-identical=False, 평균 절대차 0.28, 52.8% 픽셀 다름 (라이브 캡처 증명)
+# 640x480 요청 → 실제 1536x864로 스냅되는 것도 재현 확인
+pytest vision/tests/   # 134 passed (기존 126 + 신규 test_rpi_capture.py 8개)
+```
+
+### 결정
+
+- **체커보드 실촬영 캘리브레이션(§7.9 항목2)은 이번 세션에서 하지 않음** — 세션 지시에 따라 "작은 단위로 끊어서 다음 세션에 넘기는 게 낫다"는 원칙 적용. V4L2 raw 캡처 자체의 브링업+검증까지가 이번 세션 스코프.
+- **`LiveFrameSource` 어댑터 재구현도 이번 세션에서 하지 않음** — 인터페이스 비호환만 실측으로 확인하고 명시적으로 다음 세션 과제로 남김(무리한 확장 지양 원칙).
+
+### 다음 세션
+
+1. 체커보드 실물 준비 → `rpi_capture.py`로 여러 각도/거리 촬영 → OpenCV `calibrateCamera`로 인트린식/왜곡계수 산출
+2. `LiveFrameSource`를 `configure_pipeline()`/`capture_frame_bgr()` 기반 어댑터로 재구현(또는 별도 클래스 분리)
+3. 골든셋을 실촬영 데이터로 교체(`vision/tests/golden/README.md` 절차), 40m 티어 `known_limitation` 2건 실측 재검증
+4. `MjpegStreamer`도 실제 RPi 네트워크 환경(대역폭/지연/Wi-Fi 끊김)에서 미검증 상태 — 여유 되면 실측
+
+### 주의
+
+> RPi는 공유 장치 — 이번 세션에서 변경한 것은 V4L2/media-controller **런타임 상태**(링크 활성화, 서브디바이스 포맷, 프로세스 종료 시 초기화됨)와 진단용 dynamic_debug(세션 종료 전 껐음)뿐. `/boot/firmware/config.txt` 등 영구 설정, WiFi 완화조치, 패스워드리스 sudo 등 기존 FC/mc 관련 설정은 손대지 않음.
+
+---
+
 ## 2026-07-22a — [vision] ② 조난자 구역 실측 스펙(3.0m×3.0m×0.105m) 반영 — 계획서·distress_coarse.yaml min/max_area 재도출·골든셋 갱신
 
 **브랜치:** `dev--vision-computing-module`
