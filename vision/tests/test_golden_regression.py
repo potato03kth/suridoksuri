@@ -44,6 +44,20 @@ def test_golden_set_scaffold_is_non_empty():
     assert targets == {"vertiport", "distress", "no_target"}
 
 
+def test_no_target_has_distress_coarse_regression_case():
+    """커버리지 갭 회귀: no_target 오탐 방지가 vertiport_coarse.yaml 만이 아니라
+    distress_coarse.yaml(초록색 필터, ② 조난자 구역 coarse)로도 검증되는지 —
+    한 프리셋만 통과하고 다른 프리셋에서 오탐이 나는 경우를 놓치지 않기 위함."""
+    no_target_presets = {
+        json.loads((leaf / "labels.json").read_text(encoding="utf-8"))["preset"]
+        for leaf in _LEAF_DIRS
+        if leaf.relative_to(_GOLDEN_ROOT).parts[0] == "no_target"
+    }
+    assert "distress_coarse.yaml" in no_target_presets, (
+        "no_target 오탐 회귀가 distress_coarse.yaml 프리셋으로 커버되지 않음"
+    )
+
+
 @pytest.mark.parametrize("leaf_dir", _LEAF_DIRS, ids=_leaf_id)
 def test_replay_matches_golden_labels(leaf_dir, tmp_path):
     """§ 요구사항 핵심: vision/replay.py의 run_replay()로 골든 프레임을 실제로 재생하고,
