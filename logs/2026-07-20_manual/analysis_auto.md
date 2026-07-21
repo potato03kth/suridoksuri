@@ -1,4 +1,4 @@
-# 자동분석 — /home/suri/suridoksuri/.claude/worktrees/flight-analysis-0720/logs/2026-07-20_manual
+# 자동분석 — /home/suri/suridoksuri/.claude/worktrees/vision-flight-log-analysis/logs/2026-07-20_manual
 
 (analyze_flight.py 자동생성 — 해석 없이 사실만. notes.md에 결론 작성 시 이 파일 인용)
 
