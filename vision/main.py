@@ -219,13 +219,13 @@ def main() -> None:
     blackbox = BlackBoxLogger(args.log_dir, name=args.log_name)
 
     streamer = None
-    if args.display == "stream":
-        streamer = MjpegStreamer(host=args.stream_host, port=args.stream_port)
-        streamer.start()
-        logger.info("라이브 스트림 시작: %s", streamer.url)
-        print(f"라이브 스트림: {streamer.url}")
-
     try:
+        if args.display == "stream":
+            streamer = MjpegStreamer(host=args.stream_host, port=args.stream_port)
+            streamer.start()
+            logger.info("라이브 스트림 시작: %s", streamer.url)
+            print(f"라이브 스트림: {streamer.url}")
+
         if input_path.suffix.lower() in _VIDEO_SUFFIXES:
             _run_video(pipeline, input_path, args.output, args.display, logger, blackbox, streamer)
         else:

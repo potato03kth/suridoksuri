@@ -119,6 +119,98 @@ def test_open_dir_or_bag_used_by_replay_dispatches_correctly(tmp_path):
     assert isinstance(open_dir_or_bag(video_path), BagFrameSource)
 
 
+def test_streamer_start_failure_still_closes_blackbox(tmp_path, monkeypatch):
+    """리소스 leak 회귀(main.py와 동일 패턴): streamer.start()가 OSError를 던져도
+    blackbox.close()는 반드시 불려야 한다."""
+    from pathlib import Path
+
+    rec_dir = _make_recording_dir(tmp_path, n=2)
+    preset_path = str(Path(replay_mod.__file__).parent / "presets" / "single_frame.yaml")
+    log_dir = tmp_path / "logs"
+
+    closed = []
+    real_close = replay_mod.BlackBoxLogger.close
+
+    def _spy_close(self, *a, **kw):
+        closed.append(True)
+        return real_close(self, *a, **kw)
+
+    monkeypatch.setattr(replay_mod.BlackBoxLogger, "close", _spy_close)
+    monkeypatch.setattr(
+        replay_mod.MjpegStreamer, "start", lambda self: (_ for _ in ()).throw(OSError("port in use"))
+    )
+
+    with pytest.raises(OSError):
+        replay_mod.run_replay(
+            str(rec_dir), preset_path, display="stream", output=None,
+            log_dir=str(log_dir), log_name="leaktest", stream_host="127.0.0.1", stream_port=0,
+        )
+
+    assert closed == [True], "streamer.start() 실패해도 blackbox.close()가 호출돼야 함(leak 방지)"
+
+
+class _EmptySource:
+    """0프레임 재생을 결정론적으로 재현하기 위한 가짜 FrameSource.
+
+    실제 0프레임 mp4는 컨테이너/코덱에 따라 cv2.VideoCapture가 아예 못 여는 경우가 있어
+    (isOpened()==False) BagFrameSource 생성 자체가 실패한다 — run_replay 루프에 진입하기도
+    전에 에러가 나므로 "저장 로그 게이팅" 검증에 쓸 수 없다. open_dir_or_bag을 이 가짜로
+    바꿔치기해 run_replay 루프 자체(실제 blackbox/logger/writer 로직)는 그대로 실행시키고
+    입력 소스만 0프레임으로 고정한다.
+    """
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def __iter__(self):
+        return iter(())
+
+
+def test_zero_frames_with_output_does_not_log_saved(tmp_path, monkeypatch):
+    """거짓 '저장' 로그 회귀: 0프레임 재생이면 cv2.VideoWriter가 끝내 생성되지 않는다
+    (§본문 replay.py 프레임 루프 안에서만 writer가 만들어짐) — output이 주어졌다는
+    이유만으로 '저장' 로그를 찍으면 안 된다."""
+    from pathlib import Path
+
+    monkeypatch.setattr(replay_mod, "open_dir_or_bag", lambda _p: _EmptySource())
+    preset_path = str(Path(replay_mod.__file__).parent / "presets" / "single_frame.yaml")
+    output_path = tmp_path / "out.mp4"
+    log_dir = tmp_path / "logs"
+
+    frame_count = replay_mod.run_replay(
+        "unused", preset_path, display="none", output=str(output_path),
+        log_dir=str(log_dir), log_name="zerorun",
+    )
+    assert frame_count == 0
+    assert not output_path.exists(), "0프레임이면 VideoWriter가 만들어지지 않아 파일도 없어야 함"
+
+    log_text = (log_dir / "zerorun.log").read_text()
+    assert "저장" not in log_text, "writer가 실제로 안 만들어졌는데 '저장' 로그가 찍히면 거짓 로그"
+
+
+def test_nonzero_frames_with_output_logs_saved(tmp_path):
+    """대조군: 실제로 프레임이 처리되고 writer가 만들어지는 정상 케이스에선 '저장' 로그가 찍혀야 함."""
+    from pathlib import Path
+
+    rec_dir = _make_recording_dir(tmp_path, n=2)
+    preset_path = str(Path(replay_mod.__file__).parent / "presets" / "single_frame.yaml")
+    output_path = tmp_path / "out.mp4"
+    log_dir = tmp_path / "logs"
+
+    frame_count = replay_mod.run_replay(
+        str(rec_dir), preset_path, display="none", output=str(output_path),
+        log_dir=str(log_dir), log_name="saverun",
+    )
+    assert frame_count == 2
+    assert output_path.exists()
+
+    log_text = (log_dir / "saverun.log").read_text()
+    assert "저장" in log_text
+
+
 def test_display_stream_serves_real_frames_via_replay(tmp_path, monkeypatch):
     """§7.9 항목5 replay.py 통합: display="stream" 이 실제 MjpegStreamer로 재생 프레임을 흘리는지
     -> 실제 HTTP GET /stream 으로 접속해 진짜 프레임 하나를 디코드해서 검증한다(pseudo 테스트 금지).

@@ -77,15 +77,15 @@ def run_replay(
     blackbox = BlackBoxLogger(log_dir, name=log_name)
 
     streamer = None
-    if display == "stream":
-        streamer = MjpegStreamer(host=stream_host, port=stream_port)
-        streamer.start()
-        logger.info("라이브 스트림 시작: %s", streamer.url)
-        print(f"라이브 스트림: {streamer.url}")
-
     writer = None
     frame_count = 0
     try:
+        if display == "stream":
+            streamer = MjpegStreamer(host=stream_host, port=stream_port)
+            streamer.start()
+            logger.info("라이브 스트림 시작: %s", streamer.url)
+            print(f"라이브 스트림: {streamer.url}")
+
         with source:
             for record in source:
                 t0 = time.perf_counter()
@@ -131,7 +131,9 @@ def run_replay(
             streamer.stop()
 
     logger.info("replay 종료: %d 프레임 처리", frame_count)
-    if output:
+    if writer:
+        # writer는 프레임 루프 안에서 첫 프레임 처리 시에만 생성된다(main.py:165-167과 동일 게이팅) —
+        # output이 주어졌어도 0프레임 재생이면 writer가 끝내 안 만들어지므로 output만으로는 게이팅 안 함.
         logger.info("저장: %s", output)
     return frame_count
 
