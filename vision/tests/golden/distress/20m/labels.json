@@ -1,0 +1,18 @@
+{
+  "target": "distress",
+  "altitude_label": "20m (중간, 스키마 자리표시자)",
+  "preset": "distress_coarse.yaml",
+  "note": "중간 스케일에서도 검출 유지.",
+  "frames": [
+    {
+      "file": "frame_000.png",
+      "expect_num_detections": 1,
+      "expect_stage_meta": {
+        "rect_detector": {
+          "candidates": 1
+        }
+      },
+      "known_limitation": false
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "target": "distress",
+  "altitude_label": "40m (원거리, 스키마 자리표시자)",
+  "preset": "distress_coarse.yaml",
+  "note": "매트 픽셀 면적(16px 한 변, area=256)이 rect_detector min_area(300)보다 작아 검출 0건 — 원거리에서 타겟이 최소 검출 가능 크기 미만이 되는 물리적으로 타당한 케이스(§4.1 coarse 하한 고도 논지와 동일 방향). 파라미터 미변경.",
+  "frames": [
+    {
+      "file": "frame_000.png",
+      "expect_num_detections": 0,
+      "expect_stage_meta": {
+        "rect_detector": {
+          "candidates": 0
+        }
+      },
+      "known_limitation": true
+    }
+  ]
+}

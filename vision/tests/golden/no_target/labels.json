@@ -1,0 +1,14 @@
+{
+  "target": "no_target",
+  "altitude_label": "n/a — ④ 단순착륙(피듀셜 없음)과 동일 조건, vision_plan.md §5.6",
+  "preset": "vertiport_coarse.yaml",
+  "note": "④ 단순 착륙은 비전 개입 없음(GPS+라이다만, §5.6)이라 전용 골든셋 대상이 아니다. 대신 이 프레임은 '피듀셜 없는 평지에서 가장 정교한 캐스케이드(vertiport)조차 오탐하지 않는가'를 회귀로 고정한다.",
+  "frames": [
+    {
+      "file": "frame_000.png",
+      "expect_num_detections": 0,
+      "expect_stage_meta": null,
+      "known_limitation": false
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "target": "distress",
+  "altitude_label": "10m (근접, 스키마 자리표시자)",
+  "preset": "distress_coarse.yaml",
+  "note": "초록 매트 + 중앙 흰 박스, 근접 스케일 — rect_detector 검출 확인.",
+  "frames": [
+    {
+      "file": "frame_000.png",
+      "expect_num_detections": 1,
+      "expect_stage_meta": {
+        "rect_detector": {
+          "candidates": 1
+        }
+      },
+      "known_limitation": false
+    }
+  ]
+}

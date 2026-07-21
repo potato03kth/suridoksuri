@@ -1,0 +1,22 @@
+# ② 조난자 구역 coarse — 초록 사각 매트 검출 (vision_plan.md §5.3)
+# "coarse(40~15m): 초록 사각 매트(자갈 위) -> HSV 초록 + 사각"
+# 전용 검출 모듈은 아직 없다 — 기존 ColorFilter(mode=color)+RectDetector 조합만으로 구성
+# (신규 코드 없음, 골든셋 회귀테스트 §7.9 항목7 용으로 추가한 프리셋).
+# 은색 테두리·흰 박스 fine 단계, ③ 하기구역(빨간 십자 형상판별)은 전용 검출기 미구현 —
+# 이 프리셋의 범위 밖.
+pipeline:
+  color_filter:
+    mode: color
+    hue_range: [35, 85]
+    sat_min: 80
+    val_min: 60
+
+  morphology:
+    ops: [close, open]
+    kernel_size: 5
+
+  rect_detector:
+    min_area: 300
+    max_area: 500000
+    approx_epsilon: 0.04
+    min_solidity: 0.7

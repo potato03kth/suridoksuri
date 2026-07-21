@@ -1,0 +1,25 @@
+{
+  "target": "vertiport",
+  "altitude_label": "20m (중간, 스키마 자리표시자 — 주석 참조)",
+  "preset": "vertiport_coarse.yaml",
+  "note": "10m보다 작은 스케일에서도 3단 캐스케이드 전부 확인됨.",
+  "frames": [
+    {
+      "file": "frame_000.png",
+      "expect_num_detections": 1,
+      "expect_stage_meta": {
+        "white_field": {
+          "candidates": 1
+        },
+        "black_v": {
+          "confirmed": 1,
+          "rejected": 0
+        },
+        "red_ring": {
+          "confirmed": 1
+        }
+      },
+      "known_limitation": false
+    }
+  ]
+}
