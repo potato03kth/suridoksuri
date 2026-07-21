@@ -2,7 +2,7 @@
 doc_type: session_status
 project: suridoksuri-1
 scope: vision 세션 유일 진입점 — 트랙 보드 + 설계 포인터
-last_updated: 2026-07-21f
+last_updated: 2026-07-22a
 ---
 
 # vision 세션 진입 상태 문서
@@ -19,7 +19,8 @@ last_updated: 2026-07-21f
 - **개발/테스트 환경:** 메인 개발주체 = **노트북(WSL)**, `.venv` 준비 완료(`source .venv/bin/activate`, 저장소 루트) — `pytest vision/tests/` **126 passed** 확인됨(2026-07-21f). 개발컴 `.venv`도 기존대로 유효. RPi는 headless지만 **SSH 상시 접근 가능**(tailscale `100.67.27.83`, 계정 `suri`, ed25519 키 등록됨, **패스워드리스 sudo 설정 완료** 2026-07-21) — Claude가 직접 SSH로 RPi 작업 가능. **장착된 카메라는 정품 Camera Module 3가 아니라 서드파티 클론 "CAM109-IMX708AF-75"**(IMX708 센서 동일, 화각은 대각 75°로 계획서 가정 102°보다 좁음). 상세 → 메모리 `project_vision_dev_env.md`, `project_rpi5_ubuntu_camera_stack.md`
 - **커밋 규율:** vision 커밋은 메시지에 **`[vision]`** 태그
 - **설계 정본:** `docs/vision_plan.md` — 확정 결정·물리 제약·검출 전략·변경내성/관측성·빌드 순서·블라인드스팟. **이 문서는 라이브 진척만** 담는다.
-- **대회 규정(2026-07-21 대부분 확정):** ArUco=`DICT_4X4_50` ID23 **50cm×50cm**(원래 계획 가정과 일치 확인) · 버티포트 하기안전구역(빨간 원)=직경2m·선굵기5cm 고리 신규확정 · ③빨간십자·초록색/치수는 **비공개로 확정**(버티포트 유사크기+안전마진 가정) · 성공판정="매끄럽게 보이면"(정성) 확정 · ④단순착륙=GPS+라이다만 확정 · CC 인터페이스·나무조각상 판단기준만 여전히 대기 → 상세 `vision_plan.md` §10.
+- **대회 규정(2026-07-21 대부분 확정, 2026-07-22 초록구역 실측 스펙 추가확정):** ArUco=`DICT_4X4_50` ID23 **50cm×50cm**(원래 계획 가정과 일치 확인) · 버티포트 하기안전구역(빨간 원)=직경2m·선굵기5cm 고리 신규확정 · **②초록색/치수는 실측 확정: 3.0m×3.0m×0.105m 라이즈드 플랫폼**(버티포트와 동일 3m 풋프린트, §4.1 GSD "3m 피처" 컬럼 재사용) · ③빨간십자만 여전히 **비공개로 확정**(버티포트 유사크기+안전마진 가정) · 성공판정="매끄럽게 보이면"(정성) 확정 · ④단순착륙=GPS+라이다만 확정 · CC 인터페이스·나무조각상 판단기준만 여전히 대기 → 상세 `vision_plan.md` §10.
+- **⚠️ 빠께스(소형 단일물체) 탐색 트랙은 연기됨(2026-07-22 정정, 메모리 `project_vision_2nd_qualifier_bucket_target.md` "[2026-07-22 정정]" 절 참조):** 2026-07-21에 "2차예선까지 빠께스 탐색이 우선"이라는 방향전환이 있었으나 **하루 만에 정정** — vision 파트(초록구역 포함 기존 트랙 전체)를 먼저 완료하고, 그 뒤에 빠께스 기반 창의적 탐색설계에 착수하는 것으로 우선순위가 원래대로 되돌아갔다. **다음 vision 세션은 빠께스 트랙에 들어가지 말고 아래 트랙 보드(정밀착륙, 초록구역/버티포트)를 그대로 이어간다.**
 
 ---
 
@@ -28,6 +29,13 @@ last_updated: 2026-07-21f
 ### 👁 vision-정밀착륙 — ▶ 활성 (카메라 캘리브레이션 브링업은 RPi 작업 허가 대기 중 — §7.9 카메라 독립 대체 트랙 4·5·6·7번 전부 완료, 남은 건 전부 RPi 허가 대기 항목)
 
 - **내용:** 착륙지점 인식·정밀착륙 시스템(RPi5 온보드). 고전 CV, 타겟별 coarse→fine 2단, 비전 폐루프 <30cm. 설계 정본 `docs/vision_plan.md`.
+- **직전 완료(2026-07-22a, 노트북/WSL 로컬 세션 — RPi/실카메라 작업 금지 하에 진행):** ② 조난자 구역 실측 스펙(3.0m×3.0m×0.105m 라이즈드 플랫폼) 확정 반영. 알고리즘 변경 아님 — 스펙·설정값·문서·골든셋 반영. 상세:
+  - `docs/vision_plan.md`: §2 타겟 표·"초록 색/치수" 각주·§5.3·§10 열린 항목을 실측 스펙으로 갱신. 버티포트 흰 필드와 동일 3m 풋프린트임을 명시 → §4.1 GSD 표의 기존 "3m 피처" 컬럼을 재사용(신규 GSD 컬럼 안 만듦). 버티포트(①) 관련 내용은 손대지 않음.
+  - `vision/presets/distress_coarse.yaml`: `min_area`/`max_area`를 300/500000(직전 감사가 "GSD 미확정 상태의 임의값"으로 지적)에서 **8000/200000**으로 재도출. 근거: 실측 3m 풋프린트 + §4.1 GSD 표(3m 피처 컬럼) 기준이되, 계획서 가정 화각 102°가 아니라 **실측 화각 75°**(아래 "주의" 참조)로 재계산 — `gw(h)=2h·tan(37.5°)≈1.535h`, 다운스케일 1536px 기준 GSD로 10m/20m/40m 매트 픽셀 면적(~90,000/~22,500/~5,625px²)을 구하고 안전마진 반영. 계산 전 과정은 yaml 헤더 주석 + `vision/CLAUDE.md` "distress_coarse.yaml min_area/max_area 도출 근거" 절에 기록(코드 주석 아님, 기존 "라이브 스트림 어댑터 기본값" 근거기록 패턴 재사용).
+  - `vision/tests/golden/distress/{10m,20m,40m}/`: `generate_synthetic.py`가 그리는 매트 픽셀 크기를 위 계산값(한 변 300px/150px/75px)으로 교체 — 더 이상 "가까움/중간/멂"의 임의 placeholder가 아니라 "실측 스펙에서 GSD로 역산한 크기". `labels.json`의 `altitude_label`/`note`도 "스키마 자리표시자" 문구를 실제 계산값 설명으로 교체. 10m/20m는 새 `min_area`(8000) 이상이라 검출, 40m(~5,625px²)는 미만이라 미검출 — 정합된 스토리 유지. **vertiport 골든셋(스키마 placeholder)은 이번 세션에서 손대지 않음.**
+  - `vision/tests/golden/README.md`: distress 행 갱신(새 픽셀 계산값·근거 문서 위치).
+  - **실제 테스트:** `pytest vision/tests/test_golden_regression.py -v` 18 passed(신규 프레임으로 `vision.replay.run_replay()` 실제 재생 → 실제 검출 결과와 새 `labels.json` 비교, 몽키패치 없음) → `pytest vision/tests/` 전체 **126 passed**(신규 테스트 추가 없음, 기존 골든 회귀 테스트가 새 프레임/라벨에 대해 통과 확인하는 방식이라 개수 불변).
+  - 빠께스 관련 코드/폴더는 만들지 않음(스코프 아님, 위 "빠께스 트랙 연기" 참조).
 - **직전 완료(2026-07-21f, 노트북/WSL 로컬 세션 — RPi/실카메라 작업 금지 하에 진행):** 새 기능 아님 — **품질 감사에서 나온 결함 수정**. 오케스트레이터가 독립 감사 서브에이전트 2개를 돌려 `main.py`/`replay.py`/`tools/jsonl_view.py`의 diff를 라인 단위 정독시켰고, 그중 2건은 코드로 직접 재확인까지 거쳐 진짜 결함 3건 + 커버리지 갭 1건을 확정 → 이번 세션에서 TDD(레드→그린)로 전부 수정. 상세:
   - **리소스 leak (`main.py`/`replay.py`):** `streamer.start()`(실 소켓 bind, 포트충돌 시 `OSError`)가 `blackbox` 생성 이후 `try`/`finally` **밖**에서 호출돼, 실패 시 `finally`의 `blackbox.close()`가 안 불려 큐스레드/파일핸들이 leak되던 문제. `streamer` 생성/`start()`를 `try` 블록 안으로 이동해 실패해도 `finally`가 항상 돎. `replay.py`도 동일 패턴이라 같이 수정. 회귀: `streamer.start()`를 몽키패치로 `OSError` 나게 만들고 `blackbox.close()`가 실제로 호출되는지 검증(`test_main.py::test_streamer_start_failure_still_closes_blackbox`, `test_replay.py::test_streamer_start_failure_still_closes_blackbox`).
   - **거짓 "저장" 로그 (`replay.py:134-135`):** `if output:` 만으로 게이팅해 0프레임 재생처럼 `cv2.VideoWriter`가 끝내 안 만들어진 경우에도 "저장" 로그가 찍히던 문제. `main.py`(`if writer:`)와 동일하게 실제 `writer` 존재 여부로 게이팅하도록 수정. 회귀: `open_dir_or_bag`를 0프레임 가짜 소스로 바꿔 "저장" 로그가 안 찍히는지(`test_zero_frames_with_output_does_not_log_saved`), 정상 케이스엔 찍히는지(`test_nonzero_frames_with_output_logs_saved`) 둘 다 검증.
@@ -57,5 +65,5 @@ last_updated: 2026-07-21f
   1. **[RPi 작업 허가 필요]** 카메라 브링업 4개 선택지(V4L2 RAW 직접캡처 권장/libcamera 재빌드/RPi OS 재설치/보류) 중 어느 걸로 갈지 사용자에게 확인 → 메모리 `project_rpi5_ubuntu_camera_stack.md` 먼저 읽고 진입
   2. **[RPi 작업 허가 필요]** 선택된 방향으로 카메라 캡처 도구(`vision/tools/rpi_capture.py`) 완성 → 실제 체커보드 촬영 → 카메라 인트린식/왜곡 캘리브레이션
   3. **[RPi 작업 허가 필요]** 골든셋을 실촬영 데이터로 교체 — 절차는 `vision/tests/golden/README.md` "실기체 데이터가 들어오면" 참조. 이때 40m 티어의 `known_limitation` 두 건도 실측 재검증. `MjpegStreamer`도 실제 RPi 네트워크 환경에서 브라우저 접속 실측 필요(`LiveFrameSource`와 동일하게 지금까지는 인터페이스 계약만 검증됨)
-- **주의:** Pi4 인코더/라이다 40m급 미확정 · 기존 `vision/` 틀은 폐기 아님(§12) · `geo_project.pixel_to_gps` 폐기 예정 · **버티포트 V 형상매칭은 실물 규격 미확인 상태의 합성테스트로만 검증됨** — 실기체 데이터 확보 후 `BlackVMatcher` 참조 V 템플릿(두께/종횡비)·`max_match_distance` 재검증 필요 · **카메라 화각이 계획서 가정(102°)과 다름(75°) — coarse 캐스케이드 탐지거리 가정 재검토 여지 있음, §4.1 GSD 표 자체가 재검증 대기라 골든셋 고도 라벨도 정밀 GSD 매핑이 아니라 스키마 자리표시자로 명시함(§7.9 항목7 완료 노트 참조)** · `LiveFrameSource`는 인터페이스 계약만 검증됨, 실장치 연결은 RPi 허가 후 검증 필요 · `MjpegStreamer`(§7.9 항목5)도 마찬가지로 로컬(WSL) HTTP 왕복만 검증됨, 실제 RPi↔랩탑 네트워크 환경(대역폭/지연/Wi-Fi 끊김 — `project_rpi5_tailscale_wifi_drops.md` 참조)에서의 실측은 RPi 허가 후 검증 필요 · **`jsonl_view.py`의 state 서브플롯은 실기체 데이터 없음** — main.py/replay.py가 아직 `state`를 채우지 않아(§5.1 상태머신 미구현) 실사용 시엔 항상 "no state data" 안내만 뜬다. 상태머신 연결되면 자동으로 실데이터가 나타남(코드 변경 불필요, 이미 대응돼 있음) · **골든셋(`tests/golden/`)은 전부 합성 데이터** — 실기체 데이터 확보 후 교체 필요(§7.9 항목7 완료 노트) · **`vertiport_coarse.yaml`의 고정 `kernel_size=5` morphology가 저해상(작은 픽셀) 스케일에서 흰 필드 연결성을 깨는 스케일 민감성이 골든셋으로 새로 드러남** — 검출기 튜닝은 이번 세션 범위 밖, 실기체 데이터/저고도 재검증 필요 · 세부 정정 이력·논의는 `docs/session_log.md` 참조
+- **주의:** Pi4 인코더/라이다 40m급 미확정 · 기존 `vision/` 틀은 폐기 아님(§12) · `geo_project.pixel_to_gps` 폐기 예정 · **버티포트 V 형상매칭은 실물 규격 미확인 상태의 합성테스트로만 검증됨** — 실기체 데이터 확보 후 `BlackVMatcher` 참조 V 템플릿(두께/종횡비)·`max_match_distance` 재검증 필요 · **카메라 화각이 계획서 가정(102°)과 다름(75°) — coarse 캐스케이드 탐지거리 가정 재검토 여지 있음. §4.1 GSD 표 자체(버티포트 기준, 102°)는 재검증 대기라 `vertiport` 골든셋 고도 라벨은 여전히 스키마 자리표시자다(§7.9 항목7 완료 노트 참조). 단 `distress` 골든셋은 2026-07-22a에 실측 화각 75°로 직접 재계산한 값으로 교체됐음 — 더 이상 placeholder 아님(vision_plan.md §5.3, vision/CLAUDE.md 참조)** · `LiveFrameSource`는 인터페이스 계약만 검증됨, 실장치 연결은 RPi 허가 후 검증 필요 · `MjpegStreamer`(§7.9 항목5)도 마찬가지로 로컬(WSL) HTTP 왕복만 검증됨, 실제 RPi↔랩탑 네트워크 환경(대역폭/지연/Wi-Fi 끊김 — `project_rpi5_tailscale_wifi_drops.md` 참조)에서의 실측은 RPi 허가 후 검증 필요 · **`jsonl_view.py`의 state 서브플롯은 실기체 데이터 없음** — main.py/replay.py가 아직 `state`를 채우지 않아(§5.1 상태머신 미구현) 실사용 시엔 항상 "no state data" 안내만 뜬다. 상태머신 연결되면 자동으로 실데이터가 나타남(코드 변경 불필요, 이미 대응돼 있음) · **골든셋(`tests/golden/`)은 전부 합성 데이터** — 실기체 데이터 확보 후 교체 필요(§7.9 항목7 완료 노트) · **`vertiport_coarse.yaml`의 고정 `kernel_size=5` morphology가 저해상(작은 픽셀) 스케일에서 흰 필드 연결성을 깨는 스케일 민감성이 골든셋으로 새로 드러남** — 검출기 튜닝은 이번 세션 범위 밖, 실기체 데이터/저고도 재검증 필요 · 세부 정정 이력·논의는 `docs/session_log.md` 참조
 - **참조:** `docs/vision_plan.md` §2(타겟 스펙)/§5.2(버티포트 coarse 캐스케이드)/§5.5(색 항상성)/§7.5(기록·재생)/§7.9(관측성 워크플로) · `vision/CLAUDE.md`(파일역할표·테스트 규칙표) · 메모리 `project_rpi5_ubuntu_camera_stack.md`(카메라 브링업 전체 경과·진단명령·재현법)

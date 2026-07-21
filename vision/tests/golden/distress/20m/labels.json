@@ -1,8 +1,8 @@
 {
   "target": "distress",
-  "altitude_label": "20m (중간, 스키마 자리표시자)",
+  "altitude_label": "20m — 실측 스펙(3.0m×3.0m) 기반 계산값: 매트 한 변 ~150px(면적 ~22,500px²), 실측 화각 75°·다운스케일 1536px 기준",
   "preset": "distress_coarse.yaml",
-  "note": "중간 스케일에서도 검출 유지.",
+  "note": "중간 스케일 — 면적(~22,500px²)이 min_area(8000) 이상이라 검출 유지(색/윤곽 열화로 명목 면적의 ~35%까지 줄어도 통과하는 마진).",
   "frames": [
     {
       "file": "frame_000.png",

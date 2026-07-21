@@ -53,7 +53,7 @@
 | `registry.py` | 이름 → 클래스 매핑. **새 모듈 등록은 여기에만** |
 | `presets/*.yaml` | 시나리오별 모듈 조합. 코드 수정 없이 파이프라인 변경 |
 | `config/default.yaml` | 전체 파라미터 기본값 참조용 (실행에 직접 사용하지 않음) |
-| `presets/distress_coarse.yaml` | ② 조난자 구역 coarse(§5.3) — 전용 모듈 없이 기존 `ColorFilter(mode=color)`+`RectDetector` 조합. §7.9 항목7 골든셋용으로 신규 추가(신규 검출 로직 아님) |
+| `presets/distress_coarse.yaml` | ② 조난자 구역 coarse(§5.3) — 전용 모듈 없이 기존 `ColorFilter(mode=color)`+`RectDetector` 조합. §7.9 항목7 골든셋용으로 신규 추가(신규 검출 로직 아님). `min_area`/`max_area`는 실측 스펙 기반 도출값 — 근거는 아래 "distress_coarse.yaml min_area/max_area 도출 근거" 절 |
 | `utils/image_loader.py` | 파일 경로 → BGR numpy 배열 |
 | `utils/video_reader.py` | 영상 파일 → 프레임 이터레이터 |
 | `utils/visualize.py` | bbox 드로잉, 결과 이미지 저장 |
@@ -79,6 +79,20 @@ vision_plan.md §7.9가 정확한 해상도/포트를 못박지 않아 세션 �
 - **바인딩 주소:** `0.0.0.0`(모든 인터페이스 — RPi가 실제 배포될 네트워크에서 랩탑이 접속 가능해야 하므로). `--stream-host 127.0.0.1`로 로컬만 제한 가능.
 - **JPEG quality:** 80, **큐 길이:** 2 — 지연 누적보다 최신 프레임 우선(관찰이 목적, 무손실 기록이 목적 아님. 상시 기록은 `--output`/mp4 덤프 경로가 담당).
 - 비차단 큐 패턴은 `utils/blackbox.py`의 `_DropOldestQueueHandler`와 동일 설계(evict-then-insert를 락으로 원자화 — 여러 producer 스레드 동시 push 시 `queue.Full` 경쟁 방지, `blackbox.py`는 단일 로거 호출 경로라 이 레이스가 실질적으로 안 나타나 그대로 둠).
+
+---
+
+## distress_coarse.yaml min_area/max_area 도출 근거 (2026-07-22, `presets/distress_coarse.yaml`)
+
+직전 감사 세션에서 "GSD 미확정 상태의 임의값(물리적 근거 없음)"으로 지적됐던 `rect_detector.min_area`/`max_area`를, ② 조난자 구역 실측 스펙(**3.0m×3.0m×0.105m 라이즈드 플랫폼**, `docs/vision_plan.md` §2/§5.3)이 확정되며 근거 있게 재도출했다.
+
+- **풋프린트 재사용:** 매트는 버티포트 흰 필드(직경 3m)와 정확히 같은 3m 풋프린트 → `vision_plan.md` §4.1 GSD 표의 "3m 피처" 컬럼을 그대로 쓸 수 있다(신규 GSD 컬럼 불필요).
+- **화각 보정:** §4.1 표는 계획서 가정 화각 102°(H) 기준인데, 실제 장착 카메라(CAM109-IMX708AF-75)는 실측 75°(`docs/vision_status.md` "카메라 화각이 계획서 가정(102°)과 다름(75°)")다. min_area/max_area 계산은 75°로 다시 했다.
+- **공식:** 지상폭 `gw(h) = 2·h·tan(75°/2) ≈ 1.535·h` [m] (coarse 다운스케일 전체프레임, 폭 1536px 기준 — §4.1 "다운스케일(1536px)" 컬럼과 동일 기준). `GSD_down(h) = gw(h)/1536` [m/px]. 매트 한 변(3.0m) 픽셀 길이 = `300cm / (GSD_down(h)×100)`, 면적 = 한 변².
+- **계산 결과:** 10m → 한 변 ≈300px, 면적 ≈90,000px² / 20m → ≈150px, ≈22,500px² / 40m → ≈75px, ≈5,625px².
+- **마진 반영 임계값:** `min_area=8000`(40m를 확실히 배제, 20m는 실제 검출 면적이 명목값의 ~35%까지 열화돼도 통과할 여유) / `max_area=200000`(10m 명목값의 약 2.2배 — 근접·윤곽 과대추정에 여유를 주되 프레임을 거의 채우는 배경 오탐은 배제).
+- **골든셋 정합:** `vision/tests/golden/distress/{10m,20m,40m}/`도 위 계산의 한 변 px(300/150/75)을 그대로 써서 재생성됨 — 10m/20m는 검출, 40m는 마진 반영 임계값 기준으로 미검출(재생성 스크립트: `vision/tests/golden/generate_synthetic.py`).
+- 이번 재도출은 **검출 알고리즘 변경이 아니다** — `min_area`/`max_area` 파라미터 값만 교체, `modules/*.py` 로직은 그대로.
 
 ---
 

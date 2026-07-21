@@ -11,12 +11,20 @@
 
 실행하면 이 파일 옆의 <target>/<altitude>/frame_000.png + labels.json을 덮어쓴다.
 
-**altitude 라벨(10m/20m/40m)은 스키마 자리표시자다.** vision_plan.md §4.1 GSD 표의 고도
-구간 이름을 그대로 빌려 폴더명으로 쓰지만, 이 스크립트가 그리는 픽셀 크기는 그 표의
-GSD 계산값을 그대로 옮긴 것이 **아니다** — §4.1 GSD 표는 화각 102° 가정인데 실제 장착된
-카메라는 75°로 확인되어(docs/vision_status.md) 표 자체가 재검증 대기 중이다. 정밀 재현을
-주장하면 거짓 정밀도가 되므로, 대신 "가까움/중간/멂"에 대응하는 스키마용 크기 계층만
-잡았다. 실기체 데이터가 들어오면 이 자리에 진짜 촬영 프레임 + 실측 라벨로 교체한다.
+**vertiport(①) altitude 라벨(10m/20m/40m)은 여전히 스키마 자리표시자다.** vision_plan.md
+§4.1 GSD 표의 고도 구간 이름을 그대로 빌려 폴더명으로 쓰지만, 이 스크립트가 그리는 픽셀
+크기는 그 표의 GSD 계산값을 그대로 옮긴 것이 **아니다** — §4.1 GSD 표는 화각 102° 가정인데
+실제 장착된 카메라는 75°로 확인되어(docs/vision_status.md) 표 자체가 재검증 대기 중이다.
+정밀 재현을 주장하면 거짓 정밀도가 되므로, 대신 "가까움/중간/멂"에 대응하는 스키마용 크기
+계층만 잡았다. 실기체 데이터가 들어오면 이 자리에 진짜 촬영 프레임 + 실측 라벨로 교체한다.
+
+**distress(②) altitude 라벨(10m/20m/40m)은 [2026-07-22]부터 스키마 자리표시자가 아니다.**
+② 조난자 구역 실측 스펙(3.0m×3.0m×0.105m 라이즈드 플랫폼, vision_plan.md §2/§5.3)이
+확정되어, 버티포트와 동일한 3m 풋프린트를 §4.1 GSD 표의 "3m 피처" 컬럼 기준으로 재사용하되
+**실측 화각 75°로 재계산**한 픽셀 크기를 쓴다(`vision/presets/distress_coarse.yaml` 헤더
+주석, `vision/CLAUDE.md` "distress_coarse.yaml min_area/max_area 도출 근거" 참조). 여전히
+합성(synthetic) 이미지라는 점은 vertiport와 동일하다 — 실촬영이 아니라 "실측 스펙에서 GSD로
+역산한 픽셀 크기"라는 의미다. 실기체 데이터가 들어오면 이 자리도 진짜 촬영 프레임으로 교체한다.
 """
 import json
 from pathlib import Path
@@ -156,14 +164,18 @@ def generate() -> None:
     )
 
     # --- distress (② — distress_coarse.yaml, 전용 모듈 없이 ColorFilter+RectDetector 조합) ---
+    # 매트 한 변 px = 실측 3.0m 풋프린트를 실측 화각 75°·다운스케일 1536px 기준 GSD로 역산한 값
+    # (vision/presets/distress_coarse.yaml 헤더 주석, vision/CLAUDE.md 참조).
+    # 10m -> ~300px(면적 90,000) / 20m -> ~150px(면적 22,500) / 40m -> ~75px(면적 5,625).
+    # min_area=8000 / max_area=200000 마진 반영 임계값 기준: 10m/20m는 검출, 40m는 미검출.
     _write_frame(
         _ROOT / "distress" / "10m",
-        _synthetic_distress(mat_size=260, canvas=320),
+        _synthetic_distress(mat_size=300, canvas=460),
         {
             "target": "distress",
-            "altitude_label": "10m (근접, 스키마 자리표시자)",
+            "altitude_label": "10m — 실측 스펙(3.0m×3.0m) 기반 계산값: 매트 한 변 ~300px(면적 ~90,000px²), 실측 화각 75°·다운스케일 1536px 기준",
             "preset": "distress_coarse.yaml",
-            "note": "초록 매트 + 중앙 흰 박스, 근접 스케일 — rect_detector 검출 확인.",
+            "note": "초록 매트 + 중앙 흰 박스, 근접 스케일 — 면적(~90,000px²)이 min_area(8000)~max_area(200000) 범위 내라 rect_detector 검출 확인.",
             "frames": [
                 {
                     "file": "frame_000.png",
@@ -176,12 +188,12 @@ def generate() -> None:
     )
     _write_frame(
         _ROOT / "distress" / "20m",
-        _synthetic_distress(mat_size=180, canvas=320),
+        _synthetic_distress(mat_size=150, canvas=320),
         {
             "target": "distress",
-            "altitude_label": "20m (중간, 스키마 자리표시자)",
+            "altitude_label": "20m — 실측 스펙(3.0m×3.0m) 기반 계산값: 매트 한 변 ~150px(면적 ~22,500px²), 실측 화각 75°·다운스케일 1536px 기준",
             "preset": "distress_coarse.yaml",
-            "note": "중간 스케일에서도 검출 유지.",
+            "note": "중간 스케일 — 면적(~22,500px²)이 min_area(8000) 이상이라 검출 유지(색/윤곽 열화로 명목 면적의 ~35%까지 줄어도 통과하는 마진).",
             "frames": [
                 {
                     "file": "frame_000.png",
@@ -194,15 +206,16 @@ def generate() -> None:
     )
     _write_frame(
         _ROOT / "distress" / "40m",
-        _synthetic_distress(mat_size=16, canvas=320),
+        _synthetic_distress(mat_size=75, canvas=200),
         {
             "target": "distress",
-            "altitude_label": "40m (원거리, 스키마 자리표시자)",
+            "altitude_label": "40m — 실측 스펙(3.0m×3.0m) 기반 계산값: 매트 한 변 ~75px(면적 ~5,625px²), 실측 화각 75°·다운스케일 1536px 기준",
             "preset": "distress_coarse.yaml",
             "note": (
-                "매트 픽셀 면적(16px 한 변, area=256)이 rect_detector min_area(300)보다 작아 "
-                "검출 0건 — 원거리에서 타겟이 최소 검출 가능 크기 미만이 되는 물리적으로 타당한 "
-                "케이스(§4.1 coarse 하한 고도 논지와 동일 방향). 파라미터 미변경."
+                "매트 픽셀 면적(~5,625px²)이 rect_detector min_area(8000, 안전마진 반영)보다 작아 "
+                "검출 0건 — coarse 대역(40~15m)의 원거리 경계에서 마진을 반영한 임계값 기준으로 "
+                "타당한 미검출 케이스(§5.3 각주 참조). 파라미터는 이번 세션에서 실측 스펙 기반으로 "
+                "재도출된 값(8000/200000)이며 알고리즘 자체는 변경하지 않음."
             ),
             "frames": [
                 {

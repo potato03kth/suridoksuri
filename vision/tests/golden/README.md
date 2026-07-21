@@ -56,7 +56,7 @@ vision/tests/golden/
 | 타겟 | 고도 티어 | preset | 근거 |
 |---|---|---|---|
 | `vertiport`(①) | 10m/20m/40m | `vertiport_coarse.yaml` | 3단 캐스케이드(white_field→black_v→red_ring) 전체 exercise. 10m/20m은 3단 전부 확인, 40m은 **알려진 한계**(white_field만 후보 내고 black_v 형상매칭 탈락 → 최종 0건, 저해상 스케일에서 고정 `kernel_size=5` morphology가 원인으로 보임) — `generate_synthetic.py` docstring 참조 |
-| `distress`(②) | 10m/20m/40m | `distress_coarse.yaml`(이번 세션 신규 — 전용 검출 모듈 없이 기존 `ColorFilter`+`RectDetector` 조합, 신규 검출 로직 아님) | 초록 매트+흰 박스. 40m은 매트 픽셀 면적이 `min_area`(300) 미만이 되는 **물리적으로 타당한** 원거리 미검출 케이스 |
+| `distress`(②) | 10m/20m/40m | `distress_coarse.yaml`(전용 검출 모듈 없이 기존 `ColorFilter`+`RectDetector` 조합, 신규 검출 로직 아님) | 초록 매트(3.0m×3.0m×0.105m 라이즈드 플랫폼, 실측)+흰 박스. **[2026-07-22]** 매트 한 변 px은 실측 스펙 + 실측 화각 75°로 역산한 계산값(`generate_synthetic.py`/`distress_coarse.yaml` 헤더 주석/`vision/CLAUDE.md` 참조, 더 이상 임의 placeholder 아님). 10m(~90,000px²)/20m(~22,500px²)는 검출, 40m(~5,625px²)는 `min_area`(8000, 안전마진 반영) 미만인 **물리적으로 타당한** 원거리 미검출 케이스 |
 | `no_target` | — (④ 단순착륙과 동일 조건, §5.6) | `vertiport_coarse.yaml` (루트) + `distress_coarse.yaml` (`no_target/distress_coarse/`) | 피듀셜 없는 평지에서 가장 정교한 캐스케이드(vertiport)도, 색 기준이 전혀 다른 조난자 coarse(초록 HSV) 필터도 오탐하지 않는지. 두 프리셋은 필터 기준이 완전히 달라(무채색 사각형 vs 초록 HSV) 한쪽만 회귀검증하면 다른 쪽 오탐을 놓칠 수 있어 리프를 분리했다 |
 
 **빠진 것 (의도적):** ③ 하기구역(빨간 십자)은 전용 형상판별 검출기가 아직 없어(규정도 비공개
