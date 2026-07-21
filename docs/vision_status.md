@@ -28,11 +28,10 @@ last_updated: 2026-07-21
 ### 👁 vision-정밀착륙 — ▶ 활성 (구현 착수: 단위테스트 → coarse 캐스케이드)
 
 - **내용:** 착륙지점 인식·정밀착륙 시스템(RPi5 온보드). 고전 CV, 타겟별 coarse→fine 2단, 비전 폐루프 <30cm. 설계 정본 `docs/vision_plan.md`.
-- **마지막(2026-07-21):** 대회규정 확정 다수 반영 + 버티포트 실제 구조·coarse 검출전략 확정(설계 상세는 `vision_plan.md` §2/§5.2, 정정 이력은 §4.1a) + 노트북(WSL) 정식 `.venv` 완료(`pytest vision/tests/` 16 passed). 커밋 `ff5aa1a`~`5c27b0a`.
+- **마지막(2026-07-21):** `ColorFilter(mode="color")` HSV 초록/빨강 단위테스트 추가 — `vision/tests/test_color.py`에 7개 신규(초록 캡처/거부/채도경계, 빨강 저/고 hue band, 빨강 단일range Hue랩어라운드 미지원 회귀테스트, meta) `pytest vision/tests/` 23 passed. `vision/CLAUDE.md` 테스트표 갱신. 커밋 예정.
 - **다음 (이 순서로 진행, 사용자 확정):**
-  1. **HSV 초록/빨강 단위테스트** — `vision/tests/test_color.py`, 현재 gray 모드만 있음(`vision/CLAUDE.md` 표)
-  2. **버티포트 coarse 캐스케이드 구현(§5.2)** — 흰필드(기존 `ColorFilter(mode="gray")` 재사용) → 검은V 형상매칭(신규) → 빨간고리 색게이팅+원피팅(신규)
-  3. **관측성 골격 §7.9 다음 항목** — 이중싱크 로거 + JSONL + provenance 헤더
-  4. **카메라 인트린식/왜곡 캘리브레이션** — CM3 장착 완료로 착수 가능하나 **체커보드 촬영은 사용자 물리 작업 필요**
+  1. **버티포트 coarse 캐스케이드 구현(§5.2)** — 흰필드(기존 `ColorFilter(mode="gray")` 재사용) → 검은V 형상매칭(신규) → 빨간고리 색게이팅+원피팅(신규)
+  2. **관측성 골격 §7.9 다음 항목** — 이중싱크 로거 + JSONL + provenance 헤더
+  3. **카메라 인트린식/왜곡 캘리브레이션** — CM3 장착 완료로 착수 가능하나 **체커보드 촬영은 사용자 물리 작업 필요**
 - **주의:** rpi 미설치(headless) · Pi4 인코더/라이다 40m급 미확정 · 기존 `vision/` 틀은 폐기 아님(§12) · `geo_project.pixel_to_gps` 폐기 예정 · 세부 정정 이력·논의는 `docs/session_log.md` 참조
 - **참조:** `docs/vision_plan.md` §2(타겟 스펙)/§5.2(버티포트 coarse 캐스케이드)/§5.5(색 항상성)/§7.9(관측성) · `vision/CLAUDE.md`(테스트 규칙표)

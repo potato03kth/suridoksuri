@@ -189,7 +189,7 @@ pytest vision/tests/ -q -k main # 특정만
 |---|---|---|
 | core/runner `Pipeline` | from_config 로드·실행순서·`partial(N)`·unknown module→ValueError | ✅ test_pipeline |
 | registry | 등록 이름 전부 실제 클래스 매핑·중복 없음 | ❌ TODO |
-| color `ColorFilter` | 모드별 mask 생성·임계값 경계·meta (**HSV 초록/빨강 모드 미검증**) | △ gray만 |
+| color `ColorFilter` | 모드별 mask 생성·임계값 경계·meta | ✅ test_color (gray+color, 빨강 Hue랩어라운드 미지원은 §5.4 blind spot로 별도 회귀테스트 기록) |
 | illumination | current 변형·형상/채널 보존·meta | ❌ TODO |
 | denoise | current 변형·형상 보존 | ❌ TODO |
 | edge `EdgeDetector` | current/mask→mask 갱신·빈입력 | ❌ TODO |
