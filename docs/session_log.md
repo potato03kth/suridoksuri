@@ -11,6 +11,34 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-21f — [vision] 품질 감사 결함 수정 (리소스 leak 2건 + 거짓 로그 1건 + 골든셋 커버리지 갭 1건)
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 새 기능 아님 — 오케스트레이터가 독립 감사 서브에이전트 2개를 돌려 `main.py`/`replay.py`/`tools/jsonl_view.py`의 diff를 라인 단위로 정독시키고 그중 2건은 코드 재확인까지 거쳐 확정한 진짜 결함 3건 + 커버리지 갭 1건을 이번 세션에서 TDD(레드→그린)로 수정. RPi/실카메라 작업은 이번에도 금지, 노트북(WSL) 로컬만 사용.
+
+### 완료
+
+- **리소스 leak (`main.py`/`replay.py`):** `blackbox = BlackBoxLogger(...)` 생성 이후 `streamer.start()`(실 소켓 bind, 포트충돌 시 `OSError` 가능)가 뒤이은 `try:...finally: blackbox.close(); streamer.stop()` **밖**에서 호출되고 있었음 — `start()`가 예외를 던지면 `try`에 진입도 못 해 `finally`가 안 돌고 `blackbox`가 열어놓은 큐스레드/파일핸들이 leak됨. `streamer` 생성/`start()`를 `try` 블록 안으로 옮겨 실패해도 `finally`가 항상 실행되게 수정. 감사가 `main.py` 기준으로 지적했지만 `replay.py`도 직접 확인해보니 동일 구조(`writer`/`frame_count` 초기화만 `try` 밖에 있고 `streamer.start()`도 `try` 밖)였어서 같이 수정. 회귀: `MjpegStreamer.start`를 몽키패치로 `OSError` 나게 만들고 `blackbox.close()`가 실제로 호출되는지 검증 — `test_main.py::test_streamer_start_failure_still_closes_blackbox`, `test_replay.py::test_streamer_start_failure_still_closes_blackbox`(수정 전 레드 확인 → 수정 후 그린 확인).
+- **거짓 "저장" 로그 (`replay.py:134-135`):** `if output: logger.info("저장: %s", output)`가 `output` 인자 존재 여부로만 게이팅해, 실제 `cv2.VideoWriter`는 프레임 루프 안에서 첫 프레임 처리 시에만 생성되므로 0프레임 재생이면 파일 자체가 안 만들어지는데도 "저장" 로그가 찍히던 문제. `main.py:165-167`(`if writer: writer.release(); print(...)`)와 동일하게 실제 `writer` 존재 여부로 게이팅하도록 수정. 회귀: `open_dir_or_bag`를 0프레임 가짜 소스로 몽키패치해 "저장" 로그가 안 찍히는지(`test_zero_frames_with_output_does_not_log_saved`), 정상적으로 프레임이 처리되는 대조군에선 찍히는지(`test_nonzero_frames_with_output_logs_saved`) 둘 다 검증. (실제 0프레임 mp4는 컨테이너/코덱 사정으로 `cv2.VideoCapture`가 아예 못 여는 경우가 있어 `open_dir_or_bag`를 가짜 빈 소스로 바꿔치기해 결정론적으로 재현.)
+- **x축 스케일 혼용 (`tools/jsonl_view.py:124-127`):** `_x()`가 `x_field="ts"`인데 해당 행의 `ts`가 없으면 `frame_id`(정수, 보통 0~N)로 새 나머지 `ts-t0`(경과초, 보통 훨씬 작은 소수) 스케일과 섞여 시간축이 행마다 뒤로/앞으로 튀어 보이던 문제. 이 파일에 이미 있던 score/latency의 nan-gap 패턴(결측은 nan으로 채워 라인만 끊고 스케일을 안 섞음)과 같은 철학으로 `x_field="ts"`인데 `row.ts is None`이면 x좌표도 `nan`으로 처리하도록 수정. `t0 is None`(전체 행에 ts가 하나도 없는 경우)은 원래대로 `frame_id` 폴백 유지 — 그 경우는 전체가 일관되게 frame_id 축이라 혼용이 아님. 회귀: 일부 행만 `ts=None`인 실제 `BlackBoxLogger` 산출 JSONL(수기 JSON 아님)로 x좌표 배열이 nan-gap 처리되는지 검증 — `test_jsonl_view.py::test_x_axis_ts_gap_does_not_mix_scale_with_frame_id`.
+- **골든셋 커버리지 갭 — no_target × distress_coarse.yaml:** `tests/golden/no_target/`은 `vertiport_coarse.yaml`로만 오탐 회귀됐고, 필터 기준이 전혀 다른(무채색 사각형 vs 초록 HSV) `distress_coarse.yaml`에 대한 오탐 방지 회귀가 없었음. 기존 `no_target/labels.json` 스키마는 손대지 않고(과설계 금지) `no_target/distress_coarse/` 리프 디렉터리를 새로 추가(같은 `frame_000.png` 재사용, `preset`만 `distress_coarse.yaml`) — "리프 디렉터리 하나당 labels.json 하나" 기존 관례 그대로. 실제로 파이프라인을 돌려 `expect_num_detections=0`을 확인 후 기록(허위 없음). 기존 파라미터화 테스트가 새 리프를 자동 발견해 검증하며, 커버리지 자체가 앞으로도 지켜지는지 확인하는 명시적 테스트 `test_no_target_has_distress_coarse_regression_case`도 추가. `tests/golden/README.md`에 "타겟/프리셋변형" 리프 패턴(고도 계층이 없는 타겟용) 문서화.
+- **검출 로직(color.py/detector.py/vertiport_*.py) 전혀 건드리지 않음** — 전부 CLI 진입점(`main.py`/`replay.py`)/뷰어(`tools/jsonl_view.py`)/골든셋 스캐폴드 레벨 수정.
+- `pytest vision/tests/` **126 passed**(기존 118 + 신규 8: `test_main.py` 1, `test_replay.py` 3, `test_jsonl_view.py` 1, `test_golden_regression.py` 명시 회귀 1 + 새 골든 리프로 인한 자동 파라미터화 2).
+
+### 커밋
+
+- `78ed2c2` — main.py/replay.py 리소스 leak 수정(streamer.start()를 try/finally 안으로) + 회귀 테스트
+- `15d8e58` — jsonl_view.py x축 스케일 혼용 수정(nan-gap) + 회귀 테스트
+- `ed83d3e` — no_target 골든셋에 distress_coarse.yaml 케이스 추가 + 커버리지 회귀 테스트
+
+(참고: `78ed2c2`는 replay.py의 리소스 leak 수정과 "저장" 로그 게이팅 수정이 같은 파일 인접 영역이라 한 커밋에 같이 들어갔음 — 커밋 메시지는 leak 수정만 언급하지만 diff에 두 수정 모두 포함됨.)
+
+### 다음 세션
+
+- 이번 세션은 감사 결과 수정 전용이라 vision 트랙 자체의 다음 단계는 `docs/vision_status.md`의 "다음" 항목(전부 RPi 작업 허가 필요) 그대로 유효 — 변경 없음.
+
+---
+
 ## 2026-07-21e — [vision] 라이브 스트림 어댑터(MJPEG-over-HTTP, compute_tap VGA)
 
 **브랜치:** `dev--vision-computing-module`

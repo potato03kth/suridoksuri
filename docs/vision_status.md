@@ -2,7 +2,7 @@
 doc_type: session_status
 project: suridoksuri-1
 scope: vision 세션 유일 진입점 — 트랙 보드 + 설계 포인터
-last_updated: 2026-07-21e
+last_updated: 2026-07-21f
 ---
 
 # vision 세션 진입 상태 문서
@@ -16,7 +16,7 @@ last_updated: 2026-07-21e
 ## 공통 상태 (2026-07-21)
 
 - **브랜치:** `dev--vision-computing-module` (현재 FC 트랙과 공용. vision 전용 브랜치 분리는 미결정)
-- **개발/테스트 환경:** 메인 개발주체 = **노트북(WSL)**, `.venv` 준비 완료(`source .venv/bin/activate`, 저장소 루트) — `pytest vision/tests/` **118 passed** 확인됨(2026-07-21e). 개발컴 `.venv`도 기존대로 유효. RPi는 headless지만 **SSH 상시 접근 가능**(tailscale `100.67.27.83`, 계정 `suri`, ed25519 키 등록됨, **패스워드리스 sudo 설정 완료** 2026-07-21) — Claude가 직접 SSH로 RPi 작업 가능. **장착된 카메라는 정품 Camera Module 3가 아니라 서드파티 클론 "CAM109-IMX708AF-75"**(IMX708 센서 동일, 화각은 대각 75°로 계획서 가정 102°보다 좁음). 상세 → 메모리 `project_vision_dev_env.md`, `project_rpi5_ubuntu_camera_stack.md`
+- **개발/테스트 환경:** 메인 개발주체 = **노트북(WSL)**, `.venv` 준비 완료(`source .venv/bin/activate`, 저장소 루트) — `pytest vision/tests/` **126 passed** 확인됨(2026-07-21f). 개발컴 `.venv`도 기존대로 유효. RPi는 headless지만 **SSH 상시 접근 가능**(tailscale `100.67.27.83`, 계정 `suri`, ed25519 키 등록됨, **패스워드리스 sudo 설정 완료** 2026-07-21) — Claude가 직접 SSH로 RPi 작업 가능. **장착된 카메라는 정품 Camera Module 3가 아니라 서드파티 클론 "CAM109-IMX708AF-75"**(IMX708 센서 동일, 화각은 대각 75°로 계획서 가정 102°보다 좁음). 상세 → 메모리 `project_vision_dev_env.md`, `project_rpi5_ubuntu_camera_stack.md`
 - **커밋 규율:** vision 커밋은 메시지에 **`[vision]`** 태그
 - **설계 정본:** `docs/vision_plan.md` — 확정 결정·물리 제약·검출 전략·변경내성/관측성·빌드 순서·블라인드스팟. **이 문서는 라이브 진척만** 담는다.
 - **대회 규정(2026-07-21 대부분 확정):** ArUco=`DICT_4X4_50` ID23 **50cm×50cm**(원래 계획 가정과 일치 확인) · 버티포트 하기안전구역(빨간 원)=직경2m·선굵기5cm 고리 신규확정 · ③빨간십자·초록색/치수는 **비공개로 확정**(버티포트 유사크기+안전마진 가정) · 성공판정="매끄럽게 보이면"(정성) 확정 · ④단순착륙=GPS+라이다만 확정 · CC 인터페이스·나무조각상 판단기준만 여전히 대기 → 상세 `vision_plan.md` §10.
@@ -28,6 +28,14 @@ last_updated: 2026-07-21e
 ### 👁 vision-정밀착륙 — ▶ 활성 (카메라 캘리브레이션 브링업은 RPi 작업 허가 대기 중 — §7.9 카메라 독립 대체 트랙 4·5·6·7번 전부 완료, 남은 건 전부 RPi 허가 대기 항목)
 
 - **내용:** 착륙지점 인식·정밀착륙 시스템(RPi5 온보드). 고전 CV, 타겟별 coarse→fine 2단, 비전 폐루프 <30cm. 설계 정본 `docs/vision_plan.md`.
+- **직전 완료(2026-07-21f, 노트북/WSL 로컬 세션 — RPi/실카메라 작업 금지 하에 진행):** 새 기능 아님 — **품질 감사에서 나온 결함 수정**. 오케스트레이터가 독립 감사 서브에이전트 2개를 돌려 `main.py`/`replay.py`/`tools/jsonl_view.py`의 diff를 라인 단위 정독시켰고, 그중 2건은 코드로 직접 재확인까지 거쳐 진짜 결함 3건 + 커버리지 갭 1건을 확정 → 이번 세션에서 TDD(레드→그린)로 전부 수정. 상세:
+  - **리소스 leak (`main.py`/`replay.py`):** `streamer.start()`(실 소켓 bind, 포트충돌 시 `OSError`)가 `blackbox` 생성 이후 `try`/`finally` **밖**에서 호출돼, 실패 시 `finally`의 `blackbox.close()`가 안 불려 큐스레드/파일핸들이 leak되던 문제. `streamer` 생성/`start()`를 `try` 블록 안으로 이동해 실패해도 `finally`가 항상 돎. `replay.py`도 동일 패턴이라 같이 수정. 회귀: `streamer.start()`를 몽키패치로 `OSError` 나게 만들고 `blackbox.close()`가 실제로 호출되는지 검증(`test_main.py::test_streamer_start_failure_still_closes_blackbox`, `test_replay.py::test_streamer_start_failure_still_closes_blackbox`).
+  - **거짓 "저장" 로그 (`replay.py:134-135`):** `if output:` 만으로 게이팅해 0프레임 재생처럼 `cv2.VideoWriter`가 끝내 안 만들어진 경우에도 "저장" 로그가 찍히던 문제. `main.py`(`if writer:`)와 동일하게 실제 `writer` 존재 여부로 게이팅하도록 수정. 회귀: `open_dir_or_bag`를 0프레임 가짜 소스로 바꿔 "저장" 로그가 안 찍히는지(`test_zero_frames_with_output_does_not_log_saved`), 정상 케이스엔 찍히는지(`test_nonzero_frames_with_output_logs_saved`) 둘 다 검증.
+  - **x축 스케일 혼용 (`tools/jsonl_view.py:124-127`):** `x_field="ts"`인데 일부 행만 `ts`가 없으면 그 행만 `frame_id`(정수)로 새 나머지 `ts-t0`(경과초, 소수) 스케일과 섞여 시간축이 튀어 보이던 문제. score/latency와 같은 nan-gap 철학으로 그 행의 x좌표를 `nan` 처리해 라인만 끊기게 수정(`t0` 자체가 `None`인 전체 결측 케이스는 기존대로 `frame_id` 폴백 유지 — 그건 혼용이 아님). 회귀: 일부 행만 `ts=None`인 실제 `BlackBoxLogger` 산출 JSONL로 x좌표 nan-gap 검증(`test_x_axis_ts_gap_does_not_mix_scale_with_frame_id`).
+  - **커버리지 갭 — no_target × distress_coarse.yaml:** `tests/golden/no_target/`이 `vertiport_coarse.yaml`로만 오탐 회귀됐고 필터 기준이 전혀 다른(무채색 사각형 vs 초록 HSV) `distress_coarse.yaml`은 커버되지 않았음. 기존 `labels.json` 스키마는 그대로 두고 `no_target/distress_coarse/` 리프 추가(같은 프레임 재사용, 리프 디렉터리당 labels.json 하나 관례 유지) + 커버리지 자체를 지키는 명시적 테스트(`test_no_target_has_distress_coarse_regression_case`) 추가. `tests/golden/README.md`에 새 리프 패턴("타겟/프리셋변형" — 고도 계층 없는 타겟용) 문서화.
+  - **검출 로직(color.py/detector.py/vertiport_*.py) 미변경** — 전부 CLI 진입점/뷰어/골든셋 스캐폴드 레벨 수정.
+  - `pytest vision/tests/` **126 passed**(기존 118 + 신규 8: main.py 1, replay.py 3, jsonl_view.py 1, golden 명시 회귀 1 + 자동 파라미터화 2)
+  - 커밋: 리소스 leak 수정 1건, jsonl_view x축 수정 1건, no_target 커버리지 갭 1건 — 3개 커밋으로 분리(리뷰 단위).
 - **직전 완료(2026-07-21e, 노트북/WSL 로컬 세션 — RPi/실카메라 작업 금지 하에 진행):** §7.9 "지금 당장 할 일" 5번 — 라이브 스트림 어댑터(`compute_tap` VGA → MJPEG-over-HTTP). 상세:
   - `vision/utils/stream.py`: `MjpegStreamer` 신설. `push_frame()`은 bounded queue(기본 길이2)+drop-oldest로 **절대 블로킹하지 않음** — `vision/utils/blackbox.py`의 `_DropOldestQueueHandler`와 동일 패턴 재사용(새 패턴 발명 안 함). 다운스케일(종횡비 유지, VGA 640x480 박스 안에 맞춤, 업스케일 없음)·JPEG 인코딩·HTTP 서빙은 전부 별도 스레드(인코더 스레드 1개 + 클라이언트당 핸들러 스레드, 표준 라이브러리 `http.server.ThreadingHTTPServer`만 사용 — 새 무거운 의존성 없음). `/stream`(MJPEG multipart) + `/`(미리보기 `<img>` 페이지) 두 경로.
   - **버그 하나 실제로 발견·수정:** 초기 구현에서 큐가 가득 찼을 때 "가장 오래된 항목 제거 후 삽입"이 락 없이 이뤄져, 여러 producer 스레드가 동시에 `push_frame`을 호출하는 테스트(`test_push_frame_non_blocking_with_real_slow_consumer_connected`)에서 `queue.Full`이 새는 레이스가 실제로 재현됨 → `threading.Lock`으로 evict+insert를 원자화해 수정. (`blackbox.py`의 동일 패턴은 단일 로거 호출 경로라 이 레이스가 실질적으로 안 드러나 그대로 둠 — `vision/CLAUDE.md`에 근거 기록.)
