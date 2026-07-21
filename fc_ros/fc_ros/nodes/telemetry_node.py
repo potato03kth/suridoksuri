@@ -9,6 +9,7 @@ TelemetryNode: MAVROS 토픽 구독 → VehicleState 유지.
   /mavros/local_position/velocity_local (geometry_msgs/TwistStamped) — 속도
   /mavros/state                         (mavros_msgs/State)           — armed, connected, mode
   /mavros/extended_state                (mavros_msgs/ExtendedState)   — vtol_state
+  /mavros/battery                       (sensor_msgs/BatteryState)    — voltage, current, remaining
 """
 from __future__ import annotations
 import threading
@@ -17,6 +18,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseStamped, TwistStamped
+from sensor_msgs.msg import BatteryState
 from mavros_msgs.msg import State, ExtendedState
 
 _MAVROS_QOS = QoSProfile(
@@ -31,6 +33,7 @@ from fc_ros.adapters.vehicle_state_bridge import (
     update_from_twist,
     update_from_mavros_state,
     update_from_extended_state,
+    update_from_battery,
 )
 
 
@@ -58,6 +61,10 @@ class TelemetryNode(Node):
             ExtendedState,
             "/mavros/extended_state",
             self._cb_extended, _MAVROS_QOS)
+        self.create_subscription(
+            BatteryState,
+            "/mavros/battery",
+            self._cb_battery, _MAVROS_QOS)
 
         self.create_timer(2.0, self._log_state)
 
@@ -82,11 +89,16 @@ class TelemetryNode(Node):
         with self._lock:
             update_from_extended_state(self._state, msg)
 
+    def _cb_battery(self, msg: BatteryState) -> None:
+        with self._lock:
+            update_from_battery(self._state, msg)
+
     def _log_state(self) -> None:
         s = self.get_state()
         self.get_logger().info(
             f"pos_ned={s.pos_ned}  yaw={s.yaw:.3f}  "
-            f"armed={s.armed}  vtol={s.vtol_state}"
+            f"armed={s.armed}  vtol={s.vtol_state}  "
+            f"batt={s.battery_voltage:.2f}V/{s.battery_remaining*100:.0f}%"
         )
 
 

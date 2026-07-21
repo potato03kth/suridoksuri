@@ -17,6 +17,7 @@ from fc_ros.adapters.vehicle_state_bridge import (
     update_from_twist,
     update_from_mavros_state,
     update_from_extended_state,
+    update_from_battery,
 )
 
 
@@ -211,6 +212,34 @@ def test_vtol_state_fw():
     assert s.vtol_state == 4
 
 
+# ── update_from_battery ──────────────────────────────────────────
+
+def _battery_msg(voltage, current, percentage):
+    return types.SimpleNamespace(voltage=voltage, current=current, percentage=percentage)
+
+
+def test_battery_basic_fields():
+    s = VehicleState()
+    update_from_battery(s, _battery_msg(11.13, -5.2, 0.62))
+    assert s.battery_voltage == pytest.approx(11.13)
+    assert s.battery_current == pytest.approx(-5.2)
+    assert s.battery_remaining == pytest.approx(0.62)
+
+
+def test_battery_nan_percentage_keeps_previous():
+    """PX4가 remaining을 미보고(NaN)하면 이전값을 유지한다."""
+    s = VehicleState()
+    s.battery_remaining = 0.8
+    update_from_battery(s, _battery_msg(11.0, -3.0, float("nan")))
+    assert s.battery_remaining == pytest.approx(0.8)
+
+
+def test_battery_timestamp_updated():
+    s = VehicleState()
+    update_from_battery(s, _battery_msg(11.0, -3.0, 0.5))
+    assert s.timestamp > 0.0
+
+
 # ── VehicleState.copy() 격리 검증 ────────────────────────────────
 
 def test_copy_pos_independence():
@@ -237,7 +266,13 @@ def test_copy_scalar_fields():
     s.yaw = 1.23
     s.armed = True
     s.vtol_state = 4
+    s.battery_voltage = 11.1
+    s.battery_current = -4.5
+    s.battery_remaining = 0.42
     snap = s.copy()
     assert snap.yaw == pytest.approx(1.23)
     assert snap.armed is True
     assert snap.vtol_state == 4
+    assert snap.battery_voltage == pytest.approx(11.1)
+    assert snap.battery_current == pytest.approx(-4.5)
+    assert snap.battery_remaining == pytest.approx(0.42)

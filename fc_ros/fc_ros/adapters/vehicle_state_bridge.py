@@ -62,3 +62,16 @@ def update_from_extended_state(state: VehicleState, msg) -> None:
     """mavros_msgs/ExtendedState → VehicleState vtol_state 갱신."""
     state.vtol_state = int(msg.vtol_state)
     state.timestamp = time.monotonic()
+
+
+def update_from_battery(state: VehicleState, msg) -> None:
+    """sensor_msgs/BatteryState → VehicleState 배터리 갱신.
+
+    MAVROS battery 플러그인이 MAVLink SYS_STATUS/BATTERY_STATUS를 변환해 발행.
+    percentage는 0.0~1.0 (NaN 가능 — PX4가 미보고 시 갱신하지 않고 이전값 유지).
+    """
+    state.battery_voltage = float(msg.voltage)
+    state.battery_current = float(msg.current)
+    if msg.percentage == msg.percentage:  # NaN 체크
+        state.battery_remaining = float(msg.percentage)
+    state.timestamp = time.monotonic()

@@ -14,6 +14,7 @@ class VehicleState:
         "roll", "pitch", "yaw",
         "vtol_state",
         "armed", "base_mode", "custom_mode",
+        "battery_voltage", "battery_current", "battery_remaining",
         "timestamp",
     )
 
@@ -27,6 +28,9 @@ class VehicleState:
         self.armed      = False
         self.base_mode  = 0
         self.custom_mode = 0
+        self.battery_voltage   = 0.0  # V
+        self.battery_current   = 0.0  # A (음수 = 방전 아님, MAVROS 부호 그대로)
+        self.battery_remaining = 1.0  # 0.0~1.0 (미수신 시 1.0 — 저전압 오탐 방지)
         self.timestamp  = 0.0         # time.monotonic() 기준
 
     @property
@@ -48,5 +52,8 @@ class VehicleState:
         s.armed       = self.armed
         s.base_mode   = self.base_mode
         s.custom_mode = self.custom_mode
+        s.battery_voltage   = self.battery_voltage
+        s.battery_current   = self.battery_current
+        s.battery_remaining = self.battery_remaining
         s.timestamp   = self.timestamp
         return s
