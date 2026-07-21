@@ -60,7 +60,7 @@
 | `utils/logging.py` | 이중싱크 사람로그(터미널+.log 로테이션) + provenance 헤더(config+git해시+캘리브id) (§7.4/§7.3) |
 | `utils/blackbox.py` | 프레임별 JSONL 블랙박스 + 거절이유 로깅. bounded queue+drop-oldest 비차단 (§7.4) |
 | `main.py` | CLI 진입점. 이미지/영상 자동 분기 |
-| `tools/rpi_capture.py` | RPi 헤드리스 캘리브레이션 촬영 — MJPEG 미리보기(브라우저) + 촬영 트리거(버튼/Enter). **RPi에서만 실행, 미검증**(picamera2 없어 로컬 미실행) |
+| `tools/rpi_capture.py` | RPi 헤드리스 캘리브레이션 촬영 — 저해상도 스냅샷 자동갱신(브라우저) + 촬영 트리거(버튼/Enter). GStreamer `libcamerasrc` 서브프로세스 기반. **⚠️ 2026-07-21 확인: 이 RPi에서 현재 작동 불가** — libcamera가 PiSP IPA 없이 빌드돼 있어 `libcamerasrc`가 카메라를 못 봄(picamera2도 동일 원인으로 막힘). 재작업 필요 — 상세·대안 4개는 메모리 `project_rpi5_ubuntu_camera_stack.md` |
 
 ---
 
