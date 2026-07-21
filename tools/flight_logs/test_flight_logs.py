@@ -29,6 +29,15 @@ from analyze_flight import (
     parse_transition_alt,
     quat_to_euler_deg,
 )
+from collect_new_logs import (
+    catchall_dirname,
+    classify_dirname,
+    collected_ulog_ids,
+    is_dated_dirname,
+    notes_skeleton,
+    parse_ulog_list,
+    plan_dir_sync,
+)
 
 D = "2026-07-06"
 
@@ -291,6 +300,120 @@ class TestParseTransitionAlt:
     def test_none_for_empty_input(self):
         assert parse_transition_alt(None) is None
         assert parse_transition_alt("") is None
+
+
+# ---------------------------------------------------------------------------
+# collect_new_logs.py 순수 함수 테스트
+# ---------------------------------------------------------------------------
+
+class TestIsDatedDirname:
+    def test_dated(self):
+        assert is_dated_dirname("2026-07-20_flight02")
+        assert is_dated_dirname("2026-07-20_manual")
+
+    def test_not_dated(self):
+        assert not is_dated_dirname("README.md")
+        assert not is_dated_dirname("rosbag")
+
+
+class TestClassifyDirname:
+    def test_flight_folder(self):
+        assert classify_dirname("2026-07-20_flight02") == "flight"
+        assert classify_dirname("2026-07-20_flight100") == "flight"
+
+    def test_catchall_folders(self):
+        assert classify_dirname("2026-07-20_manual") == "catchall"
+        assert classify_dirname("2026-07-18_unlogged") == "catchall"
+
+
+class TestPlanDirSync:
+    def test_new_flight_folder_gets_full_copy(self):
+        plan = plan_dir_sync(["2026-07-21_flight01"], [])
+        assert plan == [("2026-07-21_flight01", "full")]
+
+    def test_existing_flight_folder_skipped(self):
+        # 이미 로컬에 있는 flightNN 폴더는 절대 건드리지 않는다
+        plan = plan_dir_sync(["2026-07-21_flight01"], ["2026-07-21_flight01"])
+        assert plan == []
+
+    def test_catchall_always_merged_even_if_exists(self):
+        plan = plan_dir_sync(["2026-07-21_manual"], ["2026-07-21_manual"])
+        assert plan == [("2026-07-21_manual", "merge")]
+
+    def test_ignores_undated_entries(self):
+        plan = plan_dir_sync(["README.md", "2026-07-21_flight01"], [])
+        assert plan == [("2026-07-21_flight01", "full")]
+
+    def test_sorted_output(self):
+        plan = plan_dir_sync(["2026-07-21_flight02", "2026-07-21_flight01"], [])
+        assert [d for d, _ in plan] == ["2026-07-21_flight01", "2026-07-21_flight02"]
+
+
+class TestParseUlogList:
+    def test_parses_table_rows(self):
+        text = (
+            "   id  UTC 시각              크기\n"
+            "   25  2026-07-20 10:37:04     608,862\n"
+            "   26  2026-07-20 10:37:50   1,823,644\n"
+        )
+        entries = parse_ulog_list(text)
+        assert entries == [
+            (25, "2026-07-20 10:37:04", 608862),
+            (26, "2026-07-20 10:37:50", 1823644),
+        ]
+
+    def test_gps_time_missing_becomes_none(self):
+        text = "   13  (GPS 시각 없음)          3,300,000\n"
+        entries = parse_ulog_list(text)
+        assert entries == [(13, None, 3300000)]
+
+    def test_ignores_header_and_blank_lines(self):
+        text = "   id  UTC 시각              크기\n\n"
+        assert parse_ulog_list(text) == []
+
+    def test_empty_input(self):
+        assert parse_ulog_list("") == []
+
+
+class TestCollectedUlogIds:
+    def test_extracts_ids_from_various_filenames(self, tmp_path):
+        (tmp_path / "2026-07-20_flight02").mkdir()
+        (tmp_path / "2026-07-20_flight02" / "log_19_2026-07-20-10-31-12.ulg").write_text("x")
+        (tmp_path / "2026-07-18_unlogged").mkdir()
+        (tmp_path / "2026-07-18_unlogged" / "log_0_2026-07-18-03-06-52.ulg").write_text("x")
+        (tmp_path / "2026-07-06_flight01").mkdir()
+        (tmp_path / "2026-07-06_flight01" / "log_13.ulg").write_text("x")  # 시각 없는 케이스
+        assert collected_ulog_ids(str(tmp_path)) == {19, 0, 13}
+
+    def test_empty_root(self, tmp_path):
+        assert collected_ulog_ids(str(tmp_path)) == set()
+
+    def test_ignores_non_ulog_files(self, tmp_path):
+        (tmp_path / "2026-07-20_flight01").mkdir()
+        (tmp_path / "2026-07-20_flight01" / "launch.log").write_text("x")
+        assert collected_ulog_ids(str(tmp_path)) == set()
+
+
+class TestCatchallDirname:
+    def test_format(self):
+        assert catchall_dirname("2026-07-21") == "2026-07-21_manual"
+
+
+class TestNotesSkeleton:
+    def test_contains_required_fields(self):
+        text = notes_skeleton("2026-07-21_manual")
+        assert "# 2026-07-21_manual" in text
+        assert "- **비행 조건:**" in text
+        assert "- **관찰:**" in text
+        assert "- **결론:**" in text
+
+    def test_never_prefills_observation_or_conclusion(self):
+        # 해석은 사람 몫 — 관찰/결론 줄은 항상 빈 채로 끝나야 한다
+        text = notes_skeleton("2026-07-21_manual")
+        obs_line = next(l for l in text.splitlines() if l.startswith("- **관찰:**"))
+        concl_line = next(l for l in text.splitlines() if l.startswith("- **결론:**"))
+        assert obs_line == "- **관찰:**"
+        assert concl_line == "- **결론:**"
 
 
 # ---------------------------------------------------------------------------

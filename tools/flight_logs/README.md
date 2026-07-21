@@ -76,6 +76,28 @@ sudo 불필요, 설치 상세·근거는 `docs/pixhawk6c_rpi4_integration_guide.
 `-RemotePath` 기본값 `~/drone_ws/src/suridoksuri/logs`는 **RPi 배포 검증 때 확정** —
 컨테이너 `fc`의 경로가 호스트 볼륨 마운트인지에 따라 달라진다 (아래 미결).
 
+## 3b. 개발컴 회수 — `collect_new_logs.py` (Linux/WSL, 서브에이전트용 표준절차)
+
+`fetch_logs.ps1`은 Windows 전용이라 WSL 세션에서 못 쓴다. 이 스크립트는 그 Linux
+버전이면서, 그동안 수작업으로 하던 **"FC에 아직 안 받아온 ulog 찾아서 회수"** 단계까지
+합쳤다 — "비행 → 로그수집 → 로그분석 → 평가 → 비행" 사이클을 반복할 때, 로그수집은
+판단이 필요 없는 기계적 작업이라 서브에이전트가 매번 그대로 실행하도록 만든 것이다.
+
+```bash
+python3 tools/flight_logs/collect_new_logs.py                # 회수 + notes.md 스켈레톤 + analyze_flight.py + commit + push
+python3 tools/flight_logs/collect_new_logs.py --dry-run       # 아무것도 안 쓰고 계획만 확인
+python3 tools/flight_logs/collect_new_logs.py --no-push       # 로컬 커밋까지만
+python3 tools/flight_logs/collect_new_logs.py --tag '[vtol-hw]'   # 다른 트랙에서 쓸 때
+```
+
+하는 일: ①원격 신규 `logs/YYYY-MM-DD_*` 폴더 rsync(`_flightNN`류는 로컬에 없을 때만
+1회 복사, `_manual`/`_unlogged`류 catch-all은 항상 증분 병합) ②원격 `pull_ulog.py --list`로
+FC 전체 ulog id를 확인해 로컬에 하나도 없는 id를 `<오늘날짜>_manual/`로 회수
+③notes.md 없으면 스켈레톤 생성(관찰/결론은 항상 빈칸 — 해석은 사람 몫) ④새 폴더마다
+`analyze_flight.py` 실행 ⑤git add+commit+push. **원격(RPi)의 git 상태/코드는 건드리지
+않는다** — 로그 파일만 읽는다. 순수 함수(폴더 분류, id diff, notes 템플릿)는
+`test_flight_logs.py`에서 검증됨.
+
 ## 4. 분석 (개발컴)
 
 **표준 진단 리포트: `analyze_flight.py`.** 2026-07-20/21 flight02·flight03 사고분석

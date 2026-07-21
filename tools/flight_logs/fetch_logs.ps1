@@ -31,7 +31,8 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "[fetch_logs] 실패: SSH 접속 불가 또는 원격에 $RemotePath 없음" -ForegroundColor Red
     exit 1
 }
-$remoteDirs = @($remoteDirs | Where-Object { $_ -match '^\d{4}-\d{2}-\d{2}_flight\d+' })
+# flightNN 뿐 아니라 manual/unlogged 등 날짜접두 catch-all 폴더도 포함 (collect_new_logs.py와 동일 기준)
+$remoteDirs = @($remoteDirs | Where-Object { $_ -match '^\d{4}-\d{2}-\d{2}_' })
 if ($remoteDirs.Count -eq 0) {
     Write-Host "[fetch_logs] 원격에 플라이트 폴더가 없다."
     exit 0
