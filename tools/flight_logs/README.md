@@ -78,12 +78,30 @@ sudo 불필요, 설치 상세·근거는 `docs/pixhawk6c_rpi4_integration_guide.
 
 ## 4. 분석 (개발컴)
 
-**가장 빠른 길: Claude에게 로그 폴더 경로를 주면 됨.** (`logs/2026-07-06_flight01/ 분석해줘`)
-
-수동 분석:
+**표준 진단 리포트: `analyze_flight.py`.** 2026-07-20/21 flight02·flight03 사고분석
+세션에서 pyulog 코드를 매번 새로 짜며 세션 컨텍스트를 크게 소모한 것을 계기로,
+그때 알아낸 진단 로직(쿼터니언 디코드, `CA_ROTOR*` 파라미터 기반 모터 위치매핑,
+`nav_state_user_intention`+`failsafe`로 모드전환 출처 판별, 축별 얼로케이터 포화
+(`unallocated_torque`) 시점 특정, `ground_contact` 기반 이함 순간 검출)을 고정해뒀다.
+**비행마다 이 스크립트를 서브에이전트가 실행해 구조화된 요약만 메인 세션으로 가져오는
+용도** — 세션에서 pyulog 코드를 다시 짜지 않는다.
 
 ```bash
-pip install pyulog                       # 1회
+pip install pyulog                                       # 1회
+python3 tools/flight_logs/analyze_flight.py logs/2026-07-20_flight03/
+python3 tools/flight_logs/analyze_flight.py logs/2026-07-20_flight03/ --json  # JSON 사본도 생성
+```
+
+폴더 안 `.ulg`가 여러 개면(재시동/재arm 블립 포함) 가장 긴 것을 주 로그로 전체 분석하고
+나머지는 길이만 요약한다. 기본으로 `<플라이트폴더>/analysis_auto.md`에도 저장된다
+(`--no-write`로 끔) — `notes.md` 결론 작성 시 이 파일을 인용하면 된다. **해석("원인이
+뭐다")은 하지 않는다** — 그 판단에 필요한 정확한 사실만 뽑는다. 스크립트가 명시적으로
+다루지 않는 토픽도 목록으로 출력해(§끝) 조용히 놓치는 부분이 없게 한다. 순수 함수는
+`test_flight_logs.py`에서 pytest로 검증됨.
+
+그 외 수동 분석(스크립트가 다루지 않는 토픽을 더 파고들 때):
+
+```bash
 ulog_info  logs/.../log_12_*.ulg         # 메타데이터·메시지 목록·드롭아웃
 ulog2csv   logs/.../log_12_*.ulg -o csv/ # 토픽별 CSV 변환
 ulog_messages logs/.../log_12_*.ulg      # PX4 내부 로그 메시지 (거부 사유 등)

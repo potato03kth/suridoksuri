@@ -1,8 +1,10 @@
-"""작업 G 순수 함수 테스트 — 폴더 넘버링·최신 ulog 선택.
+"""작업 G 순수 함수 테스트 — 폴더 넘버링·최신 ulog 선택·비행로그 진단.
 
 실행: cd tools/flight_logs && pytest test_flight_logs.py
-(pymavlink 불필요 — 순수 함수만 import)
+(pymavlink/pyulog 불필요 — 순수 함수만 import)
 """
+
+import math
 
 import pytest
 
@@ -16,6 +18,16 @@ from pull_ulog import (
     next_flight_dirname,
     pick_latest_log,
     ulog_filename,
+)
+from analyze_flight import (
+    arming_state_name,
+    classify_mode_transition,
+    detect_rate_onset,
+    first_sustained_nonzero,
+    motor_label,
+    nav_state_name,
+    parse_transition_alt,
+    quat_to_euler_deg,
 )
 
 D = "2026-07-06"
@@ -153,6 +165,132 @@ class TestCoverage:
 
     def test_empty(self):
         assert coverage([], 300) == 0
+
+
+# ---------------------------------------------------------------------------
+# analyze_flight.py 순수 함수 테스트
+# ---------------------------------------------------------------------------
+
+class TestQuatToEulerDeg:
+    def test_identity_quat_is_level(self):
+        assert quat_to_euler_deg(1, 0, 0, 0) == (0.0, 0.0, 0.0)
+
+    def test_90deg_roll(self):
+        # roll +90도 쿼터니언: (cos45, sin45, 0, 0)
+        c = math.cos(math.radians(45)); s = math.sin(math.radians(45))
+        roll, pitch, yaw = quat_to_euler_deg(c, s, 0, 0)
+        assert roll == pytest.approx(90.0, abs=1e-6)
+        assert pitch == pytest.approx(0.0, abs=1e-6)
+
+    def test_180deg_roll_wraps(self):
+        # roll 180도는 +180/-180 경계 — atan2 특성상 부호 어느 쪽이든 허용
+        roll, _, _ = quat_to_euler_deg(0, 1, 0, 0)
+        assert abs(roll) == pytest.approx(180.0, abs=1e-6)
+
+
+class TestMotorLabel:
+    def test_front_right(self):
+        assert motor_label(1.0, 1.0) == "전우"
+
+    def test_rear_left(self):
+        assert motor_label(-1.0, -1.0) == "후좌"
+
+    def test_front_left(self):
+        assert motor_label(1.0, -1.0) == "전좌"
+
+    def test_rear_right(self):
+        assert motor_label(-1.0, 1.0) == "후우"
+
+    def test_center_axis_labeled_mid(self):
+        # 육각/동축 등 PX 또는 PY가 0인 배치 — 예외 없이 "중"으로 라벨
+        assert motor_label(0.0, 1.0) == "중우"
+        assert motor_label(1.0, 0.0) == "전중"
+
+
+class TestClassifyModeTransition:
+    def test_failsafe_wins_even_if_intention_changed(self):
+        assert classify_mode_transition(True, True) == "FAILSAFE_FORCED"
+
+    def test_intentional_change(self):
+        assert classify_mode_transition(True, False) == "INTENTIONAL_CHANGE"
+
+    def test_unclassified_when_neither(self):
+        assert classify_mode_transition(False, False) == "AUTO_RECOVERY_OR_UNCLASSIFIED"
+
+
+class TestNavArmingStateNames:
+    def test_known_nav_states(self):
+        assert nav_state_name(17) == "AUTO_TAKEOFF"
+        assert nav_state_name(4) == "AUTO_LOITER"
+        assert nav_state_name(2) == "POSCTL"
+
+    def test_unknown_nav_state_falls_back(self):
+        assert nav_state_name(99) == "UNKNOWN(99)"
+
+    def test_arming_states(self):
+        assert arming_state_name(2) == "ARMED"
+        assert arming_state_name(1) == "STANDBY"
+
+
+class TestDetectRateOnset:
+    def test_no_onset_when_flat(self):
+        times = [i * 0.1 for i in range(50)]
+        rates = [0.5] * 50
+        assert detect_rate_onset(times, rates) is None
+
+    def test_detects_sustained_jump_after_baseline(self):
+        # 0~1.5s는 잡음(±1deg/s), 이후 계속 30deg/s로 튐
+        times = [i * 0.05 for i in range(80)]  # 0~3.95s
+        rates = [1.0 if t <= 1.5 else 30.0 for t in times]
+        onset = detect_rate_onset(times, rates, baseline_end_s=1.5, consec=3)
+        assert onset is not None
+        onset_t, onset_v, thresh = onset
+        assert onset_t == pytest.approx(1.55, abs=1e-6)  # baseline 직후 첫 샘플
+        assert onset_v == 30.0
+
+    def test_single_spike_does_not_trigger(self):
+        # consec=3 요구 — 단발 스파이크 1개는 무시
+        times = [i * 0.1 for i in range(30)]
+        rates = [1.0] * 30
+        rates[20] = 50.0
+        assert detect_rate_onset(times, rates, baseline_end_s=1.0, consec=3) is None
+
+    def test_insufficient_baseline_returns_none(self):
+        times = [0.1, 0.2]
+        rates = [1.0, 1.0]
+        assert detect_rate_onset(times, rates, baseline_end_s=1.5) is None
+
+
+class TestFirstSustainedNonzero:
+    def test_transient_blip_ignored(self):
+        # arm 직후(skip_before 이전) 블립은 애초에 안 봄
+        times = [0.1, 0.3, 0.6, 1.2, 1.4]
+        vals = [0.05, 0.05, 0.05, 0.0, 0.0]
+        assert first_sustained_nonzero(times, vals, skip_before=1.0) is None
+
+    def test_sustained_after_skip_detected(self):
+        times = [0.5, 1.2, 1.4, 1.6, 1.8]
+        vals = [0.05, 0.0, 0.2, 0.3, 0.4]
+        onset = first_sustained_nonzero(times, vals, skip_before=1.0, consec=3)
+        assert onset == (1.4, pytest.approx(0.2))
+
+    def test_none_when_never_sustained(self):
+        times = [1.1, 1.2, 1.3, 1.4]
+        vals = [0.2, 0.0, 0.2, 0.0]
+        assert first_sustained_nonzero(times, vals, skip_before=1.0, consec=2) is None
+
+
+class TestParseTransitionAlt:
+    def test_extracts_value(self):
+        text = "- **비행 조건:** (launch 인자: vehicle_type:=mc transition_alt:=5.0 waypoints:=[...])"
+        assert parse_transition_alt(text) == 5.0
+
+    def test_none_when_absent(self):
+        assert parse_transition_alt("아무 내용 없음") is None
+
+    def test_none_for_empty_input(self):
+        assert parse_transition_alt(None) is None
+        assert parse_transition_alt("") is None
 
 
 # ---------------------------------------------------------------------------
