@@ -60,6 +60,7 @@
 | `utils/logging.py` | 이중싱크 사람로그(터미널+.log 로테이션) + provenance 헤더(config+git해시+캘리브id) (§7.4/§7.3) |
 | `utils/blackbox.py` | 프레임별 JSONL 블랙박스 + 거절이유 로깅. bounded queue+drop-oldest 비차단 (§7.4) |
 | `main.py` | CLI 진입점. 이미지/영상 자동 분기 |
+| `tools/rpi_capture.py` | RPi 헤드리스 캘리브레이션 촬영 — MJPEG 미리보기(브라우저) + 촬영 트리거(버튼/Enter). **RPi에서만 실행, 미검증**(picamera2 없어 로컬 미실행) |
 
 ---
 
@@ -138,6 +139,7 @@ core/       ← numpy, opencv만 허용. 다른 vision 서브패키지 import �
 modules/    ← vision.core 만 import. 다른 modules 파일 import 금지.
 utils/      ← vision.core 만 import. modules import 금지.
 main.py     ← presets 경로 + utils + core 만 import.
+tools/      ← 이 규칙 밖. RPi 하드웨어 전용 운영스크립트(예: picamera2) — .venv에 안 깔림, CI/pytest 대상 아님.
 ```
 
 ---
