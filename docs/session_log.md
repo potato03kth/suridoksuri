@@ -11,6 +11,49 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-22e — [vision] rpi_capture.py 수동 초점/노출/게인 제어 추가 — 체커보드 촬영 흐림+과다어둠 원인 대응
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 사용자가 체커보드를 40cm/210cm에서 촬영했는데 두 거리 모두 초점이 안 맞고 과하게 어두웠던 문제 대응. 원인: V4L2 raw 직접 캡처 경로가 libcamera를 완전히 우회해 연속 AF/AE가 전혀 없음 — 오토포커스 렌즈(dw9807 VCM)의 `focus_absolute`가 기본값(480)에서 한 번도 안 움직였고 `exposure`/`analogue_gain`도 방치돼 있었음.
+
+### 완료
+
+- **`set_focus_absolute()`/`set_exposure_gain()`(`vision/tools/rpi_capture.py`) 신규** — `--focus`(0~1023)/`--focus-settle-ms`(기본 200ms)/`--exposure`/`--gain` CLI로 노출. focus는 VCM 물리 이동 정착시간 확보를 위해 설정 후 지정된 시간만큼 대기.
+- **HTTP 미리보기 페이지에 실시간 조정 UI 추가** — focus/exposure/gain 숫자입력폼 + focus -10/+10 빠른버튼(`GET /controls`, 303 리다이렉트, 새 JS 없이 기존 순수 HTML 폼 패턴 유지). `_CaptureSession`이 "원하는 값"과 "마지막 적용값"을 분리해 실제로 바뀐 경우에만 하드웨어에 적용.
+- **`--focus-sweep START:END:STEP` 신규** — focus_absolute를 스윕하며 각각 촬영, 중앙 크롭(`--sweep-roi`, 기본 0.6) 기준 라플라시안 분산이 가장 높은 값을 보고. 순수 함수(`laplacian_sharpness`/`crop_center_fraction`/`pick_best_focus`/`parse_focus_sweep_spec`)로 분리해 하드웨어 없이 단위테스트 가능.
+- **단위테스트 34개 신규(`vision/tests/test_rpi_capture.py`)** — 합성 체커보드로 라플라시안 선명/블러 비교, ROI 크롭 중앙정렬, 스윕 결과 최적값 선택(동점 처리 포함), `START:END:STEP` 파싱 에러케이스, `set_focus_absolute`/`set_exposure_gain` 범위검증·v4l2-ctl 명령 구성·정착시간 sleep 호출(모두 `_run`/`time.sleep` 몽키패치), `_CaptureSession`의 지연 적용 로직(값 안 바뀌면 하드웨어 재호출 안 함), `_render_page` 값 반영. `pytest vision/tests/` **189 passed**(기존 155 + 34).
+- **실기체 조사(pseudo 테스트 아님) — 노출 개선을 실측으로 확인:** 방치된 기본값(`exposure=874,gain=112`)으로 어두운 실내 `--single-shot` → mean=25.23. 수동으로 `exposure=2400,gain=800` → **mean=126.74(약 5배)**. 노출 방치가 "과하게 어둡다" 증상의 실제 원인임을 확인.
+- **실기체 조사 — 초점 스윕이 "평평하다"는 최초 결과는 측정 방법 문제였음을 규명:** 노출 개선 후에도 전체 프레임 기준 step=100 스윕(0~1023)은 평평했다(9~11 범위) — 오케스트레이터의 최초 관찰(150 vs 480 거의 동일)과 일치해 "VCM이 안 움직이는 게 아닌가" 의심됐으나, 원인은 카메라가 바닥에 낮게 고정돼 있어 프레임 하단 대부분이 렌즈 최단 초점거리보다 가까운 바닥이라 어떤 focus 값에서도 항상 흐린 것 — 이 영역이 전체 프레임 분산을 압도해 배경의 실제 초점 변화를 가렸다. **중앙/배경 ROI로 제한 + step을 20으로 좁히자** 배경 클러터(약 1.5~2m) 영역에서 뚜렷한 피크가 나타남: 1차 스윕 `focus=560`(선명도 18.20, baseline ~14.8), 2차 독립 스윕(다른 시각, 주변광 변화 후) `focus=580`(선명도 13.07, baseline ~10.3) — **두 번 모두 540~600 좁은 구간에 재현되는 피크**, 같은 값 반복 촬영은 편차 ±0.1 이내로 안정적. `--focus-sweep 460:660:40` 도구 실행 결과도 `focus=580`으로 수동 조사와 일치.
+- **정착시간 실측:** 0~500ms(및 극단값 전환 0~2000ms) 범위에서 지연에 따른 결과 차이를 못 찾음 — VCM 정착이 이 범위보다 훨씬 빠르다는 뜻으로 해석. 기본값 200ms는 세션 지시 추정범위(100~300ms)의 중간값으로, 실측이 부정하지 않는 보수적 선택.
+- **RPi 실배포 검증:** 로컬에서 커밋·푸시 후 RPi에서 `git checkout origin/... -- vision/tools/rpi_capture.py vision/tests/test_rpi_capture.py`로 갱신, `--single-shot --focus 560 --exposure 2400 --gain 800`, `--focus-sweep 460:660:40`, HTTP 서버(`/`, `/controls?focus=560`, `/preview.jpg`, `/capture`) 전부 실제로 기동/호출해 정상 동작 확인.
+- `vision/CLAUDE.md`에 "rpi_capture.py 수동 초점/노출/게인 제어" 절 신규 — 위 조사 경과 전체(실측 수치·왜 최초 스윕이 평평했는지·선명도 지표 신뢰 전제조건 3가지·다음 캘리브레이션 촬영 가이드) 기록.
+
+### 실제 테스트
+
+```
+pytest vision/tests/   # 189 passed (기존 155 + 신규 test_rpi_capture.py 34개)
+```
+RPi 실기체: `--single-shot`(focus/exposure/gain 지정) 성공, `--focus-sweep` 성공(피크 재현), HTTP `/`·`/controls`·`/preview.jpg`·`/capture` 전부 실제 curl로 응답 확인.
+
+### 결정
+
+- **exposure/gain 범위는 하드코딩하지 않기로 함** — focus_absolute(렌즈 드라이버 고유 범위, 센서 모드 무관)와 달리 exposure 최댓값은 센서 모드(vertical_blanking)에 따라 달라질 수 있어, 특정 모드에서 실측한 범위를 검증에 하드코딩하면 다른 모드에서 유효값을 잘못 거부할 위험이 있음. 값을 그대로 v4l2-ctl에 넘기고 범위 위반은 v4l2-ctl 자체가 거부하게 둠.
+- **초점 스윕 ROI 기본값을 중앙 60% 크롭으로 정함** — 전체 프레임 기준 지표가 근접 배경(카메라 초점범위 밖)에 압도되는 문제를 실측으로 확인했고, 캘리브레이션 타겟은 보통 화면 중앙에 두고 촬영하므로 중앙 크롭이 일반적으로 합리적인 기본값이라 판단. `--sweep-roi`로 조정 가능하게 열어둠.
+- **HTTP 컨트롤 UI는 최소 확장으로 제한** — 슬라이더/JS 없이 숫자입력폼 1개 + focus 빠른버튼 2개만 추가(세션 지시의 "과설계 금지"에 따름).
+
+### 다음 세션
+
+1. **40cm급 근접 거리에서의 초점 피크는 이번 세션에서 확인 못 함(원격 세션이라 체커보드/타겟을 직접 들거나 옮길 수 없었음)** — 다음 실촬영 세션(사람이 물리적으로 참여 가능할 때)에서 체커보드를 40cm와 210cm에 각각 들고 `--focus-sweep`를 두 거리에서 따로 돌려 실제로 다른 최적값이 나오는지 확인. 메커니즘(VCM이 실제로 움직이고 거리별로 다른 지점에서 피크가 남)은 이미 배경 물체로 증명됐으므로 남은 건 정량 확인뿐.
+2. 위 1번이 확인되면 실제 체커보드 캘리브레이션 촬영(§7.9 항목2, `calibrateCamera`) 착수.
+3. `LiveFrameSource`(`vision/utils/frame_source.py`) 재구현 — 여전히 대기 중(2026-07-22b부터 인계).
+4. 골든셋 실촬영 데이터 교체 — 여전히 미착수.
+
+### 주의
+
+> 노출/게인 실측값(`exposure=2400~2602`, `gain=800~900`)은 **이번 세션 저녁 실내 조도 기준 참고값일 뿐, 고정값이 아니다** — 세션 내에서도 주변광이 바뀌며 같은 설정의 mean이 60~207 사이를 오갔다. 매 촬영 세션마다 HTTP 미리보기로 밝기를 재확인할 것. 초점 피크(540~600)도 카메라-배경 거리(~1.5~2m)에 종속된 값이라 다른 거리에 그대로 적용하면 안 됨 — 거리마다 `--focus-sweep` 재실행 필요.
+
+---
+
 ## 2026-07-22d — [vision] rpi_capture.py `_MEDIA_DEVICE` 하드코딩 버그 수정(동적 탐색) + gray-world 화이트밸런스 실카메라 검증 마무리
 
 **브랜치:** `dev--vision-computing-module`
