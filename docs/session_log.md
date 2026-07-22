@@ -11,6 +11,46 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-22d — [vision] rpi_capture.py `_MEDIA_DEVICE` 하드코딩 버그 수정(동적 탐색) + gray-world 화이트밸런스 실카메라 검증 마무리
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 오케스트레이터가 직전 세션 종료 직후 RPi를 직접 재확인하다 발견한 버그(`_MEDIA_DEVICE = "/dev/media1"` 하드코딩이 재부팅/재연결마다 바뀌어 `configure_pipeline()`이 `CalledProcessError`로 실패) 수정 + 2026-07-22c가 RPi 오프라인으로 못 끝냈던 gray-world 화이트밸런스 실카메라 검증 마무리.
+
+### 완료
+
+- **버그 재현:** RPi 원격 저장소를 `dev--vision-computing-module`(당시 `376aa3d`)로 갱신한 뒤 `--single-shot` 실행 → `media-ctl -d /dev/media1 -l ...`가 `CalledProcessError`(exit 1)로 실패하는 것을 실제로 재현. 원인 조사: RPi에서 `for d in /dev/media*; do media-ctl -d $d -p; done`으로 5개 media 디바이스를 전수 조사 — `/dev/media0`/`/dev/media1`=`pispbe`(ISP 백엔드, 무관), `/dev/media2`=`rp1-cfe`이지만 링크 0개·`imx708` 엔티티 없음(연결 안 된 CSI 포트), `/dev/media3`=`rp1-cfe`이고 `imx708` 센서 엔티티가 실제로 있음(진짜 카메라 파이프라인), `/dev/media4`=`rpivid`(무관). 즉 driver명(`rp1-cfe`) 일치만으로는 media2/media3 둘 다 걸려 판별이 안 되고, **센서 엔티티(`imx708`) 존재 여부까지 봐야 정확히 가려짐** — 이걸 직접 RPi에서 두 디바이스의 실제 `media-ctl -p` 출력을 비교해 확정.
+- **`_find_cfe_media_device()` 신규(`vision/tools/rpi_capture.py`)** — `/dev/media*`를 정렬 순회하며 각각 `media-ctl -p`를 돌려 `_media_ctl_topology_has_camera()`(driver==`rp1-cfe` && `imx708` 엔티티 존재, 정규식 파싱)로 판별. **캐시하지 않음** — `configure_pipeline()`이 호출될 때마다(매 프레임 캡처마다) 새로 탐색해 항상 최신 상태를 봄. 못 찾으면 확인한 모든 디바이스+driver명을 담은 `RuntimeError`. `_iter_media_device_paths()`(`/dev/media*` 목록 취득)를 별도 함수로 분리해 테스트에서 몽키패치 가능하게 함. `configure_pipeline()`의 6개 `_MEDIA_DEVICE` 참조를 전부 `_find_cfe_media_device()` 호출로 교체. `unpack_raw10()`/`debayer_to_bgr8()`/화이트밸런스 로직은 손대지 않음(세션 지시대로 media 디바이스 탐색 부분만 수정).
+- **실제 재검증(pseudo 테스트 아님):** 수정된 코드를 RPi 원격 저장소에 배포 후 `--single-shot` 재실행 → 성공(`/dev/media3`을 자동으로 찾아 사용, 4608x2592 정상 촬영). `--white-balance`/`--no-white-balance` 양쪽 다 재확인 — 아래 화이트밸런스 항목 참조.
+- **단위테스트 13개 신규(`vision/tests/test_rpi_capture.py`)** — `_media_ctl_topology_has_camera`/`_media_ctl_driver_name`은 RPi에서 실제로 받은 `media-ctl -p` 출력 3종(연결된 rp1-cfe/연결 안 된 rp1-cfe/무관한 pispbe, 핵심 라인만 남긴 실측 텍스트 그대로 픽스처화)으로 검증. `_find_cfe_media_device`는 `_run`/`_iter_media_device_paths`를 몽키패치해 여러 디바이스 중 정답 선택·enumeration 순서 무관하게 찾음·전부 불일치 시 디바이스 목록 포함 에러·media 디바이스 자체가 없을 때 에러·일부 디바이스 조회 실패(`CalledProcessError`)해도 나머지로 계속 찾는 것까지 검증(subprocess 호출은 몽키패치, 파싱/탐색 로직 자체는 진짜 실행 — 하드웨어 없이 노트북에서도 통과).
+- **`pytest vision/tests/` 155 passed**(기존 142 + 신규 13).
+- **gray-world 화이트밸런스 실카메라 검증 마무리** — 위 수정이 적용된 코드로 같은 RPi 실행에서 재확인: **보정 끄기 B=64.96 G=101.45 R=69.31(spread 36.49)** / **보정 켜기 B=75.02 G=78.12 R=76.15(spread 3.10)**, spread 약 11.8배 감소. 코드(2026-07-22c에 이미 커밋)는 그대로, 실측 검증만 이번에 닫음.
+- `vision/CLAUDE.md`에 "rpi_capture.py media 디바이스 동적 탐색" 절 신규(왜 번호가 바뀌는지·판별 기준·구현·테스트 요약) + "gray-world 화이트밸런스" 절에 실측 수치 반영 + 파일역할표 `tools/rpi_capture.py` 행을 최신 상태(V4L2 브링업 완료, 동적탐색 반영)로 갱신. `docs/vision_status.md` 트랙 블록 갱신(이번 완료 반영, "다음 세션 진입 시 실행할 명령" 블록은 완료 표시, `LiveFrameSource` 재구현이 여전히 다음 순번임을 명시).
+
+### 실제 테스트
+
+```
+pytest vision/tests/   # 155 passed (기존 142 + 신규 test_rpi_capture.py 13개)
+```
+RPi 실기체: `--single-shot` 수정 전 실패 재현 → 수정 후 성공 재현(둘 다 실제 프로세스 실행, 로그 확인).
+
+### 결정
+
+- **media 디바이스 판별 기준은 driver명 단독이 아니라 "driver + 센서 엔티티 존재"로 정함** — RPi에 driver가 같은 `rp1-cfe` 인스턴스가 2개(연결된 CSI 포트/연결 안 된 CSI 포트) 있어 driver명만으로는 모호함을 실측으로 확인했기 때문. 힌트로 주어졌던 "csi2 링크 수 0 아님"도 동작하긴 하지만, 센서 엔티티 존재 여부가 더 직접적이고("이 디바이스에 우리가 쓰려는 카메라가 실제로 물려있는가") 이후 `configure_pipeline()`이 어차피 `imx708` 엔티티를 대상으로 명령을 보내므로 같은 이름을 판별에도 재사용하는 게 자연스럽다고 판단.
+- **탐색 결과를 캐시하지 않기로 함** — media 디바이스 번호가 프로세스 실행 도중 바뀔 가능성은 낮지만, `configure_pipeline()`은 촬영마다(프리뷰 틱마다) 호출되므로 매번 재탐색해도 비용이 크지 않고(디바이스 5개 정도, RPi에서 체감 지연 없음) 정확성을 우선했다. `_VIDEO_DEVICE`/`_CSI2_SUBDEV`/`_SENSOR_SUBDEV`는 이번 조사에서 안정적으로 재현돼 손대지 않음(세션 스코프 밖이기도 함).
+- **RPi 시스템 레벨 변경 없음** — 이번 세션은 순수 파이썬 코드 수정 + 원격 저장소 파일 갱신(`git checkout origin/... -- <경로>`로 개별 파일만)만 수행. media-ctl/v4l2-ctl 런타임 상태 변경은 스크립트 실행 중에만 발생하고 프로세스 종료 시 원래대로(기존 관례와 동일).
+
+### 다음 세션
+
+1. **`LiveFrameSource`(`vision/utils/frame_source.py`) 재구현** — 여전히 다음 순번(2026-07-22b부터 인계됨, 이번 세션이 끼어든 버그 수정으로 순서가 밀리지 않음). `cv2.VideoCapture` 기반 현재 구현이 V4L2 raw(`pRAA`) 경로와 비호환임이 실측 확인돼 있음 — `configure_pipeline()`/`capture_frame_bgr()` 재사용 방향 추천.
+2. 체커보드 캘리브레이션(§7.9 항목2) — 여전히 미착수.
+3. 골든셋 실촬영 데이터 교체 — 여전히 미착수.
+
+### 주의
+
+> `rpi_capture.py`를 다시 만질 때 `_MEDIA_DEVICE` 유사 패턴(디바이스 번호 하드코딩)을 새로 추가하지 말 것 — 이번에 실측으로 번호가 안 고정된다는 게 확인됨. `_find_cfe_media_device()` 패턴(driver+엔티티 존재로 판별, 매 호출 재탐색)을 재사용할 것.
+
+---
+
 ## 2026-07-22c — [vision] rpi_capture.py gray-world 화이트밸런스 보정 추가 (실카메라 검증은 RPi 오프라인으로 미완)
 
 **브랜치:** `dev--vision-computing-module`

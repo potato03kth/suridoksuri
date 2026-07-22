@@ -64,7 +64,7 @@
 | `utils/frame_source.py` | `FrameRecord` + `LiveFrameSource`/`DirFrameSource`/`BagFrameSource` 어댑터 + `open_dir_or_bag()` 팩토리 (§7.2/§7.5/§7.9 항목4). Live=실카메라(재시도 후 `ConnectionError`), Dir=녹화폴더(프레임파일+선택적 `telemetry.jsonl`), Bag=단일 비디오파일(+선택적 사이드카 `<basename>.jsonl`) |
 | `main.py` | CLI 진입점. 이미지/영상 자동 분기. `--log-dir`/`--log-name`으로 이중싱크 로거+JSONL 블랙박스 실행(항상 on). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5) |
 | `replay.py` | 오프라인 재생 CLI(`python -m vision.replay <녹화폴더\|bag> --preset ...`, §7.9 (a)). `open_dir_or_bag`로 Dir/Bag 자동판별 → 동일 `Pipeline`으로 재생 → 로거+블랙박스 기록. **결정론적**(§7.5). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5) |
-| `tools/rpi_capture.py` | RPi 헤드리스 캘리브레이션 촬영 — 저해상도 스냅샷 자동갱신(브라우저) + 촬영 트리거(버튼/Enter). GStreamer `libcamerasrc` 서브프로세스 기반. **⚠️ 2026-07-21 확인: 이 RPi에서 현재 작동 불가** — libcamera가 PiSP IPA 없이 빌드돼 있어 `libcamerasrc`가 카메라를 못 봄(picamera2도 동일 원인으로 막힘). 재작업 필요 — 상세·대안 4개는 메모리 `project_rpi5_ubuntu_camera_stack.md` |
+| `tools/rpi_capture.py` | RPi 헤드리스 캘리브레이션 촬영 — 저해상도 스냅샷 자동갱신(브라우저) + 촬영 트리거(버튼/Enter). **2026-07-22b에 GStreamer `libcamerasrc`(작동 불가였음, libcamera PiSP IPA 결여) 대신 V4L2 RAW 직접 캡처+수동 디베이어로 전면 재작성해 브링업 완료** — media-ctl/v4l2-ctl로 rp1-cfe 파이프라인 직접 구성. 대상 media 디바이스(`/dev/mediaN`)는 부팅마다 번호가 바뀔 수 있어 하드코딩 대신 매 호출 동적 탐색(2026-07-22d, 아래 "media 디바이스 동적 탐색" 절). gray-world 화이트밸런스 보정 포함(아래 절). 상세 경과는 메모리 `project_rpi5_ubuntu_camera_stack.md` |
 | `tools/jsonl_view.py` | JSONL 블랙박스 뷰어/플롯 최소본(§7.9 항목6). `BlackBoxLogger`가 남긴 `.jsonl`을 읽어 시간축 score/latency/state 3단 플롯을 PNG로 저장(`matplotlib` Agg 백엔드, headless-safe). `python vision/tools/jsonl_view.py <jsonl> [--output out.png] [--x-axis ts\|frame_id]`. **하드웨어 의존 없음** — `rpi_capture.py`와 달리 `.venv`에 설치되고(`matplotlib` in `requirements.txt`) `tests/test_jsonl_view.py` 대상이다(tools/의 "CI/pytest 대상 아님" 규칙은 RPi 하드웨어 전용 스크립트에만 적용). |
 | `tests/golden/` | 골든셋 회귀 픽스처(§7.9 항목7). `<타겟>/<고도>/frame_NNN.png`+`labels.json` — 구조·스키마·현재 들어있는 것·재생성법은 `tests/golden/README.md`. **⚠️ 전부 합성(synthetic) 데이터** — 실촬영 아님(카메라 브링업 전, `docs/vision_status.md`). `tests/golden/generate_synthetic.py`가 생성 소스(pytest 대상 아님, 수동 재생성 도구) |
 
@@ -107,8 +107,60 @@ vision_plan.md §7.9가 정확한 해상도/포트를 못박지 않아 세션 �
 - **CLI:** `--white-balance`/`--no-white-balance`(`argparse.BooleanOptionalAction`, 기본
   `--white-balance`)로 opt-out 가능. `capture_frame_bgr()`/`_CaptureSession`/`--single-shot` 전부
   이 플래그를 관통시킨다.
-- **실측 검증(2026-07-22c):** RPi에서 `--single-shot`을 보정 켜고/끄고 각각 실행해 B/G/R 채널
-  평균 비교 — 수치는 `docs/vision_status.md` 해당 세션 항목 참조.
+- **실측 검증 완료(2026-07-22d, 실카메라):** RPi에서 `--single-shot`을 보정 켜고/끄고 각각
+  실행해 B/G/R 채널 평균 비교 — **보정 끄기: B=64.96 G=101.45 R=69.31 (채널간 spread 36.49)**
+  / **보정 켜기: B=75.02 G=78.12 R=76.15 (spread 3.10)** — spread가 약 11.8배 줄어 gray-world
+  가정이 이 카메라의 실제 초록 편향을 효과적으로 중화함을 확인. (2026-07-22c 세션은 RPi가
+  세션 내내 오프라인이라 이 검증을 못 하고 넘겼었음 — 코드/합성테스트만으로 "완료" 처리하지
+  않고 다음 세션 최우선 항목으로 명시적으로 남겨뒀던 것이 2026-07-22d에 닫힘.)
+
+---
+
+## rpi_capture.py media 디바이스 동적 탐색 (2026-07-22d, `tools/rpi_capture.py`)
+
+`configure_pipeline()`이 media-ctl/v4l2-ctl로 카메라 파이프라인을 구성할 때 대상 media 디바이스
+(`/dev/mediaN`)를 예전엔 `_MEDIA_DEVICE = "/dev/media1"`로 하드코딩했었다 — **이 번호가
+재부팅/재연결마다 바뀌는 것이 실기체로 확인돼(2026-07-22d) 하드코딩을 폐기하고 매 호출마다
+동적으로 찾도록 바꿨다.**
+
+- **실측으로 확인한 사실:** 카메라 브링업 세션(2026-07-22b)에서는 `/dev/media1`이 카메라
+  파이프라인(driver `rp1-cfe`)이었는데, 이번 세션(2026-07-22d) 같은 RPi에서 다시 확인하니
+  `/dev/media1`은 `pispbe`(ISP 백엔드, 이 캡처 경로에 안 쓰임)로 바뀌어 있었고 카메라 파이프라인은
+  `/dev/media3`으로 옮겨가 있었다. `_MEDIA_DEVICE`가 옛 값을 그대로 가리키고 있어
+  `configure_pipeline()`의 첫 `media-ctl -l` 호출이 `CalledProcessError`로 실패하는 것을
+  실제로 재현했다(RPi에 존재하지 않는/엉뚱한 media 디바이스를 대상으로 링크 조작을 시도).
+- **왜 바뀌는가:** 이 RPi에는 media 디바이스가 5개 있다 — `pispbe` 인스턴스 2개(`/dev/media0`,
+  `/dev/media1`, ISP 백엔드), `rp1-cfe` 인스턴스 2개(CSI 포트 cam0/cam1 각각 하나씩, 이 중
+  카메라가 실제로 연결된 포트만 센서 엔티티를 가짐), `rpivid` 1개(비디오 디코더, 무관). 리눅스
+  미디어 컨트롤러 디바이스 번호는 드라이버가 프로브(등록)되는 순서대로 순차 부여되는데, 이
+  프로브 순서는 커널 모듈 로드 순서에 좌우될 수 있어 부팅마다 같은 물리 하드웨어가 다른 번호를
+  받을 수 있다 — 이번 세션은 이 현상 자체의 근본 커널 메커니즘(모듈 로드 순서가 왜 바뀌는지)까지는
+  규명하지 않았고, 재현된 사실(번호가 실제로 바뀜)만 근거로 하드코딩을 폐기하는 쪽으로 대응했다.
+- **판별 기준(실측으로 확정, 찍은 게 아님):** `driver` 이름이 `rp1-cfe`인 것만으로는 부족하다 —
+  연결 안 된 CSI 포트도 driver는 똑같이 `rp1-cfe`로 나오지만 센서 엔티티 자체가 토폴로지에 없다
+  (`"csi2 (8 pads, 0 link, 0 routes)"`처럼 링크·엔티티가 텅 빔). 그래서 **driver == `rp1-cfe`
+  이고, 토폴로지에 `imx708`(이 카메라 센서) 엔티티가 실제로 존재하는 media 디바이스**를 찾는다.
+  판별 함수 `_media_ctl_topology_has_camera()`가 이 둘을 문자열 파싱으로 확인한다(정규식 —
+  `driver` 줄 + `- entity N: imx708` 줄).
+- **구현:** `_find_cfe_media_device()`가 `_iter_media_device_paths()`(=`/dev/media*` 정렬 목록)를
+  순회하며 각 디바이스에 `media-ctl -p`를 실행해 위 판별 함수에 넘긴다. **캐시하지 않는다** —
+  `configure_pipeline()`이 호출될 때마다(매 프레임 캡처마다) 새로 탐색해, 프로세스 실행 도중
+  핫스왑 등으로 바뀌어도 항상 최신 상태를 본다(RPi 하드웨어 특성상 실행 중 안 바뀔 가능성이
+  높지만, 캐시로 얻는 이득보다 정확성을 우선했다). 못 찾으면 확인한 모든 디바이스와 각각의
+  driver명을 에러 메시지에 담아 `RuntimeError`로 실패 — 다음에 이 문제가 재발해도 원격 세션이
+  `for d in /dev/media*; do media-ctl -d $d -p; done`을 다시 돌릴 필요 없이 에러 메시지만으로
+  진단 가능하게 함.
+- **테스트:** 순수 파싱/탐색 로직(`_media_ctl_topology_has_camera`/`_media_ctl_driver_name`/
+  `_find_cfe_media_device`)은 하드웨어 없이 검증 가능 — `vision/tests/test_rpi_capture.py`가
+  실기체에서 실제로 받은 `media-ctl -p` 출력(연결된 rp1-cfe/연결 안 된 rp1-cfe/무관한 pispbe
+  3종)을 픽스처로 써서 판별 로직을 검증하고, `_run`/`_iter_media_device_paths`를 몽키패치해
+  `_find_cfe_media_device()`의 순회·에러 메시지·CalledProcessError 스킵 동작까지 검증한다.
+  **`_VIDEO_DEVICE`/`_CSI2_SUBDEV`/`_SENSOR_SUBDEV`(video0/subdev0/subdev2)는 이번 조사에서
+  안정적으로 재현돼 그대로 하드코딩 유지** — media 디바이스만큼 자주 흔들리는지는 미확인, 향후
+  같은 증상이 재현되면 같은 패턴으로 확장 검토.
+- **실측 재검증(2026-07-22d):** 이 동적 탐색이 적용된 코드로 RPi에서 `--single-shot`이 다시
+  성공함을 확인(`/dev/media3`을 자동으로 찾아 사용) — 화이트밸런스 채널 평균도 위 절의 수치와
+  함께 재확인됨(보정 켜기 spread 3.10, 끄기 spread 36.49 — 같은 실행에서 같이 검증됨).
 
 ---
 
