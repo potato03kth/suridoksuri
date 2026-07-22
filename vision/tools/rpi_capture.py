@@ -7,12 +7,28 @@ RPi5(Ubuntu, rp1-cfe V4L2) 헤드리스 캘리브레이션 촬영 도구 — V4L
 캡처하고 베이어를 수동으로 디베이어한다.
 
 장착 카메라: 서드파티 클론 CAM109-IMX708AF-75 (IMX708 센서). 커널에 다음으로 잡힌다
-(실기체 media-ctl -p -d /dev/media1 로 확인, 2026-07-22):
+(실기체 media-ctl -p 로 확인, 2026-07-22):
     /dev/video0        = rp1-cfe-csi2_ch0 (캡처 노드)
     /dev/v4l-subdev0   = csi2 (CSI-2 수신기)
     /dev/v4l-subdev2   = imx708 (센서)
 픽셀포맷: 'pRAA' (V4L2_PIX_FMT_SRGGB10P, MIPI RAW10 패킹) — v4l2-ctl -d /dev/video0
 --list-formats-ext 로 확인. imx708 소스 패드 mbus code는 SRGGB10_1X10 → 베이어 패턴 RGGB.
+
+**미디어 디바이스 번호(`/dev/mediaN`)는 고정이 아니다 — 매 실행 시 동적으로 찾는다.**
+2026-07-22 브링업 세션 때는 카메라 파이프라인(driver `rp1-cfe`)이 `/dev/media1`이었는데,
+2026-07-22d에 같은 RPi에서 재확인하니 `/dev/media1`은 `pispbe`(ISP 백엔드, 이 카메라 캡처
+경로에 안 쓰임)로 바뀌어 있었고 카메라 파이프라인은 `/dev/media3`으로 옮겨가 있었다. 이 RPi는
+`rp1-cfe` 드라이버 인스턴스가 CSI 포트마다(cam0/cam1) 하나씩 총 2개 등록되는데, 실제로 카메라가
+연결된 포트만 센서(`imx708`) 엔티티를 갖고 나머지 하나는 빈 상태(`csi2 (8 pads, 0 link)`, 센서
+엔티티 자체가 없음)로 잡힌다 — 그리고 `pispbe`도 2개 등록된다(`/dev/media0`,`/dev/media1`). 리눅스
+미디어 디바이스 번호는 드라이버가 프로브(등록)되는 순서대로 부여되는데, 이 순서는 커널 모듈
+로드 순서·부팅마다 달라질 수 있어(실측으로 재부팅/재연결 사이 실제로 바뀐 것을 확인, 근본
+메커니즘까지는 규명하지 않음) 특정 번호를 하드코딩할 수 없다. 그래서 `_find_cfe_media_device()`가
+매 `configure_pipeline()` 호출마다 `/dev/media*`를 순회해 driver가 `rp1-cfe`이고 `imx708` 센서
+엔티티를 실제로 가진 디바이스를 찾는다(상세는 해당 함수 docstring, 단위테스트는
+`vision/tests/test_rpi_capture.py`). `/dev/video0`/`/dev/v4l-subdev0`/`/dev/v4l-subdev2`(캡처
+노드/csi2/센서 자체의 번호)는 이번 조사에서는 안정적으로 재현됐고 이번 세션 범위 밖이라 그대로
+하드코딩 유지 — 향후 이것도 흔들리는 게 관측되면 같은 방식으로 동적 탐색 확장을 검토한다.
 
 ## media-controller 파이프라인이 필요한 이유 (2026-07-22 실기체로 확정)
 
@@ -51,6 +67,7 @@ RPi에서 논-인터랙티브 단발 캡처(스크립트/원격 검증용):
     python3 vision/tools/rpi_capture.py --single-shot --out vision/data/calibration_raw
 """
 import argparse
+import re
 import shutil
 import subprocess
 import sys
@@ -72,7 +89,12 @@ _MEDIA_CTL = "media-ctl"
 _VIDEO_DEVICE = "/dev/video0"
 _CSI2_SUBDEV = "/dev/v4l-subdev0"
 _SENSOR_SUBDEV = "/dev/v4l-subdev2"
-_MEDIA_DEVICE = "/dev/media1"
+
+# 카메라 파이프라인을 가진 media 디바이스를 판별하는 기준 — 실기체 조사(2026-07-22d)로 확정.
+# rp1-cfe 드라이버 인스턴스가 CSI 포트마다(cam0/cam1) 하나씩 잡히는데, 실제로 카메라가 연결된
+# 포트만 이 센서 엔티티를 갖는다(연결 안 된 포트는 driver는 같지만 엔티티 목록이 비어 있다).
+_CFE_DRIVER_NAME = "rp1-cfe"
+_SENSOR_ENTITY_NAME = "imx708"
 
 _EMBEDDED_DATA_CODE = 0x7002  # MEDIA_BUS_FMT_SENSOR_DATA
 _BAYER_MBUS_CODE = "SRGGB10_1X10"
@@ -198,6 +220,78 @@ def _sensor_active_size(pad: int) -> tuple:
     return _parse_subdev_size(out)
 
 
+def _media_ctl_topology_has_camera(
+    media_ctl_output: str,
+    driver: str = _CFE_DRIVER_NAME,
+    sensor_entity: str = _SENSOR_ENTITY_NAME,
+) -> bool:
+    """`media-ctl -d <dev> -p` 출력 텍스트를 파싱해 이 media 디바이스가 실제로 카메라
+    캡처 파이프라인(driver == `driver`, 센서 엔티티 `sensor_entity` 보유)인지 판별한다.
+
+    순수 문자열 파싱 — subprocess 호출 없이 하드웨어 없는 호스트에서도 단위테스트 가능
+    (`vision/tests/test_rpi_capture.py`).
+
+    실기체 조사(2026-07-22d)로 확정한 판별 기준: 이 RPi는 `rp1-cfe` 드라이버 인스턴스가
+    CSI 포트(cam0/cam1)마다 하나씩 등록되지만, 카메라가 실제로 연결된 포트만 센서 엔티티
+    (`imx708`)를 갖는다 — 연결 안 된 포트는 driver 줄은 똑같이 `rp1-cfe`이지만 엔티티 목록에
+    센서가 아예 없다(예: "csi2 (8 pads, 0 link)"만 있고 imx708 항목 자체가 없음). 그래서
+    driver 일치만으로는 부족하고 센서 엔티티 존재까지 같이 봐야 한다.
+    """
+    driver_match = re.search(r"^driver\s+(\S+)\s*$", media_ctl_output, re.MULTILINE)
+    if driver_match is None or driver_match.group(1) != driver:
+        return False
+    entity_pattern = re.compile(rf"^- entity \d+:\s+{re.escape(sensor_entity)}\b", re.MULTILINE)
+    return entity_pattern.search(media_ctl_output) is not None
+
+
+def _media_ctl_driver_name(media_ctl_output: str) -> str:
+    """`media-ctl -d <dev> -p` 출력에서 driver 이름만 뽑는다(에러 메시지용, 못 찾으면 '?')."""
+    driver_match = re.search(r"^driver\s+(\S+)\s*$", media_ctl_output, re.MULTILINE)
+    return driver_match.group(1) if driver_match else "?"
+
+
+def _iter_media_device_paths() -> list:
+    """`/dev/media*` 경로 목록(정렬됨) — 별도 함수로 분리해 테스트에서 monkeypatch하기 쉽게 함
+    (하드웨어 없는 호스트에서 `_find_cfe_media_device()`의 순회·에러 처리 로직을 검증할 때
+    실제 `/dev`를 건드리지 않고 이 함수만 가짜 목록으로 바꿔치기한다)."""
+    return sorted(str(p) for p in Path("/dev").glob("media*"))
+
+
+def _find_cfe_media_device() -> str:
+    """`/dev/media*`를 순회해 실제 카메라(imx708) 캡처 파이프라인을 가진 media 디바이스
+    경로를 찾는다. 매 `configure_pipeline()` 호출마다 새로 탐색한다 — media 디바이스
+    번호는 부팅/모듈 로드 순서에 따라 바뀔 수 있어 하드코딩·캐시 둘 다 하지 않는다
+    (근거: `_CFE_DRIVER_NAME`/`_SENSOR_ENTITY_NAME` 정의부 및 모듈 docstring 상단 참조).
+
+    찾으면 그 경로(str)를 반환. 못 찾으면 확인한 디바이스 목록(경로+driver명)을 포함한
+    명확한 에러 메시지와 함께 RuntimeError.
+    """
+    media_devices = _iter_media_device_paths()
+    if not media_devices:
+        raise RuntimeError(
+            "_find_cfe_media_device: /dev/media* 디바이스가 하나도 없다 — "
+            "카메라 모듈이 물리적으로 연결/인식됐는지 먼저 확인해라."
+        )
+
+    checked = []
+    for dev in media_devices:
+        try:
+            output = _run([_MEDIA_CTL, "-d", dev, "-p"]).stdout
+        except subprocess.CalledProcessError as e:
+            checked.append(f"{dev}: media-ctl 조회 실패 ({e})")
+            continue
+        checked.append(f"{dev}: driver={_media_ctl_driver_name(output)}")
+        if _media_ctl_topology_has_camera(output):
+            return dev
+
+    raise RuntimeError(
+        f"_find_cfe_media_device: driver={_CFE_DRIVER_NAME!r} + 센서 엔티티 "
+        f"{_SENSOR_ENTITY_NAME!r}를 가진 media 디바이스를 못 찾았다. "
+        "카메라가 연결 안 됐거나 다른 센서일 수 있다. 확인한 디바이스:\n  "
+        + "\n  ".join(checked)
+    )
+
+
 def configure_pipeline(width: int, height: int) -> tuple:
     """미디어 파이프라인 전체(링크+포맷)를 요청 해상도로 맞춘다.
 
@@ -205,22 +299,26 @@ def configure_pipeline(width: int, height: int) -> tuple:
     적용값을 다시 읽어 나머지 파이프라인에 그 실제값을 전파한다.
     반환값: (실제 폭, 실제 높이) — 요청값과 다를 수 있다.
     """
+    # 0. media 디바이스 번호는 부팅마다 바뀔 수 있어(모듈 docstring·_find_cfe_media_device
+    #    참조) 매 호출마다 새로 탐색한다.
+    media_device = _find_cfe_media_device()
+
     # 1. 링크: csi2 소스 패드4 -> rp1-cfe-csi2_ch0 활성화. pisp-fe(ISP) 경로는 이 도구가
     #    쓰지 않으므로 명시적으로 비활성 유지(파이프라인 검증 시 불필요한 경로가 끼어들지
     #    않도록 — 실기체에서는 원래도 비활성 상태였지만 명시적으로 고정해 둔다).
-    _run([_MEDIA_CTL, "-d", _MEDIA_DEVICE, "-l", '"csi2":4 -> "rp1-cfe-csi2_ch0":0 [1]'])
-    _run([_MEDIA_CTL, "-d", _MEDIA_DEVICE, "-l", '"csi2":4 -> "pisp-fe":0 [0]'])
+    _run([_MEDIA_CTL, "-d", media_device, "-l", '"csi2":4 -> "rp1-cfe-csi2_ch0":0 [1]'])
+    _run([_MEDIA_CTL, "-d", media_device, "-l", '"csi2":4 -> "pisp-fe":0 [0]'])
 
     # 2. 센서 이미지 소스 패드(pad0)에 요청 후 실제 스냅값 readback
-    _run([_MEDIA_CTL, "-d", _MEDIA_DEVICE, "-V",
+    _run([_MEDIA_CTL, "-d", media_device, "-V",
           f'"imx708":0 [fmt:{_BAYER_MBUS_CODE}/{width}x{height} field:none]'])
     actual_w, actual_h = _sensor_active_size(pad=0)
 
     # 3. csi2 이미지 싱크(패드0)/소스(패드4)도 실제값+field:none으로 맞춤 — field 불일치가
     #    실기체에서 실제로 -EPIPE 원인이었다(csi2 싱크 기본값 field:any).
-    _run([_MEDIA_CTL, "-d", _MEDIA_DEVICE, "-V",
+    _run([_MEDIA_CTL, "-d", media_device, "-V",
           f'"csi2":0 [fmt:{_BAYER_MBUS_CODE}/{actual_w}x{actual_h} field:none]'])
-    _run([_MEDIA_CTL, "-d", _MEDIA_DEVICE, "-V",
+    _run([_MEDIA_CTL, "-d", media_device, "-V",
           f'"csi2":4 [fmt:{_BAYER_MBUS_CODE}/{actual_w}x{actual_h} field:none]'])
 
     # 4. 임베디드 메타데이터 패드(imx708 패드1, IMMUTABLE 링크라 파이프라인 그래프에 항상
