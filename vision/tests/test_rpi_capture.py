@@ -14,14 +14,24 @@ import subprocess
 import numpy as np
 import pytest
 
+import cv2
+
 from vision.tools.rpi_capture import (
     _CFE_DRIVER_NAME,
+    _FOCUS_MAX,
+    _FOCUS_MIN,
     _SENSOR_ENTITY_NAME,
     _find_cfe_media_device,
     _media_ctl_driver_name,
     _media_ctl_topology_has_camera,
     apply_gray_world_white_balance,
+    crop_center_fraction,
     debayer_to_bgr8,
+    laplacian_sharpness,
+    parse_focus_sweep_spec,
+    pick_best_focus,
+    set_exposure_gain,
+    set_focus_absolute,
     unpack_raw10,
 )
 import vision.tools.rpi_capture as rpi_capture
@@ -460,3 +470,293 @@ def test_find_cfe_media_device_skips_device_that_errors_and_still_finds_correct_
     ))
 
     assert _find_cfe_media_device() == "/dev/media3"
+
+
+# ---------- laplacian_sharpness (2026-07-22e) ----------
+#
+# 순수 함수 — 합성 이미지(선명한 원본 vs cv2.GaussianBlur로 흐린 버전)로 검증. 실기체 검증
+# (vision/CLAUDE.md "rpi_capture.py 수동 초점/노출/게인 제어" 절)에서 이 지표가 노출 확보 후
+# 실제로 focus_absolute 변화에 반응함을 확인했고, 여기서는 그 지표 계산 자체의 정확성만 본다.
+
+def _synthetic_checkerboard(size: int = 64, square: int = 8) -> np.ndarray:
+    """고대비 체커보드 패턴 그레이스케일 합성 이미지 — 라플라시안 분산이 반응할 뚜렷한 에지."""
+    idx = np.indices((size, size)).sum(axis=0)
+    pattern = ((idx // square) % 2).astype(np.uint8) * 255
+    return pattern
+
+
+def test_laplacian_sharpness_blurred_is_lower_than_sharp():
+    sharp_gray = _synthetic_checkerboard()
+    blurred_gray = cv2.GaussianBlur(sharp_gray, (15, 15), sigmaX=5.0)
+    sharp_score = laplacian_sharpness(sharp_gray)
+    blurred_score = laplacian_sharpness(blurred_gray)
+    assert sharp_score > blurred_score * 3, (
+        f"블러 처리된 이미지가 충분히 낮은 점수를 받지 못함: sharp={sharp_score:.2f} "
+        f"blurred={blurred_score:.2f}"
+    )
+
+
+def test_laplacian_sharpness_accepts_bgr_color_image():
+    sharp_gray = _synthetic_checkerboard()
+    sharp_bgr = cv2.cvtColor(sharp_gray, cv2.COLOR_GRAY2BGR)
+    blurred_bgr = cv2.GaussianBlur(sharp_bgr, (15, 15), sigmaX=5.0)
+    assert laplacian_sharpness(sharp_bgr) > laplacian_sharpness(blurred_bgr)
+
+
+def test_laplacian_sharpness_flat_image_is_near_zero():
+    flat = np.full((32, 32), 128, dtype=np.uint8)
+    assert laplacian_sharpness(flat) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_laplacian_sharpness_returns_python_float():
+    score = laplacian_sharpness(_synthetic_checkerboard())
+    assert isinstance(score, float)
+
+
+# ---------- crop_center_fraction ----------
+
+def test_crop_center_fraction_shape():
+    img = np.zeros((100, 200, 3), dtype=np.uint8)
+    cropped = crop_center_fraction(img, 0.5)
+    assert cropped.shape == (50, 100, 3)
+
+
+def test_crop_center_fraction_is_centered():
+    """중앙 크롭이 실제로 이미지 중심에 위치하는지 — 좌상단 모서리에만 마커를 찍고 크롭 결과에
+    마커가 없어야 한다(중앙만 남았다는 뜻)."""
+    img = np.zeros((100, 100), dtype=np.uint8)
+    img[0:5, 0:5] = 255  # 좌상단 모서리 마커
+    cropped = crop_center_fraction(img, 0.5)
+    assert cropped.shape == (50, 50)
+    assert cropped.max() == 0, "중앙 크롭에 모서리 마커가 섞여 들어옴 — 중앙 정렬 계산 오류"
+
+
+def test_crop_center_fraction_full_frame_is_noop():
+    img = np.arange(24, dtype=np.uint8).reshape(4, 6)
+    cropped = crop_center_fraction(img, 1.0)
+    np.testing.assert_array_equal(cropped, img)
+
+
+def test_crop_center_fraction_rejects_invalid_fraction():
+    img = np.zeros((10, 10), dtype=np.uint8)
+    with pytest.raises(ValueError, match="0~1"):
+        crop_center_fraction(img, 0.0)
+    with pytest.raises(ValueError, match="0~1"):
+        crop_center_fraction(img, 1.5)
+
+
+# ---------- pick_best_focus ----------
+
+def test_pick_best_focus_picks_highest_sharpness():
+    results = [(100, 5.0), (200, 18.2), (300, 9.4)]
+    assert pick_best_focus(results) == 200
+
+
+def test_pick_best_focus_single_result():
+    assert pick_best_focus([(480, 3.3)]) == 480
+
+
+def test_pick_best_focus_ties_pick_first_occurrence():
+    results = [(100, 10.0), (200, 10.0), (300, 5.0)]
+    assert pick_best_focus(results) == 100
+
+
+def test_pick_best_focus_rejects_empty():
+    with pytest.raises(ValueError, match="빈 결과"):
+        pick_best_focus([])
+
+
+# ---------- parse_focus_sweep_spec ----------
+
+def test_parse_focus_sweep_spec_basic_range():
+    assert parse_focus_sweep_spec("400:700:20") == list(range(400, 701, 20))
+
+
+def test_parse_focus_sweep_spec_single_value_range():
+    assert parse_focus_sweep_spec("500:500:10") == [500]
+
+
+def test_parse_focus_sweep_spec_rejects_wrong_arity():
+    with pytest.raises(ValueError, match="start:end:step"):
+        parse_focus_sweep_spec("400:700")
+    with pytest.raises(ValueError, match="start:end:step"):
+        parse_focus_sweep_spec("400:700:20:1")
+
+
+def test_parse_focus_sweep_spec_rejects_non_integer():
+    with pytest.raises(ValueError, match="정수만"):
+        parse_focus_sweep_spec("abc:700:20")
+
+
+def test_parse_focus_sweep_spec_rejects_non_positive_step():
+    with pytest.raises(ValueError, match="step은 양수"):
+        parse_focus_sweep_spec("400:700:0")
+    with pytest.raises(ValueError, match="step은 양수"):
+        parse_focus_sweep_spec("700:400:-20")
+
+
+def test_parse_focus_sweep_spec_rejects_empty_range():
+    """start > end 인데 step이 양수라 range()가 빈 리스트가 되는 경우 — 조용히 빈 스윕을
+    수행하지 않고 명시적으로 실패해야 한다."""
+    with pytest.raises(ValueError, match="비어있다"):
+        parse_focus_sweep_spec("700:400:20")
+
+
+# ---------- set_focus_absolute (하드웨어 호출은 _run 몽키패치로 격리) ----------
+
+def test_set_focus_absolute_rejects_out_of_range(monkeypatch):
+    calls = []
+    monkeypatch.setattr(rpi_capture, "_run", lambda cmd, **kw: calls.append(cmd))
+    with pytest.raises(ValueError, match=f"{_FOCUS_MIN}~{_FOCUS_MAX}"):
+        set_focus_absolute(_FOCUS_MAX + 1, settle_s=0)
+    with pytest.raises(ValueError, match=f"{_FOCUS_MIN}~{_FOCUS_MAX}"):
+        set_focus_absolute(_FOCUS_MIN - 1, settle_s=0)
+    assert calls == [], "범위 밖 값은 v4l2-ctl 호출 전에 걸러져야 한다"
+
+
+def test_set_focus_absolute_calls_v4l2_ctl_with_correct_control(monkeypatch):
+    calls = []
+    monkeypatch.setattr(rpi_capture, "_run", lambda cmd, **kw: calls.append(cmd))
+    set_focus_absolute(560, settle_s=0)
+    assert calls == [[rpi_capture._V4L2_CTL, "-d", rpi_capture._LENS_SUBDEV,
+                       "-c", "focus_absolute=560"]]
+
+
+def test_set_focus_absolute_settles_for_requested_duration(monkeypatch):
+    monkeypatch.setattr(rpi_capture, "_run", lambda cmd, **kw: None)
+    slept = []
+    monkeypatch.setattr(rpi_capture.time, "sleep", lambda s: slept.append(s))
+    set_focus_absolute(300, settle_s=0.2)
+    assert slept == [0.2]
+
+
+def test_set_focus_absolute_skips_sleep_when_settle_zero(monkeypatch):
+    monkeypatch.setattr(rpi_capture, "_run", lambda cmd, **kw: None)
+    slept = []
+    monkeypatch.setattr(rpi_capture.time, "sleep", lambda s: slept.append(s))
+    set_focus_absolute(300, settle_s=0)
+    assert slept == []
+
+
+# ---------- set_exposure_gain ----------
+
+def test_set_exposure_gain_noop_when_both_none(monkeypatch):
+    calls = []
+    monkeypatch.setattr(rpi_capture, "_run", lambda cmd, **kw: calls.append(cmd))
+    set_exposure_gain()
+    assert calls == []
+
+
+def test_set_exposure_gain_both_values_combined_in_one_call(monkeypatch):
+    calls = []
+    monkeypatch.setattr(rpi_capture, "_run", lambda cmd, **kw: calls.append(cmd))
+    set_exposure_gain(exposure=2400, gain=800)
+    assert calls == [[rpi_capture._V4L2_CTL, "-d", rpi_capture._SENSOR_SUBDEV,
+                       "-c", "exposure=2400,analogue_gain=800"]]
+
+
+def test_set_exposure_gain_exposure_only(monkeypatch):
+    calls = []
+    monkeypatch.setattr(rpi_capture, "_run", lambda cmd, **kw: calls.append(cmd))
+    set_exposure_gain(exposure=2400)
+    assert calls == [[rpi_capture._V4L2_CTL, "-d", rpi_capture._SENSOR_SUBDEV,
+                       "-c", "exposure=2400"]]
+
+
+def test_set_exposure_gain_gain_only(monkeypatch):
+    calls = []
+    monkeypatch.setattr(rpi_capture, "_run", lambda cmd, **kw: calls.append(cmd))
+    set_exposure_gain(gain=800)
+    assert calls == [[rpi_capture._V4L2_CTL, "-d", rpi_capture._SENSOR_SUBDEV,
+                       "-c", "analogue_gain=800"]]
+
+
+# ---------- _CaptureSession 초점/노출/게인 지연 적용 로직 ----------
+#
+# 실제 v4l2-ctl/캡처는 하지 않는다 — set_focus_absolute/set_exposure_gain/capture_frame_bgr을
+# 모듈 레벨에서 몽키패치해 "값이 바뀐 경우에만 하드웨어에 적용" 로직 자체만 검증한다.
+
+def _make_session(tmp_path, **kw):
+    return rpi_capture._CaptureSession(
+        out_dir=tmp_path, preview_size=(320, 240), main_size=(640, 480), **kw)
+
+
+def test_capture_session_current_controls_defaults_when_unset(tmp_path):
+    session = _make_session(tmp_path)
+    assert session.current_controls() == (
+        rpi_capture._FOCUS_DEFAULT, rpi_capture._EXPOSURE_DEFAULT, rpi_capture._GAIN_DEFAULT)
+
+
+def test_capture_session_current_controls_reflects_constructor_values(tmp_path):
+    session = _make_session(tmp_path, focus=560, exposure=2400, gain=800)
+    assert session.current_controls() == (560, 2400, 800)
+
+
+def test_capture_session_set_controls_updates_only_given_fields(tmp_path):
+    session = _make_session(tmp_path, focus=100, exposure=500, gain=200)
+    session.set_controls(focus=560)
+    assert session.current_controls() == (560, 500, 200)
+
+
+def test_capture_session_set_controls_rejects_out_of_range_focus(tmp_path):
+    session = _make_session(tmp_path)
+    with pytest.raises(ValueError, match=f"{_FOCUS_MIN}~{_FOCUS_MAX}"):
+        session.set_controls(focus=_FOCUS_MAX + 1)
+
+
+def test_capture_session_apply_pending_controls_calls_hardware_once_per_change(tmp_path, monkeypatch):
+    focus_calls = []
+    exposure_calls = []
+    monkeypatch.setattr(rpi_capture, "set_focus_absolute",
+                         lambda v, settle_s=0.0: focus_calls.append((v, settle_s)))
+    monkeypatch.setattr(rpi_capture, "set_exposure_gain",
+                         lambda exposure=None, gain=None: exposure_calls.append((exposure, gain)))
+
+    session = _make_session(tmp_path, focus=560, exposure=2400, gain=800, focus_settle_s=0.2)
+    with session._lock:
+        session._apply_pending_controls_locked()
+    assert focus_calls == [(560, 0.2)]
+    assert exposure_calls == [(2400, 800)]
+
+    # 값이 그대로면 두 번째 호출에서는 하드웨어를 다시 부르면 안 된다
+    with session._lock:
+        session._apply_pending_controls_locked()
+    assert focus_calls == [(560, 0.2)], "값이 안 바뀌었는데 focus를 다시 적용함"
+    assert exposure_calls == [(2400, 800)], "값이 안 바뀌었는데 exposure/gain을 다시 적용함"
+
+    # focus만 바뀌면 focus만 다시 적용되고 exposure/gain은 재적용 안 됨
+    session.set_controls(focus=300)
+    with session._lock:
+        session._apply_pending_controls_locked()
+    assert focus_calls == [(560, 0.2), (300, 0.2)]
+    assert exposure_calls == [(2400, 800)]
+
+
+def test_capture_session_apply_pending_controls_noop_when_nothing_set(tmp_path, monkeypatch):
+    focus_calls = []
+    exposure_calls = []
+    monkeypatch.setattr(rpi_capture, "set_focus_absolute", lambda v, settle_s=0.0: focus_calls.append(v))
+    monkeypatch.setattr(rpi_capture, "set_exposure_gain",
+                         lambda exposure=None, gain=None: exposure_calls.append((exposure, gain)))
+
+    session = _make_session(tmp_path)
+    with session._lock:
+        session._apply_pending_controls_locked()
+    assert focus_calls == []
+    assert exposure_calls == []
+
+
+# ---------- _render_page ----------
+
+def test_render_page_embeds_current_values():
+    html = rpi_capture._render_page(focus=560, exposure=2400, gain=800)
+    assert 'value="560"' in html
+    assert 'value="2400"' in html
+    assert 'value="800"' in html
+
+
+def test_render_page_focus_quick_buttons_clamped_to_range():
+    html_low = rpi_capture._render_page(focus=_FOCUS_MIN, exposure=1, gain=1)
+    assert f"/controls?focus={_FOCUS_MIN}" in html_low  # -10이 하한 밑으로 안 내려감
+    html_high = rpi_capture._render_page(focus=_FOCUS_MAX, exposure=1, gain=1)
+    assert f"/controls?focus={_FOCUS_MAX}" in html_high  # +10이 상한 위로 안 올라감

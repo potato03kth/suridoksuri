@@ -89,6 +89,24 @@ _MEDIA_CTL = "media-ctl"
 _VIDEO_DEVICE = "/dev/video0"
 _CSI2_SUBDEV = "/dev/v4l-subdev0"
 _SENSOR_SUBDEV = "/dev/v4l-subdev2"
+_LENS_SUBDEV = "/dev/v4l-subdev3"  # dw9807 VCM(오토포커스 렌즈 드라이버) — 실기체 확인, media 항목 19
+
+# 초점/노출/게인 수동 제어 (2026-07-22e) — libcamera 없이는 연속 AF/AE가 전혀 동작하지 않아
+# (§ 모듈 docstring 하단 "수동 초점/노출/게인 제어" 절 참고) focus_absolute가 한 번도 안 움직인
+# 채, exposure/analogue_gain도 최솟값 근처에 방치된 채로 모든 캡처가 이뤄지고 있었다(체커보드
+# 캘리브레이션 촬영이 초점 안 맞고 과다 어둡게 나온 원인). 아래는 v4l2-ctl --list-ctrls-menus로
+# 확인한 각 컨트롤의 실제 범위/기본값.
+_FOCUS_MIN, _FOCUS_MAX = 0, 1023      # dw9807, 렌즈 드라이버 고유 범위 — 센서 모드와 무관, 고정
+_FOCUS_DEFAULT = 480                  # imx708 센서모듈 기본값(실측)
+_EXPOSURE_DEFAULT = 874               # /dev/v4l-subdev2 exposure 기본값(실측)
+_GAIN_DEFAULT = 112                   # /dev/v4l-subdev2 analogue_gain 기본값(실측, 곧 최솟값)
+# exposure/analogue_gain은 vertical_blanking(모드별 프레임 길이)에 따라 최댓값이 달라질 수 있어
+# focus처럼 고정 범위로 하드코딩하지 않는다 — set_exposure_gain()은 값을 그대로 v4l2-ctl에 전달하고
+# 범위 밖이면 v4l2-ctl 자체가 CalledProcessError로 거부하도록 둔다(근거는 해당 함수 docstring).
+
+# VCM 물리 이동 정착시간(settle) 기본값 — 실기체 실측(2026-07-22e)으로 확정한 값.
+# 실측 방법·수치: vision/CLAUDE.md "rpi_capture.py 수동 초점/노출/게인 제어" 절 참조.
+FOCUS_SETTLE_S_DEFAULT = 0.2
 
 # 카메라 파이프라인을 가진 media 디바이스를 판별하는 기준 — 실기체 조사(2026-07-22d)로 확정.
 # rp1-cfe 드라이버 인스턴스가 CSI 포트마다(cam0/cam1) 하나씩 잡히는데, 실제로 카메라가 연결된
@@ -199,6 +217,70 @@ def debayer_to_bgr8(bayer10: np.ndarray, pattern: str = "rggb", white_balance: b
     if white_balance:
         bgr = apply_gray_world_white_balance(bgr)
     return bgr
+
+
+def laplacian_sharpness(bgr: np.ndarray) -> float:
+    """선명도 지표: 그레이스케일 변환 후 라플라시안 분산(값이 클수록 선명). 순수 함수 — cv2만
+    사용, 하드웨어 없이 합성 이미지(선명한 원본 vs cv2.GaussianBlur로 흐린 버전)로 단위테스트
+    가능(`vision/tests/test_rpi_capture.py`).
+
+    **신뢰도 전제조건(2026-07-22e 실기체 검증으로 확정):** 이 지표는 장면이 충분히 밝고 대비가
+    있어야 의미 있게 움직인다 — 어둡고 대비 낮은 원본(노출 미보정 상태)에서는 focus_absolute를
+    전체 범위(0~1023) 스윕해도 값이 거의 안 변해(오케스트레이터의 초기 관찰 2.49 vs 2.47과 일치)
+    초점 차이를 전혀 못 잡아낸다. exposure/analogue_gain을 먼저 올려 노출을 확보한 뒤에야
+    이 지표가 실제로 초점 변화에 반응한다(vision/CLAUDE.md 실측 근거 참조). 프레임 전체가 아니라
+    관심 영역(ROI, 예: `crop_center_fraction`)에 대해 계산하는 것도 중요 — 근접 배경(카메라
+    초점범위 밖의 항상-흐린 영역)이 프레임 대부분을 차지하면 전체 프레임 분산이 그 영역에
+    압도돼 초점 변화가 묻힌다(실측으로 확인, 상세는 CLAUDE.md).
+
+    bgr이 이미 그레이스케일(2차원)이면 변환을 건너뛴다."""
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+
+def crop_center_fraction(bgr: np.ndarray, fraction: float = 0.6) -> np.ndarray:
+    """이미지 중앙을 너비/높이 각각 fraction 비율만큼 크롭한다. 순수 함수(형상 계산만, 하드웨어
+    없이 테스트 가능).
+
+    초점 스윕의 선명도 계산을 프레임 전체가 아니라 중앙 영역으로 제한하는 이유: 캘리브레이션
+    촬영은 사용자가 체커보드 등 타겟을 화면 중앙에 두는 것을 전제로 하고, 실기체 검증에서
+    프레임 전체 기준 라플라시안 분산은 근접 바닥 등 항상 흐린 배경에 압도돼 초점 변화에
+    거의 반응하지 않았지만 중앙 영역만 보면 뚜렷한 피크가 나타났다(vision/CLAUDE.md 참조)."""
+    if not (0.0 < fraction <= 1.0):
+        raise ValueError(f"crop_center_fraction: fraction은 0~1 사이여야 한다 (입력: {fraction})")
+    h, w = bgr.shape[:2]
+    ch, cw = max(1, int(h * fraction)), max(1, int(w * fraction))
+    y0, x0 = (h - ch) // 2, (w - cw) // 2
+    return bgr[y0:y0 + ch, x0:x0 + cw]
+
+
+def pick_best_focus(results: list) -> int:
+    """[(focus_value, sharpness), ...] 목록에서 sharpness가 가장 높은 focus_value를 고른다.
+    순수 함수 — 스윕 결과 선택 로직만 담당, 실제 촬영/하드웨어와 분리해 단위테스트 가능.
+
+    동점이면 목록에서 먼저 나온(작은 인덱스) 값을 고른다(`max()`의 기본 동작 그대로 사용 —
+    특별한 동점 처리 정책이 필요하다는 근거가 없어 가장 단순한 것을 채택)."""
+    if not results:
+        raise ValueError("pick_best_focus: 빈 결과 목록으로는 최적값을 고를 수 없다")
+    return max(results, key=lambda item: item[1])[0]
+
+
+def parse_focus_sweep_spec(spec: str) -> list:
+    """"start:end:step" 형식 문자열 -> focus_absolute 값 리스트(양끝 포함). 순수 파싱 함수.
+    예: "400:700:20" -> [400, 420, ..., 700]."""
+    parts = spec.split(":")
+    if len(parts) != 3:
+        raise ValueError(f"parse_focus_sweep_spec: 'start:end:step' 형식이어야 한다 (입력: {spec!r})")
+    try:
+        start, end, step = (int(p) for p in parts)
+    except ValueError:
+        raise ValueError(f"parse_focus_sweep_spec: 정수만 허용된다 (입력: {spec!r})")
+    if step <= 0:
+        raise ValueError(f"parse_focus_sweep_spec: step은 양수여야 한다 (입력: {step})")
+    values = list(range(start, end + 1, step))
+    if not values:
+        raise ValueError(f"parse_focus_sweep_spec: 범위가 비어있다 (입력: {spec!r})")
+    return values
 
 
 def _run(cmd: list, **kw) -> subprocess.CompletedProcess:
@@ -353,13 +435,97 @@ def capture_frame_bgr(width: int, height: int, raw_tmp_path: Path,
     return debayer_to_bgr8(bayer16, pattern=bayer_pattern, white_balance=white_balance)
 
 
-_PAGE = """<!doctype html><html><body style="margin:0;background:#111">
+def set_focus_absolute(value: int, settle_s: float = FOCUS_SETTLE_S_DEFAULT) -> None:
+    """dw9807 VCM에 focus_absolute를 설정하고 물리 이동 정착시간만큼 대기한다.
+
+    **정착시간이 왜 필요한가:** VCM은 전기 신호를 렌즈의 물리적 이동으로 바꾸는 액추에이터라
+    레지스터 쓰기가 끝났다고 렌즈가 이미 목표 위치에 도달한 게 아니다 — 그 직후 바로 촬영하면
+    렌즈가 이동 중인 상태의 이미지를 얻을 수 있다. 기본값(`FOCUS_SETTLE_S_DEFAULT`)은 실기체
+    실측(2026-07-22e, 노출 확보 후 실제 선명도 피크가 재현되는 focus 값으로 왕복 이동시키며
+    지연을 0~500ms로 바꿔가며 측정)으로 정했다 — 상세 수치와 방법은 vision/CLAUDE.md 참조.
+    하드웨어 필요(테스트 대상 아님 — `vision/tests/test_rpi_capture.py`는 이 함수를 호출하지
+    않고 순수 로직(`laplacian_sharpness`/`crop_center_fraction`/`pick_best_focus`/
+    `parse_focus_sweep_spec`)만 검증한다).
+    """
+    if not (_FOCUS_MIN <= value <= _FOCUS_MAX):
+        raise ValueError(
+            f"set_focus_absolute: value는 {_FOCUS_MIN}~{_FOCUS_MAX} 범위여야 한다 (입력: {value})"
+        )
+    _run([_V4L2_CTL, "-d", _LENS_SUBDEV, "-c", f"focus_absolute={value}"])
+    if settle_s > 0:
+        time.sleep(settle_s)
+
+
+def set_exposure_gain(exposure: int = None, gain: int = None) -> None:
+    """센서(imx708, `/dev/v4l-subdev2`)의 exposure/analogue_gain 컨트롤을 설정한다.
+    둘 다 None이면 아무 것도 하지 않는다(no-op) — 둘 중 하나만 줘도 그것만 설정.
+
+    **범위를 하드코딩하지 않는 이유:** focus_absolute(dw9807, 렌즈 드라이버 고유 범위, 센서
+    모드와 무관)와 달리 exposure의 실제 최댓값은 센서 모드의 vertical_blanking(프레임 길이)에
+    따라 달라질 수 있다(`v4l2-ctl --list-ctrls-menus`의 vertical_blanking 범위가 넓은 것이
+    이 가변성의 근거) — 특정 모드에서 실측한 범위(예: 1~2602)를 다른 모드에도 그대로
+    하드코딩해 검증하면 실제로는 유효한 값을 잘못 거부할 수 있다. 그래서 값을 그대로
+    v4l2-ctl에 전달하고, 범위를 벗어나면 v4l2-ctl 자체가 `CalledProcessError`로 거부하도록
+    맡긴다(하드웨어가 최종 판단 기준).
+    """
+    ctrls = []
+    if exposure is not None:
+        ctrls.append(f"exposure={exposure}")
+    if gain is not None:
+        ctrls.append(f"analogue_gain={gain}")
+    if not ctrls:
+        return
+    _run([_V4L2_CTL, "-d", _SENSOR_SUBDEV, "-c", ",".join(ctrls)])
+
+
+def run_focus_sweep(width: int, height: int, raw_tmp_path: Path, values: list,
+                     settle_s: float = FOCUS_SETTLE_S_DEFAULT, bayer_pattern: str = "rggb",
+                     white_balance: bool = True, roi_fraction: float = 0.6,
+                     save_dir: Path = None) -> list:
+    """focus_absolute를 `values` 각각으로 설정+정착 후 촬영, 중앙 ROI 기준 선명도를 계산한다.
+    반환값: [(focus_value, sharpness), ...] (values 순서 그대로).
+
+    하드웨어 필요(테스트 대상 아님) — 실제 조합 로직은 이미 테스트된 순수 함수
+    (`set_focus_absolute`의 검증 부분 제외한 `laplacian_sharpness`/`crop_center_fraction`)를
+    그대로 재사용하는 얇은 접착 코드. `save_dir`을 주면 각 프레임을 `sweep_focus_<값>.png`로
+    저장(사용자가 어떤 값이 실제로 어떻게 나왔는지 육안으로 재확인할 수 있게)."""
+    results = []
+    for v in values:
+        set_focus_absolute(v, settle_s=settle_s)
+        bgr = capture_frame_bgr(width, height, raw_tmp_path, bayer_pattern, white_balance)
+        sharpness = laplacian_sharpness(crop_center_fraction(bgr, roi_fraction))
+        results.append((v, sharpness))
+        print(f"  focus={v:4d} sharpness={sharpness:10.2f} mean={bgr.mean():.1f}")
+        if save_dir is not None:
+            cv2.imwrite(str(save_dir / f"sweep_focus_{v:04d}.png"), bgr)
+    return results
+
+
+def _render_page(focus: int, exposure: int, gain: int) -> str:
+    """미리보기 페이지 HTML. 초점/노출/게인 현재값을 폼에 채워 넣는다 — 사용자가 체커보드를
+    들고 화면을 보면서 실시간으로 세 값을 조정할 수 있게 하는 최소 확장(2026-07-22e).
+    슬라이더 대신 숫자 입력 폼 + focus용 +/-10 빠른 버튼만 둔다(과설계 금지 지시에 따름) —
+    적용은 `/controls`(GET, 쿼리스트링) 302 리다이렉트 왕복으로 처리해 새 JS 없이 기존
+    `_PAGE` 패턴(순수 HTML 폼)을 그대로 따른다."""
+    focus_minus = max(_FOCUS_MIN, focus - 10)
+    focus_plus = min(_FOCUS_MAX, focus + 10)
+    return f"""<!doctype html><html><body style="margin:0;background:#111;color:#eee;font-family:sans-serif">
 <img id="p" src="/preview.jpg" style="width:100%;display:block"
-     onerror="setTimeout(()=>{this.src='/preview.jpg?t='+Date.now()}, 500)"
-     onload="setTimeout(()=>{this.src='/preview.jpg?t='+Date.now()}, 400)">
+     onerror="setTimeout(()=>{{this.src='/preview.jpg?t='+Date.now()}}, 500)"
+     onload="setTimeout(()=>{{this.src='/preview.jpg?t='+Date.now()}}, 400)">
 <form method="POST" action="/capture">
 <button style="width:100%;padding:24px;font-size:24px" type="submit">촬영</button>
 </form>
+<form method="GET" action="/controls" style="padding:10px 12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+  <label>focus({_FOCUS_MIN}~{_FOCUS_MAX}) <input name="focus" type="number" min="{_FOCUS_MIN}" max="{_FOCUS_MAX}" value="{focus}" style="width:70px"></label>
+  <label>exposure <input name="exposure" type="number" min="1" value="{exposure}" style="width:80px"></label>
+  <label>gain <input name="gain" type="number" min="1" value="{gain}" style="width:70px"></label>
+  <button type="submit" style="padding:8px 16px">적용</button>
+</form>
+<div style="padding:0 12px 12px;display:flex;gap:10px">
+  <a href="/controls?focus={focus_minus}" style="flex:1;text-align:center;padding:12px;background:#333;color:#eee;text-decoration:none;border-radius:4px">focus -10</a>
+  <a href="/controls?focus={focus_plus}" style="flex:1;text-align:center;padding:12px;background:#333;color:#eee;text-decoration:none;border-radius:4px">focus +10</a>
+</div>
 </body></html>"""
 
 
@@ -371,7 +537,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/":
-            self._send_bytes(_PAGE.encode(), "text/html; charset=utf-8")
+            focus, exposure, gain = self.camera.current_controls()
+            self._send_bytes(_render_page(focus, exposure, gain).encode(), "text/html; charset=utf-8")
         elif self.path.startswith("/preview.jpg"):
             jpeg = self.camera.latest_preview_jpeg()
             if jpeg is None:
@@ -379,6 +546,23 @@ class _Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             else:
                 self._send_bytes(jpeg, "image/jpeg")
+        elif self.path.startswith("/controls"):
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+
+            def _get_int(name):
+                raw = qs.get(name, [""])[0]
+                return int(raw) if raw != "" else None
+
+            try:
+                self.camera.set_controls(
+                    focus=_get_int("focus"), exposure=_get_int("exposure"), gain=_get_int("gain"))
+            except ValueError as e:
+                self._send_bytes(f"잘못된 값: {e}".encode(), "text/plain; charset=utf-8")
+                return
+            self.send_response(303)
+            self.send_header("Location", "/")
+            self.end_headers()
         else:
             self.send_response(404)
             self.end_headers()
@@ -402,10 +586,18 @@ class _Handler(BaseHTTPRequestHandler):
 
 class _CaptureSession:
     """카메라(미디어 파이프라인)는 한 번에 한 스트림만 열 수 있어, 미리보기 루프와 촬영
-    트리거가 같은 락을 공유해 v4l2-ctl 스트리밍 호출을 직렬화한다."""
+    트리거가 같은 락을 공유해 v4l2-ctl 스트리밍 호출을 직렬화한다.
+
+    초점/노출/게인은 "원하는 값"(`_focus`/`_exposure`/`_gain`)과 "마지막으로 하드웨어에
+    실제 적용한 값"(`_applied_*`)을 분리해 둔다 — `/controls`는 즉시 v4l2-ctl을 부르지 않고
+    원하는 값만 갱신하고, 실제 적용은 다음 `preview_tick()`/`capture()`가 이미 쥐고 있는
+    `_lock` 안에서 값이 바뀐 경우에만 수행한다(변경 없으면 불필요한 v4l2-ctl 호출/정착시간
+    낭비 없음, 그리고 스트리밍 직렬화 락과 충돌 안 남)."""
 
     def __init__(self, out_dir: Path, preview_size: tuple, main_size: tuple,
-                 bayer_pattern: str = "rggb", white_balance: bool = True):
+                 bayer_pattern: str = "rggb", white_balance: bool = True,
+                 focus: int = None, exposure: int = None, gain: int = None,
+                 focus_settle_s: float = FOCUS_SETTLE_S_DEFAULT):
         self._out_dir = out_dir
         self._preview_size = preview_size
         self._main_size = main_size
@@ -415,11 +607,55 @@ class _CaptureSession:
         self._count = 0
         self._raw_tmp = out_dir / "_last_capture.raw"
         self._preview_jpeg = None
+        self._focus_settle_s = focus_settle_s
+        self._focus = focus
+        self._exposure = exposure
+        self._gain = gain
+        self._applied_focus = None
+        self._applied_exposure = None
+        self._applied_gain = None
+
+    def set_controls(self, focus: int = None, exposure: int = None, gain: int = None) -> None:
+        """원하는 초점/노출/게인 값을 갱신(주어진 것만) — 하드웨어 적용은 다음 촬영/미리보기
+        틱에서 지연 수행(위 클래스 docstring 참조). 범위 검증은 focus만 여기서 미리 하고
+        (실패를 호출자에게 바로 알려 HTTP 303 대신 에러 메시지를 보여줄 수 있게), exposure/gain은
+        `set_exposure_gain()`과 동일 이유로 v4l2-ctl 자체 검증에 맡긴다."""
+        if focus is not None and not (_FOCUS_MIN <= focus <= _FOCUS_MAX):
+            raise ValueError(f"focus는 {_FOCUS_MIN}~{_FOCUS_MAX} 범위여야 한다 (입력: {focus})")
+        with self._lock:
+            if focus is not None:
+                self._focus = focus
+            if exposure is not None:
+                self._exposure = exposure
+            if gain is not None:
+                self._gain = gain
+
+    def current_controls(self) -> tuple:
+        """(focus, exposure, gain) — 아직 한 번도 설정 안 된 값은 하드웨어 기본값으로 채워
+        표시(미리보기 페이지 폼 초깃값용)."""
+        with self._lock:
+            focus = self._focus if self._focus is not None else _FOCUS_DEFAULT
+            exposure = self._exposure if self._exposure is not None else _EXPOSURE_DEFAULT
+            gain = self._gain if self._gain is not None else _GAIN_DEFAULT
+        return focus, exposure, gain
+
+    def _apply_pending_controls_locked(self) -> None:
+        """`_lock`을 이미 쥔 상태에서 호출 — 원하는 값이 마지막 적용값과 다르면 하드웨어에
+        반영한다. focus는 VCM 정착시간이 걸리므로 실제로 바뀌었을 때만 대기한다."""
+        if self._focus is not None and self._focus != self._applied_focus:
+            set_focus_absolute(self._focus, settle_s=self._focus_settle_s)
+            self._applied_focus = self._focus
+        if (self._exposure is not None and self._exposure != self._applied_exposure) or \
+           (self._gain is not None and self._gain != self._applied_gain):
+            set_exposure_gain(exposure=self._exposure, gain=self._gain)
+            self._applied_exposure = self._exposure
+            self._applied_gain = self._gain
 
     def preview_tick(self) -> None:
         w, h = self._preview_size
         with self._lock:
             try:
+                self._apply_pending_controls_locked()
                 bgr = capture_frame_bgr(w, h, self._raw_tmp, self._bayer_pattern, self._white_balance)
                 ok, jpeg = cv2.imencode(".jpg", bgr)
                 if ok:
@@ -433,11 +669,13 @@ class _CaptureSession:
     def capture(self) -> str:
         w, h = self._main_size
         with self._lock:
+            self._apply_pending_controls_locked()
             self._count += 1
             path = self._out_dir / f"calib_{self._count:03d}.png"
             bgr = capture_frame_bgr(w, h, self._raw_tmp, self._bayer_pattern, self._white_balance)
             cv2.imwrite(str(path), bgr)
-            print(f"[촬영] {path} shape={bgr.shape} mean={bgr.mean():.1f} std={bgr.std():.1f}")
+            print(f"[촬영] {path} shape={bgr.shape} mean={bgr.mean():.1f} std={bgr.std():.1f} "
+                  f"focus={self._applied_focus} exposure={self._applied_exposure} gain={self._applied_gain}")
             return str(path)
 
 
@@ -490,6 +728,30 @@ def main() -> None:
                          help="Gray-world 가정 기반 화이트밸런스 보정(기본 켜짐). raw 베이어 경로는"
                               " ISP를 우회하므로 끄면 강한 색편향(이 카메라는 초록)이 그대로 남는다."
                               " --no-white-balance로 끌 수 있다.")
+    parser.add_argument("--focus", type=int, default=None,
+                         help=f"초점 절대값({_FOCUS_MIN}~{_FOCUS_MAX}, dw9807 VCM). libcamera 없이는"
+                              " 연속 AF가 전혀 동작하지 않아 기본값(480)에서 한 번도 안 움직인 채"
+                              " 방치되는 문제가 있었다 — 지정하면 촬영 전 설정+정착 대기"
+                              "(--focus-settle-ms)까지 수행한다. 최적값은 --focus-sweep로 탐색.")
+    parser.add_argument("--focus-settle-ms", type=int, default=int(FOCUS_SETTLE_S_DEFAULT * 1000),
+                         help="focus_absolute 설정 후 VCM 물리 이동 정착 대기시간(ms). 실측 근거는"
+                              " vision/CLAUDE.md 참조.")
+    parser.add_argument("--exposure", type=int, default=None,
+                         help="센서 exposure 컨트롤 값(정수, 클수록 밝음). libcamera AE가 없어 이"
+                              " raw 경로는 노출이 방치돼 매우 어둡게 나온다 — 실내에서는 크게"
+                              " 올려야 한다(근거는 vision/CLAUDE.md).")
+    parser.add_argument("--gain", type=int, default=None,
+                         help="센서 analogue_gain 컨트롤 값(정수, 클수록 밝음).")
+    parser.add_argument("--focus-sweep", default=None, metavar="START:END:STEP",
+                         help="HTTP 서버 없이 focus_absolute를 START부터 END까지 STEP 간격으로"
+                              " 스윕하며 각각 촬영 → 중앙 영역(--sweep-roi) 라플라시안 분산이 가장"
+                              " 높은 값을 보고하고 종료. 좁은 피크(실측 폭 ~100~150)를 놓치지 않게"
+                              " STEP은 60 이하를 권장(근거는 vision/CLAUDE.md). 예: --focus-sweep"
+                              " 300:800:40")
+    parser.add_argument("--sweep-roi", type=float, default=0.6,
+                         help="--focus-sweep 선명도 계산에 쓸 중앙 크롭 비율(0~1, 기본 0.6). 실기체"
+                              " 검증에서 프레임 전체 기준으로는 근접 배경(항상 흐림)에 신호가 묻혀"
+                              " 초점 변화를 못 잡았던 문제 때문에 기본으로 중앙만 본다.")
     args = parser.parse_args()
 
     _check_tools_available()
@@ -498,8 +760,25 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     main_w, main_h = (int(v) for v in args.main_size.split("x"))
     prev_w, prev_h = (int(v) for v in args.preview_size.split("x"))
+    focus_settle_s = args.focus_settle_ms / 1000.0
+
+    if args.focus_sweep:
+        values = parse_focus_sweep_spec(args.focus_sweep)
+        set_exposure_gain(exposure=args.exposure, gain=args.gain)
+        raw_tmp = out_dir / "_focus_sweep.raw"
+        print(f"[초점 스윕] {len(values)}개 값 {values[0]}~{values[-1]} "
+              f"(roi={args.sweep_roi}, settle={args.focus_settle_ms}ms)")
+        results = run_focus_sweep(main_w, main_h, raw_tmp, values, settle_s=focus_settle_s,
+                                   bayer_pattern=args.bayer_pattern, white_balance=args.white_balance,
+                                   roi_fraction=args.sweep_roi, save_dir=out_dir)
+        best = pick_best_focus(results)
+        print(f"[초점 스윕 완료] 최적 focus_absolute={best}")
+        return
 
     if args.single_shot:
+        set_exposure_gain(exposure=args.exposure, gain=args.gain)
+        if args.focus is not None:
+            set_focus_absolute(args.focus, settle_s=focus_settle_s)
         raw_tmp = out_dir / "_single_shot.raw"
         bgr = capture_frame_bgr(main_w, main_h, raw_tmp, args.bayer_pattern, args.white_balance)
         path = out_dir / "single_shot.png"
@@ -509,11 +788,14 @@ def main() -> None:
               f"mean={bgr.mean():.2f} std={bgr.std():.2f} "
               f"min={int(bgr.min())} max={int(bgr.max())} "
               f"white_balance={args.white_balance} "
+              f"focus={args.focus} exposure={args.exposure} gain={args.gain} "
               f"B={b_mean:.2f} G={g_mean:.2f} R={r_mean:.2f}")
         return
 
     session = _CaptureSession(out_dir, (prev_w, prev_h), (main_w, main_h),
-                               args.bayer_pattern, args.white_balance)
+                               args.bayer_pattern, args.white_balance,
+                               focus=args.focus, exposure=args.exposure, gain=args.gain,
+                               focus_settle_s=focus_settle_s)
     threading.Thread(target=_preview_loop, args=(session, args.preview_interval), daemon=True).start()
     threading.Thread(target=_enter_key_trigger, args=(session,), daemon=True).start()
 
