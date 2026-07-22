@@ -82,6 +82,36 @@ vision_plan.md §7.9가 정확한 해상도/포트를 못박지 않아 세션 �
 
 ---
 
+## rpi_capture.py gray-world 화이트밸런스 (2026-07-22, `tools/rpi_capture.py`)
+
+`debayer_to_bgr8()`는 libcamera(ISP)를 완전히 우회하는 V4L2 raw 직접 캡처 경로라 화이트밸런스가
+전혀 적용되지 않는다 — 실촬영 검증(2026-07-22b, `docs/vision_status.md`)에서 실제로 강한 초록
+색편향이 관측됐다. 나중에 실측 데이터로 HSV 색상 탐지(`distress_coarse.yaml` 등)를 검증할 때
+이 편향이 왜곡 요인이 되므로 raw 캡처 후처리 단계에서 고쳐둔다.
+
+- **Gray-world 가정 채택 근거:** "전체 이미지의 R/G/B 채널 평균이 같아야 한다"는 가정 기반의
+  채널별 게인 스케일링(`apply_gray_world_white_balance()`)만으로 충분하다고 판단 — 체커보드 등
+  특정 기준 패치나 조명 스펙트럼 추정이 필요 없어 numpy만으로 구현 가능하고, 새 무거운 의존성
+  (colour-science 등)이 불필요하다. 캘리브레이션 촬영(체커보드 코너 검출)은 흑백 대비만 보므로
+  이 보정 유무의 영향이 적지만, 그 외 모든 실측 데이터 수집(HSV 색상 탐지 검증 등)에는 영향을
+  주므로 기본값은 켜짐(`white_balance=True`)으로 정했다.
+- **§5.5 "흰 박스 화이트 앵커"(`vision_plan.md`)와의 관계:** 이 gray-world 보정은 raw 캡처
+  단계의 범용 1차 보정이고, §5.5의 흰 박스/기준색 Hue-shift 앵커는 파이프라인 레벨의 프레임별
+  정밀 색 항상성 전략이다 — 서로 다른 레이어, 대체 관계 아님. gray-world는 흰 박스 앵커가 아직
+  파이프라인에 연결되기 전 단계(raw 촬영/캘리브레이션/골든셋 수집)에서 편향을 줄이는 용도.
+- **구현:** `apply_gray_world_white_balance(bgr8)`를 `debayer_to_bgr8()`와 분리된 순수 함수로
+  둬 하드웨어 없이 합성 이미지로 단위테스트 가능(`vision/tests/test_rpi_capture.py`). 채널 평균의
+  평균을 회색 기준값으로 삼아 각 채널에 `gray/mean_c` 게인을 곱하고 0~255로 클립한다(픽셀별
+  보정이 아니라 프레임 전체 통계 1개만 사용하는 가장 단순한 변형). 채널 평균이 0인 완전 검은
+  이미지는 0나눗셈을 피해 원본을 그대로 반환.
+- **CLI:** `--white-balance`/`--no-white-balance`(`argparse.BooleanOptionalAction`, 기본
+  `--white-balance`)로 opt-out 가능. `capture_frame_bgr()`/`_CaptureSession`/`--single-shot` 전부
+  이 플래그를 관통시킨다.
+- **실측 검증(2026-07-22c):** RPi에서 `--single-shot`을 보정 켜고/끄고 각각 실행해 B/G/R 채널
+  평균 비교 — 수치는 `docs/vision_status.md` 해당 세션 항목 참조.
+
+---
+
 ## distress_coarse.yaml min_area/max_area 도출 근거 (2026-07-22, `presets/distress_coarse.yaml`)
 
 직전 감사 세션에서 "GSD 미확정 상태의 임의값(물리적 근거 없음)"으로 지적됐던 `rect_detector.min_area`/`max_area`를, ② 조난자 구역 실측 스펙(**3.0m×3.0m×0.105m 라이즈드 플랫폼**, `docs/vision_plan.md` §2/§5.3)이 확정되며 근거 있게 재도출했다.

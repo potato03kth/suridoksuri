@@ -126,13 +126,42 @@ def unpack_raw10(packed: np.ndarray, width: int, height: int) -> np.ndarray:
     return out
 
 
-def debayer_to_bgr8(bayer10: np.ndarray, pattern: str = "rggb") -> np.ndarray:
+def apply_gray_world_white_balance(bgr8: np.ndarray) -> np.ndarray:
+    """Gray-world 가정 기반 화이트밸런스 보정: BGR uint8 이미지 -> BGR uint8 이미지.
+
+    "전체 이미지의 R/G/B 채널 평균이 같아야 한다"는 gray-world 가정에 따라, 채널별 평균의
+    평균(회색 기준값)에 각 채널 평균이 맞춰지도록 채널별 게인(gray/mean_c)을 곱한다. 픽셀별
+    보정이 아니라 프레임 전체 통계 1개(채널당 평균)만 쓰는 가장 단순한 변형 — 체커보드 등
+    특정 기준 패치나 조명 스펙트럼 추정 없이 numpy만으로 계산 가능해 이 raw 캡처 후처리
+    단계에 적합하다고 판단(근거는 vision/CLAUDE.md 참조). 채널 평균이 0인 완전 검은 이미지는
+    0으로 나누는 것을 피하기 위해 원본을 그대로 반환한다.
+    """
+    if bgr8.dtype != np.uint8 or bgr8.ndim != 3 or bgr8.shape[2] != 3:
+        raise ValueError(
+            f"apply_gray_world_white_balance: (H,W,3) uint8 BGR 배열이 필요하다 "
+            f"(입력 shape={bgr8.shape}, dtype={bgr8.dtype})"
+        )
+    bgr = bgr8.astype(np.float64)
+    channel_means = bgr.reshape(-1, 3).mean(axis=0)  # [mean_b, mean_g, mean_r]
+    if np.any(channel_means == 0):
+        return bgr8.copy()
+    gray = channel_means.mean()
+    gains = gray / channel_means
+    out = bgr * gains  # 브로드캐스트: 마지막 축(채널)별로 게인 적용
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def debayer_to_bgr8(bayer10: np.ndarray, pattern: str = "rggb", white_balance: bool = True) -> np.ndarray:
     """unpack_raw10() 출력(10비트 값을 16비트 컨테이너에 담은 베이어 평면) -> 8비트 BGR.
 
     cv2.cvtColor의 Bayer 디모자이킹은 8비트 입력을 기대하므로, 먼저 10비트(0~1023)를
     8비트(0~255)로 다운시프트(>>2)한 뒤 디베이어한다. 캘리브레이션 정밀도가 더 필요하면
     unpack_raw10()의 16비트(실질 10비트) 출력을 직접 쓰는 것도 가능 — 이 함수는 미리보기/
     시각 확인/체커보드 코너검출(8비트 입력 요구)용.
+
+    white_balance=True(기본값)면 디베이어 직후 apply_gray_world_white_balance()로 화이트밸런스를
+    보정한다 — raw 베이어 경로는 ISP(libcamera)를 완전히 우회하므로 화이트밸런스가 전혀 적용되지
+    않은 채 강한 색편향(이 카메라는 초록 편향)이 나타난다(근거는 vision/CLAUDE.md 참조).
     """
     if cv2 is None:
         raise RuntimeError("debayer_to_bgr8: cv2(OpenCV)가 설치돼 있지 않다")
@@ -144,7 +173,10 @@ def debayer_to_bgr8(bayer10: np.ndarray, pattern: str = "rggb") -> np.ndarray:
         )
     bayer8 = (bayer10 >> 2).astype(np.uint8)
     cv_code = getattr(cv2, _BAYER_CV_CODE[pattern])
-    return cv2.cvtColor(bayer8, cv_code)
+    bgr = cv2.cvtColor(bayer8, cv_code)
+    if white_balance:
+        bgr = apply_gray_world_white_balance(bgr)
+    return bgr
 
 
 def _run(cmd: list, **kw) -> subprocess.CompletedProcess:
@@ -214,13 +246,13 @@ def capture_raw_frame(width: int, height: int, out_path: Path) -> tuple:
 
 
 def capture_frame_bgr(width: int, height: int, raw_tmp_path: Path,
-                       bayer_pattern: str = "rggb") -> np.ndarray:
+                       bayer_pattern: str = "rggb", white_balance: bool = True) -> np.ndarray:
     """capture_raw_frame + unpack_raw10 + debayer_to_bgr8을 묶은 헬퍼.
     raw_tmp_path에 중간 raw 파일을 남긴다(디버깅용, 매 호출 덮어씀)."""
     actual_w, actual_h = capture_raw_frame(width, height, raw_tmp_path)
     packed = np.fromfile(raw_tmp_path, dtype=np.uint8)
     bayer16 = unpack_raw10(packed, actual_w, actual_h)
-    return debayer_to_bgr8(bayer16, pattern=bayer_pattern)
+    return debayer_to_bgr8(bayer16, pattern=bayer_pattern, white_balance=white_balance)
 
 
 _PAGE = """<!doctype html><html><body style="margin:0;background:#111">
@@ -275,11 +307,12 @@ class _CaptureSession:
     트리거가 같은 락을 공유해 v4l2-ctl 스트리밍 호출을 직렬화한다."""
 
     def __init__(self, out_dir: Path, preview_size: tuple, main_size: tuple,
-                 bayer_pattern: str = "rggb"):
+                 bayer_pattern: str = "rggb", white_balance: bool = True):
         self._out_dir = out_dir
         self._preview_size = preview_size
         self._main_size = main_size
         self._bayer_pattern = bayer_pattern
+        self._white_balance = white_balance
         self._lock = threading.Lock()
         self._count = 0
         self._raw_tmp = out_dir / "_last_capture.raw"
@@ -289,7 +322,7 @@ class _CaptureSession:
         w, h = self._preview_size
         with self._lock:
             try:
-                bgr = capture_frame_bgr(w, h, self._raw_tmp, self._bayer_pattern)
+                bgr = capture_frame_bgr(w, h, self._raw_tmp, self._bayer_pattern, self._white_balance)
                 ok, jpeg = cv2.imencode(".jpg", bgr)
                 if ok:
                     self._preview_jpeg = jpeg.tobytes()
@@ -304,7 +337,7 @@ class _CaptureSession:
         with self._lock:
             self._count += 1
             path = self._out_dir / f"calib_{self._count:03d}.png"
-            bgr = capture_frame_bgr(w, h, self._raw_tmp, self._bayer_pattern)
+            bgr = capture_frame_bgr(w, h, self._raw_tmp, self._bayer_pattern, self._white_balance)
             cv2.imwrite(str(path), bgr)
             print(f"[촬영] {path} shape={bgr.shape} mean={bgr.mean():.1f} std={bgr.std():.1f}")
             return str(path)
@@ -355,6 +388,10 @@ def main() -> None:
     parser.add_argument("--single-shot", action="store_true",
                          help="HTTP 서버 없이 프레임 1장만 main-size로 캡처해 저장하고 종료"
                               "(원격/스크립트 검증용)")
+    parser.add_argument("--white-balance", action=argparse.BooleanOptionalAction, default=True,
+                         help="Gray-world 가정 기반 화이트밸런스 보정(기본 켜짐). raw 베이어 경로는"
+                              " ISP를 우회하므로 끄면 강한 색편향(이 카메라는 초록)이 그대로 남는다."
+                              " --no-white-balance로 끌 수 있다.")
     args = parser.parse_args()
 
     _check_tools_available()
@@ -366,15 +403,19 @@ def main() -> None:
 
     if args.single_shot:
         raw_tmp = out_dir / "_single_shot.raw"
-        bgr = capture_frame_bgr(main_w, main_h, raw_tmp, args.bayer_pattern)
+        bgr = capture_frame_bgr(main_w, main_h, raw_tmp, args.bayer_pattern, args.white_balance)
         path = out_dir / "single_shot.png"
         cv2.imwrite(str(path), bgr)
+        b_mean, g_mean, r_mean = (float(bgr[:, :, i].mean()) for i in range(3))
         print(f"[단발촬영] {path} shape={bgr.shape} dtype={bgr.dtype} "
               f"mean={bgr.mean():.2f} std={bgr.std():.2f} "
-              f"min={int(bgr.min())} max={int(bgr.max())}")
+              f"min={int(bgr.min())} max={int(bgr.max())} "
+              f"white_balance={args.white_balance} "
+              f"B={b_mean:.2f} G={g_mean:.2f} R={r_mean:.2f}")
         return
 
-    session = _CaptureSession(out_dir, (prev_w, prev_h), (main_w, main_h), args.bayer_pattern)
+    session = _CaptureSession(out_dir, (prev_w, prev_h), (main_w, main_h),
+                               args.bayer_pattern, args.white_balance)
     threading.Thread(target=_preview_loop, args=(session, args.preview_interval), daemon=True).start()
     threading.Thread(target=_enter_key_trigger, args=(session,), daemon=True).start()
 

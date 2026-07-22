@@ -11,6 +11,50 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-22c — [vision] rpi_capture.py gray-world 화이트밸런스 보정 추가 (실카메라 검증은 RPi 오프라인으로 미완)
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 직전 세션(2026-07-22b)의 실촬영 검증에서 발견된 raw 베이어 경로의 강한 초록 화이트밸런스 편향(ISP/libcamera 완전 우회라 화이트밸런스 미적용)을 고쳐, 이후 HSV 색상 탐지(`distress_coarse.yaml` 등) 실측 검증 시 왜곡 요인이 되지 않게 함. 체커보드 캘리브레이션은 사람이 실물 체커보드를 준비해야 해서 병행 대기 중이라 그 사이 처리.
+
+### 완료
+
+- **`vision/tools/rpi_capture.py`에 `apply_gray_world_white_balance(bgr8)` 신규** — `debayer_to_bgr8()`와 분리된 순수 함수. gray-world 가정("전체 이미지 R/G/B 채널 평균이 같아야 한다")에 따라 채널별 평균의 평균(회색 기준값)에 각 채널을 맞추는 게인(`gray/mean_c`)을 곱하고 0~255로 클립. 완전 검은 이미지는 0나눗셈 회피로 원본 반환. numpy만 사용.
+- **`debayer_to_bgr8(..., white_balance=True)` 옵션 추가** — 기본 켜짐. `capture_frame_bgr()`/`_CaptureSession`/CLI 전부 관통. CLI에 `--white-balance`/`--no-white-balance`(`argparse.BooleanOptionalAction`) 추가, `--single-shot` 출력에 B/G/R 채널 평균 추가.
+- **단위테스트 8개 신규**(`vision/tests/test_rpi_capture.py`) — 합성 초록편향 이미지 중화 검증·중립 이미지 near-noop·형상/dtype 보존·완전 검은 이미지 0나눗셈 회피·에러 케이스 2건·`debayer_to_bgr8` 기본값 검증·`white_balance` on/off 채널격차 비교. 기존 RGGB 채널순서 회귀테스트는 새 기본값(WB on)이 그 테스트의 의도적 채널 밝기차를 지워버려 실패하게 된 것을 `white_balance=False` 명시로 수정. `pytest vision/tests/` **142 passed**(기존 134 + 신규 8).
+- **`vision/CLAUDE.md`에 "rpi_capture.py gray-world 화이트밸런스" 절 신규** — 채택 근거, §5.5 "흰 박스 화이트 앵커"와의 관계(다른 레이어), 구현 요약, CLI 플래그 기록.
+- `docs/vision_status.md` 트랙 블록 갱신.
+
+### 실제 테스트
+
+```
+pytest vision/tests/   # 142 passed (기존 134 + 신규 test_rpi_capture.py 8개)
+```
+
+### 미완료 — RPi 실카메라 검증 (블록됨)
+
+**세션 내내 RPi(`doksuri-3`, 100.67.27.83)가 tailscale 오프라인이었음.** `tailscale status`에 `active; relay "tok"; offline, last seen 2h ago`로 일관 표시(수 분간 재확인해도 변화 없음, tx만 계속 증가 — 이쪽에서 보내는 패킷은 있으나 RPi 응답 없음), 직접 SSH도 `Connection timed out`. RPi5 WiFi 장기끊김 커널버그(brcmfmac, `project_rpi5_tailscale_wifi_drops.md`)와 증상이 다르고(그 이슈는 재연결까지 8분+ 걸리는 패턴이지 완전 무응답은 아니었음), 이번 세션 시간 내(수 분 대기)에도 복구 안 됨 — 원격으로 할 수 있는 진단이 없어 원인 규명은 하지 않음(범위 밖). 세션 지시("pseudo 테스트 금지, 실제 카메라로 찍은 실제 이미지로 검증")를 지키기 위해 실카메라 검증 없이 "완료"로 덮지 않고 명시적으로 미완료 처리.
+
+- 순수 함수(그레이월드 게인 계산·적용) 자체는 합성 테스트로 완전히 검증됨 — 하드웨어 없이 가능한 부분은 다 함.
+- 실측 검증(보정 전/후 실제 촬영 이미지의 B/G/R 채널 평균 비교)만 RPi 온라인 대기 중.
+- 다음 세션에서 즉시 실행할 명령은 `docs/vision_status.md` 해당 항목에 그대로 복붙 가능하게 기록해 둠.
+
+### 결정
+
+- **RPi 오프라인 상태에서 실측 결과를 추정/생성해 보고하지 않음** — 세션 지시("pseudo 테스트 금지")를 지키기 위해 코드·단위테스트·문서까지만 완료하고 실측은 정직하게 미완료로 남김. 5분간 tailscale 재연결을 기다렸으나 상태 변화 없어 대기를 중단하고 나머지 작업(문서화·커밋)으로 전환.
+- 체커보드 캘리브레이션(§7.9 항목2)과 `LiveFrameSource` 재구현은 이번에도 손대지 않음 — 이번 세션 스코프는 화이트밸런스로 한정.
+
+### 다음 세션
+
+1. **최우선:** RPi 온라인 확인 후 `docs/vision_status.md` "다음 세션 진입 시 실행할 명령"으로 gray-world 화이트밸런스 실카메라 검증(보정 전/후 B/G/R 채널 평균 비교) 완료.
+2. RPi가 왜 이번엔 완전 무응답이었는지(기존 brcmfmac 이슈와 다른 패턴) 필요시 다음 실비행 전 재확인 — 이번 세션에서 원인 규명 안 함.
+3. 이후 순서는 기존과 동일: 체커보드 캘리브레이션 → `LiveFrameSource` 재구현 → 골든셋 실촬영 데이터 교체.
+
+### 주의
+
+> RPi 하드웨어를 전혀 건드리지 못한 세션 — SSH 연결 자체가 안 됐으므로 시스템 레벨 변경 여부를 논할 대상 자체가 없었음(코드/문서 변경만 노트북/WSL 로컬에서 수행).
+
+---
+
 ## 2026-07-22b — [vision] RPi5 카메라 V4L2 RAW 직접 캡처 브링업 완료 + 실촬영 검증
 
 **브랜치:** `dev--vision-computing-module`
