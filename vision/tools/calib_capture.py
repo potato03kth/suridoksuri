@@ -1068,6 +1068,25 @@ def _preview_loop(session: CalibSession, streamer: MjpegStreamer, interval: floa
 # ===========================================================================
 
 
+def parse_autocapture_enabled(query: str) -> bool:
+    """`/autocapture` 쿼리스트링 -> 자동촬영 on/off. **`enabled`가 없으면 끈다.**
+
+    2026-07-23 실기 버그의 수정본이다. 원래 이 기본값이 `"1"`(켬)이었고 조준 페이지의
+    토글 버튼이 이렇게 생겼었다::
+
+        <form method="GET" action="/autocapture?enabled=0">...</form>
+
+    HTML 사양상 **`method="GET"` 폼은 제출할 때 action URL의 쿼리스트링을 버리고 폼 입력값을
+    직렬화한 것으로 교체한다.** 이 폼엔 입력 요소가 하나도 없어서 빈 쿼리가 되고, 결국
+    브라우저는 `/autocapture`로만 이동해 서버가 기본값 `"1"`을 읽었다 — **"자동촬영 끄기"
+    버튼이 누를 때마다 오히려 켜서, 사용자가 자동촬영을 끌 수 없었다**(보드가 존에 들어올
+    때마다 멋대로 촬영돼 촬영 진행이 막힘). 버튼은 hidden input으로 고쳤고(`_render_page`),
+    기본값은 여기서 뒤집는다 — 자동촬영이 의도치 않게 **켜지는** 쪽이 사진을 멋대로 찍으므로
+    더 해롭기 때문이다.
+    """
+    return parse_qs(query).get("enabled", ["0"])[0] == "1"
+
+
 def _render_page(session: CalibSession, video_host: str, video_port: int) -> str:
     """조준용 메인 페이지 — **새로고침 없음**(2026-07-23 수정).
 
@@ -1099,7 +1118,7 @@ def _render_page(session: CalibSession, video_host: str, video_port: int) -> str
   <div style="display:flex;gap:8px">
     <form method="GET" action="/prev" style="flex:1"><button style="width:100%;padding:12px">이전 샷</button></form>
     <form method="GET" action="/skip" style="flex:1"><button style="width:100%;padding:12px">건너뛰기</button></form>
-    <form method="GET" action="/autocapture?enabled={ac_next}" style="flex:1"><button style="width:100%;padding:12px">{ac_label}</button></form>
+    <form method="GET" action="/autocapture" style="flex:1"><input type="hidden" name="enabled" value="{ac_next}"><button style="width:100%;padding:12px">{ac_label}</button></form>
   </div>
 </div>
 </body></html>"""
@@ -1170,9 +1189,7 @@ class _ControlHandler(BaseHTTPRequestHandler):
             self.send_header("Location", "/")
             self.end_headers()
         elif parsed.path == "/autocapture":
-            qs = parse_qs(parsed.query)
-            enabled = qs.get("enabled", ["1"])[0] == "1"
-            self.session.set_auto_capture(enabled)
+            self.session.set_auto_capture(parse_autocapture_enabled(parsed.query))
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()

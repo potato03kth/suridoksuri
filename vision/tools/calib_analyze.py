@@ -351,6 +351,30 @@ def group_lens_position(g: GroupData) -> Optional[float]:
     return float(np.mean(vals))
 
 
+def group_lens_position_spread(g: GroupData) -> Optional[dict]:
+    """그룹 내 lens_position 산포 — 값이 여러 개면 진단정보를 돌려준다(하나뿐이면 None).
+
+    L은 이 분석의 핵심 축(fx vs LensPosition)이라 **거리 하나당 L도 하나**여야 한다. 그런데
+    거리마다 한 번만 잠그지 않고 샷마다 다시 잠그면, 잠금이 그 샷의 타겟존 안에서 선명도를
+    재기 때문에 존 위치·보드 기울기에 따라 다른 L로 수렴한다(2026-07-23 실기: 같은 0.5m
+    그룹에서 정면 3장은 L=4.0, 좌우 요잉 ±30° 2장은 L=3.0). 그러면 `group_lens_position`의
+    평균값(3.6)은 실제로 쓰인 어느 값도 아니게 되므로, 조용히 평균내지 말고 드러낸다.
+    """
+    vals = [im.lens_position for im in g.images if im.lens_position is not None]
+    uniq = sorted(set(vals))
+    if len(uniq) <= 1:
+        return None
+    counts = {v: sum(1 for x in vals if x == v) for v in uniq}
+    return {
+        "values": [float(v) for v in uniq],
+        "counts": {str(v): int(c) for v, c in counts.items()},
+        "min": float(min(uniq)),
+        "max": float(max(uniq)),
+        "spread": float(max(uniq) - min(uniq)),
+        "mean_used": float(np.mean(vals)),
+    }
+
+
 # ===========================================================================
 # 캘리브레이션 (순수 함수, cv2 필요)
 # ===========================================================================

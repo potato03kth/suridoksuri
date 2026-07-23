@@ -15,6 +15,8 @@ from vision.tools.calib_capture import (
     SET_A_DISTANCES_M,
     SET_B_DISTANCE_M,
     ShotSpec,
+    _render_page,
+    parse_autocapture_enabled,
     board_bounding_box,
     board_dimensions_mm,
     board_region_sharpness,
@@ -458,3 +460,48 @@ def test_render_preview_overlay_with_lock_and_corners_and_countdown():
         live_corners=corners, countdown_s=0.8, last_result_text="촬영 성공: 001.png",
     )
     assert out.shape == (720, 1280, 3)
+
+
+# ---------------------------------------------------------------------------
+# /autocapture 토글 — 2026-07-23 실기 버그 회귀
+# ---------------------------------------------------------------------------
+
+
+def test_parse_autocapture_enabled_explicit_values():
+    assert parse_autocapture_enabled("enabled=1") is True
+    assert parse_autocapture_enabled("enabled=0") is False
+
+
+def test_parse_autocapture_enabled_defaults_to_off_when_param_missing():
+    """파라미터가 없으면 **끈다**.
+
+    과거 기본값이 켬("1")이라, GET 폼이 쿼리를 날려먹는 것과 맞물려 "끄기" 버튼이 매번
+    자동촬영을 켰다(실기에서 사용자가 자동촬영을 끌 수 없었음). 켜지는 쪽이 사진을 멋대로
+    찍어 더 해로우므로 기본값은 끔이어야 한다.
+    """
+    assert parse_autocapture_enabled("") is False
+    assert parse_autocapture_enabled("other=1") is False
+
+
+class _StubSession:
+    """`_render_page`가 읽는 것은 `status_dict()` 하나뿐이라 그것만 흉내낸다."""
+
+    def __init__(self, auto_capture_enabled: bool):
+        self._auto = auto_capture_enabled
+
+    def status_dict(self):
+        return {"auto_capture_enabled": self._auto}
+
+
+@pytest.mark.parametrize("enabled,expected_value", [(True, "0"), (False, "1")])
+def test_render_page_autocapture_button_carries_enabled_as_hidden_input(enabled, expected_value):
+    """토글 버튼은 `enabled`를 **hidden input**으로 실어야 한다.
+
+    `action="/autocapture?enabled=N"`으로 쿼리에 박으면 안 된다 — method=GET 폼은 제출 시
+    action의 쿼리스트링을 버리고 폼 입력값으로 교체하므로 그 값이 서버에 도달하지 않는다.
+    """
+    html = _render_page(_StubSession(enabled), "10.0.0.1", 8080)
+    assert f'<input type="hidden" name="enabled" value="{expected_value}">' in html
+    # 회귀 가드: action에 쿼리스트링을 되돌려 넣으면 다시 깨진다
+    assert 'action="/autocapture?' not in html
+    assert 'action="/autocapture"' in html
