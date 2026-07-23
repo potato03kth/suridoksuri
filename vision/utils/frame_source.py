@@ -3,8 +3,14 @@ FrameSource 어댑터 — Live/Dir/Bag (vision_plan.md §7.2 "카메라" 변화�
 §7.9 "지금 당장 할 일" 4번).
 
 세 모드:
-  LiveFrameSource   실카메라(V4L2/장치경로 또는 인덱스). 연결 실패 시 재시도 후
-                    명확한 ConnectionError. 실제 하드웨어 검증은 이 세션 범위 밖(§ vision_status.md).
+  LiveFrameSource   실카메라(picamera2 백엔드). 연결 실패 시 재시도 후 명확한 ConnectionError.
+                    2026-07-24 카메라 브링업(docs/vision_camera_bringup.md)으로 libcamera가
+                    정식 경로로 살아나면서 picamera2 API로 재구현됨 — 이전 cv2.VideoCapture
+                    구현은 V4L2 raw 경로와 비호환임이 실측 확인됐다(isOpened()는 성공하지만
+                    read()가 실패, docs/vision_status.md 2026-07-22b). picamera2는 이 노트북
+                    .venv에 없는 RPi 전용 하드웨어 라이브러리라 지연 import(open() 내부)로
+                    격리한다 — 모듈 최상단에서 import하면 DirFrameSource/BagFrameSource를 쓰는
+                    이 .venv의 모든 코드가 깨진다.
   DirFrameSource    녹화 폴더 재생 — 프레임 이미지 파일들 + 선택적 telemetry.jsonl.
                     §7.9 (a) "재생 오버레이 뷰어"의 주력 입력.
   BagFrameSource    단일 recording bag(비디오 파일) + 선택적 사이드카 telemetry.jsonl 재생.
@@ -19,7 +25,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator, Optional, Union
+from typing import Any, Iterator, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -54,62 +60,121 @@ def _load_telemetry_jsonl(path: Path) -> dict[int, dict]:
     return by_frame_id
 
 
+_DEFAULT_LIVE_RESOLUTION: Tuple[int, int] = (4608, 2592)
+"""vision/calibration/cam109-imx708af75/nominal.yaml의 image_size와 동일 — solvePnP가 쓰는
+camera_matrix가 이 해상도 기준이라, LiveFrameSource가 기본으로 다른 해상도를 내면 캘리브레이션이
+조용히 어긋난다(ArUco Phase 3, core/target.py)."""
+
+
 class LiveFrameSource:
-    """실카메라 프레임 소스.
+    """실카메라 프레임 소스 (picamera2 백엔드).
 
-    ⚠️ 이 세션(2026-07-21)에서는 RPi 실카메라 하드웨어 작업이 금지되어 있다
-    (docs/vision_status.md — libcamera PiSP IPA 브링업 미완). 아래는 인터페이스
-    계약(연결 실패 시 재시도 → 명확한 에러)만 만족시키며, 실장치 연결 검증은
-    RPi 작업 재개 시 별도로 한다.
+    2026-07-24 카메라 브링업(docs/vision_camera_bringup.md) 성공으로 libcamera/picamera2
+    정식 경로가 열려, V4L2 raw 경로와 비호환임이 실측 확인된(§ 위 모듈 docstring) 이전
+    cv2.VideoCapture 구현을 대체한다.
 
-    device: cv2.VideoCapture가 받는 장치(정수 인덱스 또는 V4L2/GStreamer 경로 문자열).
+    ⚠️ 이 노트북 .venv에는 picamera2가 없다(RPi 전용 하드웨어 라이브러리) — 그래서 `open()`
+    내부에서만 `from picamera2 import Picamera2`를 한다(지연 import). 이 클래스를 생성하는 것
+    자체나 이 모듈을 import하는 것은 picamera2 없이도 항상 성공해야 한다 — 실패는 오직
+    `open()`(또는 `open()`을 부르는 `__enter__`/`__iter__`) 호출 시점에만 일어난다.
+
+    camera_num: picamera2가 받는 카메라 인덱스. cv2 구현의 `device`(정수 인덱스 또는
+        V4L2/GStreamer 경로 문자열)를 대체 — picamera2는 정수 카메라 번호만 받고 장치 경로
+        문자열 개념이 없어(내부적으로 libcamera가 열거) 생성자 인자를 자연스럽게 좁혔다.
+    resolution: (width, height). 기본값은 위 `_DEFAULT_LIVE_RESOLUTION` 참조.
+        calib_capture.py의 "단일 still config, 세션 내내 모드 전환 없음" 원칙과 일관되게
+        `create_still_configuration()`으로 한 번만 설정하고 이후 모드를 바꾸지 않는다
+        (모드 전환이 센서 크롭/비닝을 바꿔 인트린식이 흔들리는 것을 원천 차단).
+    retries/retry_delay: 기존 cv2 구현과 동일한 재시도 계약 유지.
     """
 
-    def __init__(self, device: Union[int, str], retries: int = 3, retry_delay: float = 1.0):
+    def __init__(
+        self,
+        camera_num: int = 0,
+        resolution: Tuple[int, int] = _DEFAULT_LIVE_RESOLUTION,
+        retries: int = 3,
+        retry_delay: float = 1.0,
+    ):
         if retries < 1:
             raise ValueError("retries는 1 이상이어야 한다")
-        self.device = device
+        self.camera_num = camera_num
+        self.resolution = resolution
         self.retries = retries
         self.retry_delay = retry_delay
-        self._cap: Optional[cv2.VideoCapture] = None
+        self._picam: Optional[Any] = None
 
     def open(self) -> None:
-        """연결 시도. 실패하면 retries회까지 retry_delay초 간격으로 재시도 후 ConnectionError."""
+        """연결 시도. 실패하면 retries회까지 retry_delay초 간격으로 재시도 후 ConnectionError.
+
+        picamera2 자체를 import할 수 없는 경우(설치 안 됨)는 재시도 대상이 아니다 — 이건
+        하드웨어의 일시적 연결 실패가 아니라 환경 문제이므로 ImportError를 그대로 전파한다.
+        """
+        from picamera2 import Picamera2
+
         last_attempt = 0
+        last_error: Optional[BaseException] = None
         for attempt in range(1, self.retries + 1):
             last_attempt = attempt
-            cap = cv2.VideoCapture(self.device)
-            if cap.isOpened():
-                self._cap = cap
-                return
-            cap.release()
-            if attempt < self.retries:
-                time.sleep(self.retry_delay)
+            picam = None
+            try:
+                picam = Picamera2(camera_num=self.camera_num)
+                # "RGB888" 포맷 요청 → 실제 메모리 바이트 순서는 B,G,R (picamera2 명명 역전,
+                # vision/tools/calib_capture.py에서 실기체로 확인된 사실 재사용) — 이 덕분에
+                # cv2/DirFrameSource/BagFrameSource가 기대하는 BGR 배열을 별도 cv2.cvtColor
+                # 변환 없이 바로 얻는다.
+                config = picam.create_still_configuration(
+                    main={"format": "RGB888", "size": self.resolution}
+                )
+                picam.configure(config)
+                picam.start()
+            except Exception as exc:  # picamera2/libcamera 구체 예외 타입은 버전마다 다름 — 폭넓게 잡아 재시도
+                last_error = exc
+                if picam is not None:
+                    try:
+                        picam.close()
+                    except Exception:
+                        pass
+                if attempt < self.retries:
+                    time.sleep(self.retry_delay)
+                continue
+            self._picam = picam
+            return
         raise ConnectionError(
-            f"LiveFrameSource: 카메라 연결 실패 (device={self.device!r}), "
+            f"LiveFrameSource: 카메라 연결 실패 (camera_num={self.camera_num!r}), "
             f"{last_attempt}/{self.retries}회 재시도 후 포기."
-        )
+        ) from last_error
+
+    def close(self) -> None:
+        if self._picam is not None:
+            try:
+                self._picam.stop()
+            except Exception:
+                pass
+            try:
+                self._picam.close()
+            except Exception:
+                pass
+            self._picam = None
 
     def __enter__(self) -> "LiveFrameSource":
         self.open()
         return self
 
     def __exit__(self, *_exc) -> None:
-        if self._cap is not None:
-            self._cap.release()
-            self._cap = None
+        self.close()
 
     def __iter__(self) -> Iterator[FrameRecord]:
-        if self._cap is None:
+        if self._picam is None:
             self.open()
         frame_id = 0
         while True:
-            ok, frame = self._cap.read()
-            if not ok:
+            try:
+                frame = self._picam.capture_array("main")
+            except Exception as exc:
                 raise ConnectionError(
-                    f"LiveFrameSource: 프레임 읽기 실패 (device={self.device!r}) — "
+                    f"LiveFrameSource: 프레임 읽기 실패 (camera_num={self.camera_num!r}) — "
                     "연결이 끊겼을 수 있다."
-                )
+                ) from exc
             yield FrameRecord(frame_id=frame_id, ts=time.time(), image=frame, telemetry={})
             frame_id += 1
 

@@ -1,10 +1,17 @@
 """FrameSource 어댑터(Live/Dir/Bag) 테스트 (vision_plan.md §7.5/§7.9 항목4).
 
 Dir/Bag은 실제 로컬 파일(진짜 png/ mp4 + telemetry.jsonl)로 실제 프레임 디코딩을 검증한다.
-Live는 실카메라가 없으므로 cv2.VideoCapture만 몽키패치해 재시도/에러 계약을 검증한다
-(이 세션은 RPi 실카메라 작업 금지 — docs/vision_status.md).
+Live는 실카메라가 없으므로(이 노트북 .venv엔 picamera2 자체가 설치돼 있지 않다 — RPi 전용
+하드웨어 라이브러리) `picamera2.Picamera2`를 가짜 모듈로 `sys.modules`에 주입해 몽키패치하는
+방식으로 재시도/에러 계약을 검증한다. `LiveFrameSource.open()`이 `from picamera2 import
+Picamera2`를 지연 import하므로 이 가짜 모듈 주입만으로 실제 picamera2 없이도 전체 계약을
+검증할 수 있다.
 """
+import importlib
 import json
+import sys
+import types
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -149,77 +156,161 @@ def test_open_dir_or_bag_missing_path_raises(tmp_path):
         open_dir_or_bag(tmp_path / "nowhere")
 
 
-# ---------- LiveFrameSource — 인터페이스 계약 (실카메라 없음, cv2.VideoCapture만 몽키패치) ----------
+# ---------- LiveFrameSource — 인터페이스 계약 (실카메라 없음, picamera2를 가짜 모듈로 몽키패치) ----------
 
-class _AlwaysClosedCapture:
+class _AlwaysFailsPicam2:
+    """Picamera2() 생성 자체가 실패 — "카메라 없음"류 시나리오."""
+
     def __init__(self, *_a, **_k):
-        pass
-
-    def isOpened(self):
-        return False
-
-    def release(self):
-        pass
+        raise RuntimeError("no cameras available")
 
 
-class _OpensButNeverReadsCapture:
+class _StartFailsPicam2:
+    """생성/설정은 되지만 start()에서 실패 — "열리긴 했지만 스트림을 못 켬"류 시나리오."""
+
     def __init__(self, *_a, **_k):
+        self.closed = False
+
+    def create_still_configuration(self, main=None, **_k):
+        return {"main": main}
+
+    def configure(self, _cfg):
         pass
 
-    def isOpened(self):
-        return True
+    def start(self):
+        raise RuntimeError("failed to start camera")
 
-    def read(self):
-        return False, None
-
-    def release(self):
-        pass
+    def close(self):
+        self.closed = True
 
 
-class _OneFrameCapture:
+class _OneFramePicam2:
+    """정상 연결 + 프레임 1장까지는 성공, 그 다음 capture_array가 실패(연결 끊김 시뮬레이션)."""
+
     def __init__(self, *_a, **_k):
         self._served = False
+        self.started = False
+        self.stopped = False
+        self.closed = False
+        self.configured_with = None
 
-    def isOpened(self):
-        return True
+    def create_still_configuration(self, main=None, **_k):
+        return {"main": main}
 
-    def read(self):
+    def configure(self, cfg):
+        self.configured_with = cfg
+
+    def start(self):
+        self.started = True
+
+    def capture_array(self, name="main"):
+        assert name == "main"
         if self._served:
-            return False, None
+            raise RuntimeError("camera disconnected")
         self._served = True
-        return True, np.zeros((4, 4, 3), dtype=np.uint8)
+        return np.zeros((4, 4, 3), dtype=np.uint8)
 
-    def release(self):
-        pass
+    def stop(self):
+        self.stopped = True
+
+    def close(self):
+        self.closed = True
+
+
+def _inject_fake_picamera2(monkeypatch, picam_cls):
+    """`from picamera2 import Picamera2`가 실제 picamera2 없이 성공하도록 가짜 모듈을 주입."""
+    fake_module = types.ModuleType("picamera2")
+    fake_module.Picamera2 = picam_cls
+    monkeypatch.setitem(sys.modules, "picamera2", fake_module)
 
 
 def test_live_frame_source_retries_then_raises_connection_error(monkeypatch):
     attempts = []
-    monkeypatch.setattr(
-        cv2, "VideoCapture", lambda *a, **k: (attempts.append(1), _AlwaysClosedCapture())[1]
-    )
-    source = LiveFrameSource(device=0, retries=3, retry_delay=0)
+
+    def _make(*_a, **_k):
+        attempts.append(1)
+        return _AlwaysFailsPicam2()
+
+    _inject_fake_picamera2(monkeypatch, _make)
+    source = LiveFrameSource(camera_num=0, retries=3, retry_delay=0)
     with pytest.raises(ConnectionError, match="카메라 연결 실패"):
         source.open()
     assert len(attempts) == 3
 
 
+def test_live_frame_source_start_failure_retries_then_raises_connection_error(monkeypatch):
+    _inject_fake_picamera2(monkeypatch, _StartFailsPicam2)
+    source = LiveFrameSource(camera_num=0, retries=2, retry_delay=0)
+    with pytest.raises(ConnectionError, match="카메라 연결 실패"):
+        source.open()
+
+
 def test_live_frame_source_read_failure_raises_connection_error(monkeypatch):
-    monkeypatch.setattr(cv2, "VideoCapture", lambda *a, **k: _OpensButNeverReadsCapture())
-    source = LiveFrameSource(device=0, retries=1, retry_delay=0)
+    _inject_fake_picamera2(monkeypatch, _OneFramePicam2)
+    source = LiveFrameSource(camera_num=0, retries=1, retry_delay=0)
+    it = iter(source)
+    next(it)  # 첫 프레임은 성공
     with pytest.raises(ConnectionError, match="프레임 읽기 실패"):
-        next(iter(source))
+        next(it)
 
 
 def test_live_frame_source_yields_frame_record_when_open_succeeds(monkeypatch):
-    monkeypatch.setattr(cv2, "VideoCapture", lambda *a, **k: _OneFrameCapture())
-    source = LiveFrameSource(device=0, retries=1, retry_delay=0)
+    _inject_fake_picamera2(monkeypatch, _OneFramePicam2)
+    source = LiveFrameSource(camera_num=0, retries=1, retry_delay=0)
     record = next(iter(source))
     assert isinstance(record, FrameRecord)
     assert record.frame_id == 0
     assert record.image.shape == (4, 4, 3)
 
 
+def test_live_frame_source_requests_rgb888_format_and_configured_resolution(monkeypatch):
+    """picamera2 명명 역전(RGB888 요청 → 실제 BGR 바이트순서, calib_capture.py에서 실기체로
+    확인된 사실)을 그대로 재사용하므로, 별도 cv2.cvtColor 없이 create_still_configuration에
+    "RGB888" 포맷을 요청하는지와 생성자에 준 해상도가 그대로 전달되는지 확인한다."""
+    _inject_fake_picamera2(monkeypatch, _OneFramePicam2)
+    source = LiveFrameSource(camera_num=0, resolution=(64, 48), retries=1, retry_delay=0)
+    source.open()
+    assert source._picam.configured_with == {"main": {"format": "RGB888", "size": (64, 48)}}
+
+
+def test_live_frame_source_close_stops_and_closes_picam(monkeypatch):
+    _inject_fake_picamera2(monkeypatch, _OneFramePicam2)
+    with LiveFrameSource(camera_num=0, retries=1, retry_delay=0) as source:
+        picam = source._picam
+        assert picam.started
+    assert picam.stopped
+    assert picam.closed
+
+
 def test_live_frame_source_rejects_invalid_retries():
     with pytest.raises(ValueError):
-        LiveFrameSource(device=0, retries=0)
+        LiveFrameSource(camera_num=0, retries=0)
+
+
+# ---------- LiveFrameSource — 지연 import 격리 회귀테스트 ----------
+
+def test_frame_source_module_has_no_top_level_picamera2_import():
+    """모듈 최상단(들여쓰기 없는 줄)에 picamera2 import가 없어야 한다 — 있으면 picamera2가 없는
+    이 .venv에서 DirFrameSource/BagFrameSource를 쓰는 모든 코드까지 import 시점에 깨진다."""
+    import vision.utils.frame_source as mod
+
+    source_text = Path(mod.__file__).read_text(encoding="utf-8")
+    for line in source_text.splitlines():
+        if line.startswith("import picamera2") or line.startswith("from picamera2"):
+            pytest.fail(f"picamera2 import가 모듈 최상단(들여쓰기 없음)에 있음: {line!r}")
+
+
+def test_vision_utils_frame_source_imports_without_picamera2_installed(monkeypatch):
+    """picamera2가 sys.modules에서 import 불가능한 상태를 강제해도(=미설치 시뮬레이션)
+    vision.utils.frame_source 모듈 자체의 import는 성공해야 한다(지연 import 격리 증명)."""
+    monkeypatch.setitem(sys.modules, "picamera2", None)  # None 캐시 → import picamera2가 ImportError
+    monkeypatch.delitem(sys.modules, "vision.utils.frame_source", raising=False)
+
+    reloaded = importlib.import_module("vision.utils.frame_source")
+    assert hasattr(reloaded, "LiveFrameSource")
+
+    # picamera2가 실제로 막혀 있으니 open()을 부르면(지연 import 지점) ImportError가 나야 정상 —
+    # 즉 모듈 import 자체와 open() 호출은 별개 시점이라는 것까지 확인한다.
+    source = reloaded.LiveFrameSource(camera_num=0, retries=1, retry_delay=0)
+    with pytest.raises(ImportError):
+        source.open()
