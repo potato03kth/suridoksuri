@@ -11,6 +11,33 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-24 — [mc-hw] 2026-07-23 저녁 실비행 사고분석 — 오프보드 3m 상승명령이 30m로 실행 + 오프보드 미이행 원인 규명 (분석만, 코드 미수정)
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 사용자가 전날(2026-07-23) 저녁 비행에서 "오프보드로 3m 상승/남3m 이동/복귀/하강을 명령했는데 30m까지 상승했고, 이후 시야 이탈로 나머지 명령 이행 여부를 모른다"고 보고 — 원인 규명 요청. 비행 중 네트워크(컴패니언 연결)가 끊겨 자동 ulog 회수가 실패했을 것으로 추정된다는 정황도 함께 전달됨.
+
+### 완료
+
+- **ulog 확보:** 지상국 Windows(호스트 E:\Downloads, WSL `/mnt/e/Downloads`)의 최신 ulog 2건을 확인 — `10_42_23.ulg`(PX4 부팅 19:40:31 KST), `11_32_15.ulg`(PX4 부팅 20:09:29 KST). `pyulog`(`ulog_info`)로 시작시각·소요시간 확인.
+- **RPi(컴패니언, `suri@100.67.27.83`) 원격 조사** — 사용자 지시대로 현재 연결된 Pixhawk(오늘 비행한 기체와 다른 개체)에서 ulog를 받으려 하지 않고, `journalctl`로 해당 시각대(19:30~20:40 KST) 기록만 확인. **핵심 발견:** 이 시간대 RPi가 `hwmon hwmon4: Undervoltage detected!`를 동반한 연쇄 재부팅을 최소 3회(20:03/20:17/20:24~20:31 KST) 겪었고, `11_32_15.ulg` 비행의 arm(20:32:15) 불과 48초 전(20:31:27)에도 다운돼 이후 다음날 00:17까지 완전히 꺼져 있었음. `docker cp`로 `fc` 컨테이너(중지 상태)의 `bash_history`·`/root/.ros/log`를 안전하게(컨테이너 재시작 없이) 추출, `scp`로 `logs/2026-07-23_flight01/`(rosbag·launch.log·notes.md) 회수 — rosbag는 `metadata.yaml`이 없어 정상 Ctrl-C 종료가 아닌 비정상 중단으로 확인됨.
+- **pyulog 정밀분석 (`11_32_15.ulg`, 88.2초):** `nav_state`가 POSCTL→AUTO_TAKEOFF(t=1.11s)→AUTO_LOITER(t=21.46s, PX4 자동전환)→POSCTL(t=55.88s, 조종사 개입)→MANUAL(t=56.71s)로 **OFFBOARD 진입 자체가 한 번도 없었음** 확인. `vehicle_command`엔 최초 이륙요청(t=1.09s, `MAV_CMD_NAV_TAKEOFF` param7=396.581m AMSL) 단 1건뿐, 이후 어떤 커맨드도 없음. 로그텍스트 `t=24.19s Connection to mission computer lost`·`t=55.88s Pilot took over using sticks`·`t=84.01s Kill engaged`·`t=87.16s Disarmed by landing`. AGL 시계열로 climb이 t≈0~22s에 0→29.7m까지 진행되고 AUTO_LOITER 진입 후에도 그대로 유지됨을 확인(`analyze_flight.py` 결과: AGL 최대 29.72m, home_position AMSL=366.93m).
+- **근본원인 특정 (코드 대조):** RPi에서 회수한 `launch.log`에 `offboard_node`가 직접 남긴 로그 `CommandTOL 이륙 요청 alt=396.6m AMSL (지면 393.6+3.0) -> CLIMBING` 발견 — 의도한 상승폭(+3.0m)은 정확했으나 노드가 "지면 AMSL"로 쓴 값(393.6)이 ulog에 기록된 실제 EKF 홈고도(366.93)보다 **26.7m** 높았음. `fc_ros/fc_ros/nodes/offboard_node.py::_cb_home`(219~305행)이 `/mavros/home_position/home` 수신값을 단발 스냅샷하는 기존에 문서화된 설계 갭(`docs/session_status.md` mc-실기체 트랙 "잔여 리스크" — 종전엔 EKF/GPS 드리프트로 3~5m 규모)이 이번엔 훨씬 큰 폭으로 재현된 사례로 결론. `fc` 컨테이너/MAVROS가 이 비행 arm 수분 전(20:28~20:32 KST)에 막 재시작된 반면 PX4는 23분 앞서(20:09:29) 부팅돼 있었다는 점에서, 새 MAVROS 구독자가 PX4 부팅 초기(GPS 수직정확도 미수렴 구간)에 래치된 오래된 home_position을 그대로 받았을 가능성을 유력 가설로 제시(확정은 다음 비행에서 `_home_amsl` 수신시각·GPS eph/epv를 같이 남겨야 함).
+- **flight1(`10_42_23.ulg`) 정체 확인:** RPi가 완전히 다운돼 있던 시간대(18:23~20:03 KST)의 별개 비행 — `vehicle_command` 토픽 자체가 없어 오프보드/미션컴퓨터와 무관한 순수 수동 POSCTL 비행(컴퍼스/배터리 경고 반복 관측)으로 확인, 오늘 사고와 무관.
+- **커밋 자료화:** 두 ulog + RPi에서 회수한 rosbag/launch.log를 `logs/2026-07-23_flight01/`(사고 비행)·`logs/2026-07-23_manual/`(무관 비행, 신규)에 배치, `analyze_flight.py`로 `analysis_auto.md` 생성, `notes.md` 관찰/결론 채움. `docs/session_status.md` 🚁 mc-실기체 트랙 "마지막" 갱신.
+
+### 결정
+
+- **코드 수정 없음** — 이번 요청은 사고 해석(원인 규명)이며 `offboard_node.py`는 건드리지 않음. 후속 수정(`_cb_home` 신선도 체크 등)은 사용자 판단 대기.
+- **RPi 쪽 조사는 journalctl/컨테이너 로그 열람만 수행** — 사용자 지시대로 현재 연결된(다른) Pixhawk에서 ulog를 받으려는 시도는 하지 않음. `fc` 컨테이너는 `docker cp`로만 접근(재시작 없이 정지 상태 그대로 유지).
+
+### 다음 세션
+
+1. **`_cb_home` 신선도 체크 또는 CommandTOL 직전 능동 재조회 도입 여부 결정** — 사용자 판단 필요, 결정되면 SITL 회귀검증 관례 적용.
+2. **RPi 전원계통(BEC/배터리 분배) 점검** — undervoltage 경고가 실비행 중 반복 재현됐으므로 다음 비행 전 전원 안정화(PD 트리거 or 별도 레귤레이터) 필요, `project_rpi5_usbc_power_psu_max_current` 메모리와 연계.
+3. `record_flight.sh`가 rosbag 비정상종료(`metadata.yaml` 없음)를 감지·경고하도록 개선 검토(미구현 아이디어).
+
+---
+
 ## 2026-07-22f — [mc-hw] "PID 튜닝 미실시" 가설 검토 + H14 신설 (분석만, 코드 미수정)
 
 **브랜치:** `dev--vision-computing-module`
