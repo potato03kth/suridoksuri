@@ -1,0 +1,26 @@
+# ArUco 정밀착륙 fine 단계 (docs/vision_aruco_branch.md Phase 4, vision_plan.md §5.2/§7.1)
+#
+# 버티포트 coarse 3단 캐스케이드(vertiport_coarse.yaml — 흰 필드→검은 V→빨간 고리)에 "이어붙는"
+# 신규 fine 단계로 브리프가 예시한 대로 별도 preset을 신설했다. vertiport_coarse.yaml을 확장하지
+# 않고 독립 preset으로 둔 이유(과설계 회피, 최소 변경):
+#
+# 1. ArucoDetector(modules/aruco.py, Phase 2)는 `state.original` 전체 프레임에서
+#    cv2.aruco.detectMarkers()를 돌린다 — ROI 인자를 받지 않는다(Phase 2 완료 코드, 이번
+#    Phase에서 수정 범위 밖). coarse 캐스케이드 뒤에 그대로 이어붙여도 "그 안에서만 찾는" 효과는
+#    없다 — ROI 크롭을 하려면 aruco.py 자체를 고쳐야 하는데 그건 Phase 2 로직 변경(금지 사항).
+# 2. 더 근본적으로, ArucoDetector.__call__은 `state.detections = confirmed`로 **덮어쓴다**(
+#    modules/aruco.py 46행 근방) — vertiport_coarse.yaml 캐스케이드 끝에 그대로 이어붙이면 3단
+#    캐스케이드가 확정한 버티포트 검출 결과(빨간 고리)가 조용히 ArUco 결과로 덮어써져 사라진다.
+#    이는 "ROI로 좁혀 쓴다"가 아니라 "coarse의 확정 결과를 파괴한다"이므로 잘못된 설계다.
+# 3. ArUco 마커 자체가 스케일/회전에 견고한 피덕셜이라 coarse의 위치 힌트 없이도 전체 프레임
+#    탐색이 실용적으로 문제없다(다만 4608x2592 전체프레임 실시간 처리 비용은 이번 Phase 범위
+#    밖 — 최적화가 필요해지면 별도 트랙에서 재검토).
+#
+# 따라서 이 preset은 coarse 캐스케이드와 **완전히 독립적으로 실행**된다 — main.py/replay.py가
+# 이 preset으로 pipeline.run()을 돌리면 state.detections에 ID=23 ArUco 검출(코너 포함)만 남고,
+# 그걸 보고 main.py/replay.py 레벨에서 solve_target_pose()를 호출해 TargetEstimate를 만든다
+# (Phase 4 배선, 이 preset 자체는 검출까지만 — solvePnP는 preset/모듈이 아니라 CLI 배선 코드가
+# 담당, "import 규칙 판단" 근거는 docs/vision_status.md/커밋 메시지 참조).
+pipeline:
+  aruco_detector:
+    valid_ids: [23]

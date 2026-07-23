@@ -8,6 +8,7 @@ import json
 import sys
 import threading
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -16,6 +17,9 @@ import pytest
 import vision.replay as replay_mod
 from vision.utils.frame_source import BagFrameSource, DirFrameSource, open_dir_or_bag
 from vision.utils.stream import MjpegStreamer
+
+_DICTIONARY = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+_VERTIPORT_FINE_PRESET = str(Path(replay_mod.__file__).parent / "presets" / "vertiport_fine.yaml")
 
 
 def _make_recording_dir(tmp_path, n=3):
@@ -29,6 +33,19 @@ def _make_recording_dir(tmp_path, n=3):
         for i in range(n)
     )
     (rec_dir / "telemetry.jsonl").write_text(telemetry + "\n")
+    return rec_dir
+
+
+def _make_aruco_recording_dir(tmp_path, n=2, marker_id: int = 23):
+    """ArUco Phase 4 — ID=23 마커가 있는 합성 프레임으로 이뤄진 녹화 폴더."""
+    rec_dir = tmp_path / "aruco_recording"
+    rec_dir.mkdir()
+    marker_gray = cv2.aruco.generateImageMarker(_DICTIONARY, marker_id, 150)
+    marker_bgr = cv2.cvtColor(marker_gray, cv2.COLOR_GRAY2BGR)
+    for i in range(n):
+        canvas = np.full((300, 300, 3), 255, dtype=np.uint8)
+        canvas[50:200, 50:200] = marker_bgr
+        cv2.imwrite(str(rec_dir / f"frame_{i:04d}.png"), canvas)
     return rec_dir
 
 
@@ -274,3 +291,71 @@ def test_display_stream_serves_real_frames_via_replay(tmp_path, monkeypatch):
         worker.join(timeout=10)
 
     assert result.get("frame_count") == 15
+
+
+# ===========================================================================
+# ArUco Phase 4(docs/vision_aruco_branch.md) — TargetEstimate가 실제로 JSONL에 실리는지
+# ===========================================================================
+
+
+def test_aruco_preset_writes_target_estimate_into_jsonl_chosen(tmp_path):
+    """§Phase4 핵심 요구: vertiport_fine.yaml로 실제 녹화 폴더(ArUco 마커 포함)를 재생하면
+    JSONL의 chosen.target_estimate 안에 calib_id/calib_accuracy/not_for_closed_loop_30cm/
+    position/orientation이 실제로 찍히는지 — 몽키패치 없이 실제 파이프라인+블랙박스."""
+    rec_dir = _make_aruco_recording_dir(tmp_path, n=2)
+    log_dir = tmp_path / "logs"
+
+    frame_count = replay_mod.run_replay(
+        str(rec_dir), _VERTIPORT_FINE_PRESET, display="none", output=None,
+        log_dir=str(log_dir), log_name="arucorep",
+    )
+    assert frame_count == 2
+
+    records = [json.loads(l) for l in (log_dir / "arucorep.jsonl").read_text().splitlines()]
+    assert len(records) == 2
+    for record in records:
+        chosen = record["chosen"]
+        assert chosen is not None
+        estimate = chosen["target_estimate"]
+        assert estimate["target_type"] == "aruco_23"
+        assert len(estimate["position"]) == 3
+        assert len(estimate["orientation"]) == 4
+        assert estimate["calib_accuracy"] == "unverified"
+        assert estimate["not_for_closed_loop_30cm"] is True
+        assert estimate["calib_id"].endswith("nominal.yaml")
+
+
+def test_no_aruco_marker_frame_has_no_target_estimate_and_does_not_crash(tmp_path):
+    """§Phase4 요구: ArUco 마커가 없는 프레임(마커 없는 녹화)은 크래시 없이
+    target_estimate가 없어야 한다."""
+    rec_dir = _make_recording_dir(tmp_path, n=2)  # 마커 없는 단색 프레임
+    log_dir = tmp_path / "logs"
+
+    frame_count = replay_mod.run_replay(
+        str(rec_dir), _VERTIPORT_FINE_PRESET, display="none", output=None,
+        log_dir=str(log_dir), log_name="noarucorep",
+    )
+    assert frame_count == 2
+
+    records = [json.loads(l) for l in (log_dir / "noarucorep.jsonl").read_text().splitlines()]
+    assert len(records) == 2
+    assert all(r["chosen"] is None for r in records)
+
+
+def test_missing_calib_file_logs_warning_and_still_runs(tmp_path):
+    """calib 파일이 없어도(calib_path 오지정) 재생 자체는 죽지 않고 target_estimate만 생략."""
+    rec_dir = _make_aruco_recording_dir(tmp_path, n=1)
+    log_dir = tmp_path / "logs"
+
+    frame_count = replay_mod.run_replay(
+        str(rec_dir), _VERTIPORT_FINE_PRESET, display="none", output=None,
+        log_dir=str(log_dir), log_name="nocalibrep",
+        calib_path=str(tmp_path / "does_not_exist.yaml"),
+    )
+    assert frame_count == 1
+
+    records = [json.loads(l) for l in (log_dir / "nocalibrep.jsonl").read_text().splitlines()]
+    assert records[0]["chosen"] is None
+
+    log_text = (log_dir / "nocalibrep.log").read_text()
+    assert "캘리브레이션 로드 실패" in log_text

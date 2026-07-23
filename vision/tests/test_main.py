@@ -8,6 +8,7 @@
 """
 import json
 import sys
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -15,11 +16,24 @@ import pytest
 
 import vision.main as main_mod
 
+_DICTIONARY = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+_VERTIPORT_FINE_PRESET = str(Path(main_mod.__file__).parent / "presets" / "vertiport_fine.yaml")
+
 
 def _write_image(tmp_path) -> str:
     img = np.full((120, 120, 3), 180, dtype=np.uint8)
     p = tmp_path / "frame.png"
     cv2.imwrite(str(p), img)
+    return str(p)
+
+
+def _write_aruco_image(tmp_path, marker_id: int = 23, name: str = "aruco.png") -> str:
+    """ArUco Phase 4 — ID=23 마커를 합성한 이미지(vision/tests/test_aruco.py와 동일 패턴 재사용)."""
+    canvas = np.full((300, 300, 3), 255, dtype=np.uint8)
+    marker_gray = cv2.aruco.generateImageMarker(_DICTIONARY, marker_id, 150)
+    canvas[50:200, 50:200] = cv2.cvtColor(marker_gray, cv2.COLOR_GRAY2BGR)
+    p = tmp_path / name
+    cv2.imwrite(str(p), canvas)
     return str(p)
 
 
@@ -174,3 +188,84 @@ def test_video_run_writes_one_jsonl_record_per_frame(tmp_path, monkeypatch):
     records = [json.loads(l) for l in (log_dir / "vidrun.jsonl").read_text().splitlines()]
     assert [r["frame_id"] for r in records] == [0, 1, 2]
     assert all(r["type"] == "frame" for r in records)
+
+
+# ===========================================================================
+# ArUco Phase 4(docs/vision_aruco_branch.md) — TargetEstimate가 실제로 JSONL에 실리는지
+# ===========================================================================
+
+
+def test_aruco_preset_writes_target_estimate_into_jsonl_chosen(tmp_path, monkeypatch):
+    """§Phase4 핵심 요구: vertiport_fine.yaml로 실제 ArUco 마커 이미지를 실제로 처리하면
+    JSONL의 chosen.target_estimate 안에 calib_id/calib_accuracy/not_for_closed_loop_30cm/
+    position/orientation이 실제로 찍히는지 — 몽키패치로 때우지 않고 실제 파이프라인+블랙박스."""
+    img_path = _write_aruco_image(tmp_path)
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "vision.main", img_path,
+            "--preset", _VERTIPORT_FINE_PRESET,
+            "--log-dir", str(log_dir), "--log-name", "arucorun",
+        ],
+    )
+    main_mod.main()
+
+    records = [json.loads(l) for l in (log_dir / "arucorun.jsonl").read_text().splitlines()]
+    assert len(records) == 1
+    chosen = records[0]["chosen"]
+    assert chosen is not None
+    estimate = chosen["target_estimate"]
+
+    assert estimate["target_type"] == "aruco_23"
+    assert len(estimate["position"]) == 3
+    assert len(estimate["orientation"]) == 4
+    # provenance echo(§7.3) — nominal.yaml 그대로 반영됐는지(하드코딩 아님)
+    assert estimate["calib_accuracy"] == "unverified"
+    assert estimate["not_for_closed_loop_30cm"] is True
+    assert estimate["calib_id"].endswith("nominal.yaml")
+
+
+def test_no_aruco_marker_frame_has_no_target_estimate_and_does_not_crash(tmp_path, monkeypatch):
+    """§Phase4 요구: ArUco 마커가 없는 프레임은 크래시 없이 target_estimate가 없어야 한다."""
+    img_path = _write_image(tmp_path)  # 마커 없는 단색 이미지
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "vision.main", img_path,
+            "--preset", _VERTIPORT_FINE_PRESET,
+            "--log-dir", str(log_dir), "--log-name", "noarucorun",
+        ],
+    )
+    main_mod.main()  # 크래시 없이 끝나야 함
+
+    records = [json.loads(l) for l in (log_dir / "noarucorun.jsonl").read_text().splitlines()]
+    assert len(records) == 1
+    assert records[0]["chosen"] is None
+
+
+def test_missing_calib_file_logs_warning_and_still_runs(tmp_path, monkeypatch):
+    """calib 파일이 없어도(--calib 오지정) 파이프라인 전체가 죽지 않고 target_estimate만 생략."""
+    img_path = _write_aruco_image(tmp_path)
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "vision.main", img_path,
+            "--preset", _VERTIPORT_FINE_PRESET,
+            "--calib", str(tmp_path / "does_not_exist.yaml"),
+            "--log-dir", str(log_dir), "--log-name", "nocalibrun",
+        ],
+    )
+    main_mod.main()
+
+    records = [json.loads(l) for l in (log_dir / "nocalibrun.jsonl").read_text().splitlines()]
+    assert len(records) == 1
+    assert records[0]["chosen"] is None
+
+    log_text = (log_dir / "nocalibrun.log").read_text()
+    assert "캘리브레이션 로드 실패" in log_text

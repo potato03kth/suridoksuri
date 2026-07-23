@@ -28,11 +28,14 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 import cv2
 
 from vision.core.runner import Pipeline
+from vision.core.target import solve_target_pose
 from vision.utils.blackbox import BlackBoxLogger
+from vision.utils.calibration_loader import CameraCalibration, load_camera_calibration
 from vision.utils.image_loader import load_image
 from vision.utils.logging import log_provenance_header, setup_dual_sink_logger
 from vision.utils.stream import MjpegStreamer
@@ -41,6 +44,8 @@ from vision.utils.visualize import save_result, draw_detections
 
 _VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv"}
 _WINDOW_NAME = "Landing Zone Detector"
+# ArUco Phase 4(docs/vision_aruco_branch.md) — 기본 카메라 캘리브레이션. --calib로 override 가능.
+_DEFAULT_CALIB_PATH = str(Path(__file__).parent / "calibration" / "cam109-imx708af75" / "nominal.yaml")
 
 
 def _show_window(annotated, *, wait: int) -> bool:
@@ -71,6 +76,58 @@ def _detections_to_list(detections) -> list[dict]:
     return [{"bbox": list(d.bbox), "confidence": d.confidence} for d in detections]
 
 
+def _find_aruco_detection(detections):
+    """ArUco Phase 4 — state.detections에서 코너를 가진 확정 ArUco 검출을 찾는다.
+    modules/aruco.py는 ID 화이트리스트를 통과한 것만 detections에 넣으므로(meta["aruco_id"]
+    존재) 첫 항목을 그대로 쓴다(단일 타겟 전제, §1 확정 — 다중 타겟 대비 금지)."""
+    for d in detections:
+        if d.corners is not None and d.meta.get("aruco_id") is not None:
+            return d
+    return None
+
+
+def _target_estimate_to_dict(estimate) -> dict:
+    return {
+        "position": list(estimate.position),
+        "orientation": list(estimate.orientation),
+        "confidence": estimate.confidence,
+        "target_type": estimate.target_type,
+        "calib_accuracy": estimate.calib_accuracy,
+        "not_for_closed_loop_30cm": estimate.not_for_closed_loop_30cm,
+        "calib_id": estimate.calib_id,
+    }
+
+
+def _solve_aruco_chosen(
+    state, calib: Optional[CameraCalibration], frame_id: int, ts: float, logger,
+) -> Optional[dict]:
+    """확정 ArUco 검출 + 로드된 calib이 둘 다 있을 때만 solvePnP를 시도한다(§Phase4 전제 —
+    코너 없으면 solvePnP 자체가 실패하므로 매 프레임 무조건 시도하지 않음). 마커가 없거나
+    calib 미로드거나 solvePnP가 수렴하지 않아도 크래시 없이 None을 돌려준다."""
+    if calib is None:
+        return None
+    det = _find_aruco_detection(state.detections)
+    if det is None:
+        return None
+    try:
+        estimate = solve_target_pose(
+            image_points=det.corners,
+            camera_matrix=calib.camera_matrix,
+            dist_coeffs=calib.dist_coeffs,
+            target_type=f"aruco_{det.meta['aruco_id']}",
+            frame_id=frame_id,
+            timestamp=ts,
+            confidence=det.confidence,
+            calib_accuracy=calib.accuracy,
+            not_for_closed_loop_30cm=calib.not_for_closed_loop_30cm,
+            calib_id=calib.calib_id,
+        )
+    except ValueError as e:
+        logger.warning("frame %d: ArUco solvePnP 실패 — TargetEstimate 생략: %s", frame_id, e)
+        return None
+    return {"target_estimate": _target_estimate_to_dict(estimate)}
+
+
 def _run_image(
     pipeline: Pipeline,
     input_path: Path,
@@ -79,11 +136,13 @@ def _run_image(
     logger,
     blackbox: BlackBoxLogger,
     streamer: MjpegStreamer | None = None,
+    calib: Optional[CameraCalibration] = None,
 ) -> None:
     image = load_image(str(input_path))
     t0 = time.perf_counter()
     state = pipeline.run(image)
     latency = time.perf_counter() - t0
+    ts = time.time()
 
     print(f"Detections: {len(state.detections)}")
     for i, d in enumerate(state.detections):
@@ -91,15 +150,20 @@ def _run_image(
     if state.confirmed:
         print(f"Confirmed: bbox={state.confirmed.bbox}")
 
+    chosen = _confirmed_to_dict(state.confirmed)
+    aruco_chosen = _solve_aruco_chosen(state, calib, 0, ts, logger)
+    if aruco_chosen is not None:
+        chosen = {**(chosen or {}), **aruco_chosen}
+
     logger.info(
         "image %s: %d detections, confirmed=%s, latency=%.4fs",
         input_path.name, len(state.detections), state.confirmed is not None, latency,
     )
     blackbox.log_frame(
         frame_id=0,
-        ts=time.time(),
+        ts=ts,
         detections=_detections_to_list(state.detections),
-        chosen=_confirmed_to_dict(state.confirmed),
+        chosen=chosen,
         latency=latency,
     )
 
@@ -124,6 +188,7 @@ def _run_video(
     logger,
     blackbox: BlackBoxLogger,
     streamer: MjpegStreamer | None = None,
+    calib: Optional[CameraCalibration] = None,
 ) -> None:
     from vision.utils.video_reader import VideoReader
 
@@ -134,13 +199,19 @@ def _run_video(
             t0 = time.perf_counter()
             state = pipeline.run(frame)
             latency = time.perf_counter() - t0
+            ts = time.time()
             annotated = draw_detections(state.original, state.detections, state.confirmed)
+
+            chosen = _confirmed_to_dict(state.confirmed)
+            aruco_chosen = _solve_aruco_chosen(state, calib, frame_count, ts, logger)
+            if aruco_chosen is not None:
+                chosen = {**(chosen or {}), **aruco_chosen}
 
             blackbox.log_frame(
                 frame_id=frame_count,
-                ts=time.time(),
+                ts=ts,
                 detections=_detections_to_list(state.detections),
-                chosen=_confirmed_to_dict(state.confirmed),
+                chosen=chosen,
                 latency=latency,
             )
             logger.debug(
@@ -198,6 +269,13 @@ def main() -> None:
         help="이중싱크 사람로그(.log)+JSONL 블랙박스 출력 디렉터리 (§7.4/§7.9)",
     )
     parser.add_argument("--log-name", default="vision", help="로그 파일 basename")
+    parser.add_argument(
+        "--calib",
+        default=_DEFAULT_CALIB_PATH,
+        help="ArUco TargetEstimate 계산용 카메라 캘리브레이션 yaml (기본: nominal.yaml, "
+             "docs/vision_aruco_branch.md Phase 4). 프리셋에 aruco_detector가 없으면 로드만 "
+             "되고 쓰이지 않는다.",
+    )
     args = parser.parse_args()
 
     if args.display == "file" and not args.output:
@@ -218,6 +296,16 @@ def main() -> None:
     )
     blackbox = BlackBoxLogger(args.log_dir, name=args.log_name)
 
+    # ArUco Phase 4 — calib은 매 프레임이 아니라 여기서 1회만 로드해 재사용한다(§7.1 config
+    # 레이어드, 파일 I/O 낭비 방지). 프리셋이 aruco_detector를 안 쓰면 로드 결과는 그냥 안 쓰인다.
+    # 파일이 없어도(nominal.yaml 미준비 환경 등) 전체 파이프라인을 죽이지 않고 경고만 남긴다 —
+    # ArUco와 무관한 프리셋(버티포트/조난자 coarse 등) 실행까지 이 로드 실패로 막으면 안 된다.
+    calib: Optional[CameraCalibration] = None
+    try:
+        calib = load_camera_calibration(args.calib)
+    except FileNotFoundError as e:
+        logger.warning("캘리브레이션 로드 실패(%s) — ArUco TargetEstimate 계산 생략: %s", args.calib, e)
+
     streamer = None
     try:
         if args.display == "stream":
@@ -227,9 +315,9 @@ def main() -> None:
             print(f"라이브 스트림: {streamer.url}")
 
         if input_path.suffix.lower() in _VIDEO_SUFFIXES:
-            _run_video(pipeline, input_path, args.output, args.display, logger, blackbox, streamer)
+            _run_video(pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib)
         else:
-            _run_image(pipeline, input_path, args.output, args.display, logger, blackbox, streamer)
+            _run_image(pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib)
     finally:
         blackbox.close()
         if streamer is not None:
