@@ -2,7 +2,7 @@
 doc_type: session_status
 project: suridoksuri-1
 scope: vision 세션 유일 진입점 — 트랙 보드 + 설계 포인터
-last_updated: 2026-07-22e
+last_updated: 2026-07-24
 ---
 
 # vision 세션 진입 상태 문서
@@ -21,12 +21,13 @@ last_updated: 2026-07-22e
 - **설계 정본:** `docs/vision_plan.md` — 확정 결정·물리 제약·검출 전략·변경내성/관측성·빌드 순서·블라인드스팟. **이 문서는 라이브 진척만** 담는다.
 - **대회 규정(2026-07-21 대부분 확정, 2026-07-22 초록구역 실측 스펙 추가확정):** ArUco=`DICT_4X4_50` ID23 **50cm×50cm**(원래 계획 가정과 일치 확인) · 버티포트 하기안전구역(빨간 원)=직경2m·선굵기5cm 고리 신규확정 · **②초록색/치수는 실측 확정: 3.0m×3.0m×0.105m 라이즈드 플랫폼**(버티포트와 동일 3m 풋프린트, §4.1 GSD "3m 피처" 컬럼 재사용) · ③빨간십자만 여전히 **비공개로 확정**(버티포트 유사크기+안전마진 가정) · 성공판정="매끄럽게 보이면"(정성) 확정 · ④단순착륙=GPS+라이다만 확정 · CC 인터페이스·나무조각상 판단기준만 여전히 대기 → 상세 `vision_plan.md` §10.
 - **⚠️ 빠께스(소형 단일물체) 탐색 트랙은 연기됨(2026-07-22 정정, 메모리 `project_vision_2nd_qualifier_bucket_target.md` "[2026-07-22 정정]" 절 참조):** 2026-07-21에 "2차예선까지 빠께스 탐색이 우선"이라는 방향전환이 있었으나 **하루 만에 정정** — vision 파트(초록구역 포함 기존 트랙 전체)를 먼저 완료하고, 그 뒤에 빠께스 기반 창의적 탐색설계에 착수하는 것으로 우선순위가 원래대로 되돌아갔다. **다음 vision 세션은 빠께스 트랙에 들어가지 말고 아래 트랙 보드(정밀착륙, 초록구역/버티포트)를 그대로 이어간다.**
+- **🔴 [2026-07-24 결정] 실측 카메라 캘리브레이션(체커보드 촬영)을 2차예선 마감임박으로 보류한다.** 촬영 1장에 ~8분급(잠금 24초+판정 8.4초+자세조정)·세팅에만 1시간·전체 85장 필요 — 남은 시간으로 불가능(사용자 결정). **아래 트랙 보드의 "직전 완료"·"인수인계" 캘리브레이션 관련 기록은 역사 기록으로 남기되, 계획 판단에는 더 이상 쓰지 않는다** — 표본 5장(A/0.5m)으로 얻은 부분 수치(LensPosition≈2×디옵터 추정 등)는 근거가 약해 무시. `calib_capture.py`/`calib_analyze.py`는 동결(폐기 아님, 예선 후 재개 시 진단된 결함 A/B부터 수정). **캘리브레이션이 실제로 막고 있던 건 `vision_plan.md` §9 빌드순서 1번뿐**이었음이 확인됨 — 코드 레벨에서 캘리브레이션 파일을 읽는 곳이 아직 없어(ArUco/solvePnP 모듈 자체가 미착수) 순수 계획 순서 문제였다. §9를 nominal(데이터시트/실측 HFOV 근사) intrinsics로 1~7번을 진행하고 실측은 8번(폐루프 30cm 검증) 직전으로 미루도록 재배치했다 — 상세는 `docs/vision_plan.md` §9. **다음 vision 세션은 아래 "다음" 목록(캘리브레이션 촬영 재개 아님)을 따른다.**
 
 ---
 
 ## 트랙 보드
 
-### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. 다음은 Phase 3 영상 또는 체커보드 촬영)
+### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. **2026-07-24: 체커보드 캘리브레이션은 보류, 다음은 nominal intrinsics → ArUco 브랜치 착수(아래 "다음" 목록)**)
 
 - **직전 완료(2026-07-23, 오케스트레이터 세션 — RPi 실기체):** **libcamera 로컬 소스빌드로 정공법 브링업 성공.** 지난 6세션의 V4L2 raw 우회(AF/AE/AWB 전무)를 대체할 정식 경로가 열렸다. 상세·재현법은 `docs/vision_camera_bringup.md`(요약 절), 근본원인·명령모음은 메모리 `project_rpi5_ubuntu_camera_stack.md`. 요점:
   - **근본원인 해소:** Ubuntu `libcamera-ipa` 패키지에 RPi5용 `ipa_rpi_pisp.so`가 없던 것 → `raspberrypi/libcamera` v0.7.1+rpt20260609을 `/home/suri/local-libcamera` prefix에 소스빌드. **시스템 패키지(0.2.0) 무손상**(soname 0.7 vs 0.2로 섞이지 않음), `config.txt` 무접촉.
@@ -113,9 +114,20 @@ last_updated: 2026-07-22e
   - `vision/CLAUDE.md`: 파일역할표에 `presets/distress_coarse.yaml`·`tests/golden/` 행, 테스트 규칙표에 골든 회귀 행, 공통규칙 4번의 "골든셋 회귀는 데이터 수집 후" 문구를 "합성 데이터로 스캐폴드 시작됨" 으로 갱신
   - `pytest vision/tests/` **106 passed**(기존 91 + 신규 15)
 - **✅ 카메라 V4L2 raw 브링업 완료(2026-07-22b) — 남은 건 체커보드 실촬영 캘리브레이션.** libcamera PiSP IPA 결여 문제는 libcamera를 완전히 우회(V4L2 raw 직접 캡처)해 해결됨. `rpi_capture.py`로 실제 촬영까지 검증 완료(상세는 위 2026-07-22b 항목). 카메라 인트린식/왜곡 캘리브레이션(체커보드 실촬영)은 다음 세션으로 넘김 — 무리하게 같은 세션에서 확장하지 않기로 결정(작은 단위로 끊어 넘기는 편이 안전).
-- **다음 (진입하면 이 순서):**
-  1. **체커보드 캘리브레이션 촬영 — 사용자가 지금 막혀있던 바로 그 작업, 최우선.** 먼저 그 촬영 거리(40cm/210cm 등)에서 `--focus-sweep`로 해당 거리의 실제 최적 focus_absolute를 확인(이번 세션은 배경(~1.5~2m)에서만 피크를 실측했고 40cm급 근접은 원격 세션이라 확인 못 함 — 사용법은 `vision/CLAUDE.md` "rpi_capture.py 수동 초점/노출/게인 제어" 절 "다음 캘리브레이션 촬영 가이드" 참조). 그 값으로 HTTP 미리보기 페이지 또는 `--focus`/`--exposure`/`--gain` CLI로 실제 캘리브레이션 사진들을 촬영 → OpenCV `calibrateCamera`로 인트린식/왜곡계수 산출. 저장 포맷·활용처는 `vision_plan.md` 캘리브레이션 관련 절 확인 후 착수.
-  2. `LiveFrameSource`(`vision/utils/frame_source.py`)를 V4L2 raw+수동 디베이어 경로에 맞는 어댑터로 재구현 — 2026-07-22b에 `cv2.VideoCapture` 기반 현재 구현이 이 경로와 호환되지 않음을 실측 확인함(아래 "주의" 참조). `configure_pipeline()`/`capture_frame_bgr()`(`vision/tools/rpi_capture.py`)를 재사용하는 방향 추천. **백로그 순번은 그대로 유지 — 이번 세션(2026-07-22e)도 캘리브레이션 전제조건(초점/노출) 수정에 집중했을 뿐 이 순번을 밀어내지 않음.**
-  3. 골든셋을 실촬영 데이터로 교체 — 절차는 `vision/tests/golden/README.md` "실기체 데이터가 들어오면" 참조. 이때 40m 티어의 `known_limitation` 두 건도 실측 재검증. `MjpegStreamer`도 실제 RPi 네트워크 환경에서 브라우저 접속 실측 필요(1·2번과 별개로 여전히 미검증)
+- **다음 (진입하면 이 순서, 2026-07-24 캘리브레이션 보류 결정으로 재배치됨 — 근거는 위 "🔴 [2026-07-24 결정]" 항목·`vision_plan.md` §9):**
+  1. **nominal intrinsics 산출.** 체커보드 촬영 없이 실측 HFOV(75°)로 `fx=(W/2)/tan(HFOV_h/2)`,
+     `fy=fx`, `cx=W/2, cy=H/2`, `distCoeffs=0` 계산 → `vision/calibration/<camera_id>/nominal.yaml`.
+     `accuracy: unverified`/`not_for_closed_loop_30cm: true` 명시. HFOV 대각/수평 불일치 문제
+     (`docs/vision_camera_bringup.md` "미해결로 남긴 판단" 절)는 가정을 yaml에 기록해두고 실측
+     때 검정.
+  2. **ArUco 브랜치 착수** — `cv2.aruco` 디코드 + solvePnP(1번의 nominal intrinsics 사용) →
+     `TargetEstimate` 출력 계약. pose는 "근사치/미검증" 플래그를 달고 흐른다. `vision_plan.md` §9
+     4번 참조.
+  3. `LiveFrameSource`(`vision/utils/frame_source.py`)를 libcamera/picamera2 백엔드로 재구현 —
+     2026-07-23 libcamera 정공법 브링업 성공(`docs/vision_camera_bringup.md` Phase 1·2 완료)으로
+     기존 V4L2 raw 우회(`rpi_capture.py`)는 폐기 대상 전환됐다. Phase 4 참조, 캘리브레이션과
+     무관하게 진행 가능.
+  4. 골든셋을 실촬영 데이터로 교체 — 절차는 `vision/tests/golden/README.md` "실기체 데이터가 들어오면" 참조. 이때 40m 티어의 `known_limitation` 두 건도 실측 재검증. `MjpegStreamer`도 실제 RPi 네트워크 환경에서 브라우저 접속 실측 필요.
+  - **체커보드 실측 캘리브레이션 재개는 이 목록에 없다 — 예선 통과 후, §9 8번(폐루프 30cm 검증) 진입 직전에 별도로 재개한다.**
 - **주의:** **초점/노출/게인이 이제 수동 제어 가능(2026-07-22e, `--focus`/`--exposure`/`--gain`/`--focus-sweep`)** — 하지만 실측한 좋은 값(exposure=2400~2602, gain=800~900, focus=540~600)은 **이번 세션 저녁 실내조도·카메라-배경 거리(~1.5~2m) 기준일 뿐 고정값이 아니다.** 주변광이 바뀌면(세션 내에서도 mean이 60~207 사이를 오갔음) exposure/gain을 다시 맞춰야 하고, 촬영 거리가 바뀌면(40cm ↔ 210cm 등) focus 최적값도 달라질 가능성이 높아(메커니즘은 실측으로 증명됨, 정량값은 거리마다 다름) 매번 `--focus-sweep`을 다시 돌려야 한다 · **`rpi_capture.py`의 `_MEDIA_DEVICE` 하드코딩 버그는 2026-07-22d에 동적 탐색(`_find_cfe_media_device()`)으로 수정 완료** — media 디바이스 번호(`/dev/mediaN`)가 부팅마다 바뀌는 게 실측으로 재확인된 현상이라 앞으로도 코드에서 이 번호를 다시 하드코딩하지 말 것(근거는 `vision/CLAUDE.md` "media 디바이스 동적 탐색" 절). `_VIDEO_DEVICE`/`_CSI2_SUBDEV`/`_SENSOR_SUBDEV`(video0/subdev0/subdev2)는 이번에도 안정적으로 재현돼 하드코딩 유지 중이나, 언젠가 이것도 흔들리는 게 관측되면 같은 패턴으로 동적화 검토 · Pi4 인코더/라이다 40m급 미확정 · 기존 `vision/` 틀은 폐기 아님(§12) · `geo_project.pixel_to_gps` 폐기 예정 · **버티포트 V 형상매칭은 실물 규격 미확인 상태의 합성테스트로만 검증됨** — 실기체 데이터 확보 후 `BlackVMatcher` 참조 V 템플릿(두께/종횡비)·`max_match_distance` 재검증 필요 · **카메라 화각이 계획서 가정(102°)과 다름(75°) — coarse 캐스케이드 탐지거리 가정 재검토 여지 있음. §4.1 GSD 표 자체(버티포트 기준, 102°)는 재검증 대기라 `vertiport` 골든셋 고도 라벨은 여전히 스키마 자리표시자다(§7.9 항목7 완료 노트 참조). 단 `distress` 골든셋은 2026-07-22a에 실측 화각 75°로 직접 재계산한 값으로 교체됐음 — 더 이상 placeholder 아님(vision_plan.md §5.3, vision/CLAUDE.md 참조)** · **`LiveFrameSource`는 2026-07-22b 실장치 테스트로 현재 구현이 V4L2 raw 경로와 비호환임이 확인됨**(`cv2.VideoCapture`가 `isOpened()`는 성공하지만 `read()`가 실패 — pRAA 10비트 패킹 베이어 fourcc를 OpenCV V4L2 백엔드가 못 다루는 것으로 추정) — 위 "다음" 2번 참조, 어댑터 재구현 필요 · `MjpegStreamer`(§7.9 항목5)는 로컬(WSL) HTTP 왕복만 검증됨, 실제 RPi↔랩탑 네트워크 환경(대역폭/지연/Wi-Fi 끊김 — `project_rpi5_tailscale_wifi_drops.md` 참조)에서의 실측은 아직 미검증(다음 기회에) · **`jsonl_view.py`의 state 서브플롯은 실기체 데이터 없음** — main.py/replay.py가 아직 `state`를 채우지 않아(§5.1 상태머신 미구현) 실사용 시엔 항상 "no state data" 안내만 뜬다. 상태머신 연결되면 자동으로 실데이터가 나타남(코드 변경 불필요, 이미 대응돼 있음) · **골든셋(`tests/golden/`)은 전부 합성 데이터** — 실기체 데이터 확보 후 교체 필요(§7.9 항목7 완료 노트) · **`vertiport_coarse.yaml`의 고정 `kernel_size=5` morphology가 저해상(작은 픽셀) 스케일에서 흰 필드 연결성을 깨는 스케일 민감성이 골든셋으로 새로 드러남** — 검출기 튜닝은 이번 세션 범위 밖, 실기체 데이터/저고도 재검증 필요 · 세부 정정 이력·논의는 `docs/session_log.md` 참조
 - **참조:** `docs/vision_plan.md` §2(타겟 스펙)/§5.2(버티포트 coarse 캐스케이드)/§5.5(색 항상성)/§7.5(기록·재생)/§7.9(관측성 워크플로) · `vision/CLAUDE.md`(파일역할표·테스트 규칙표) · 메모리 `project_rpi5_ubuntu_camera_stack.md`(카메라 브링업 전체 경과·진단명령·재현법)
