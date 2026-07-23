@@ -1,8 +1,9 @@
 ---
 doc_type: orchestrator_brief
 scope: RPi5 카메라 정공법 브링업 — libcamera 부활 → picamera2 검증 → ffmpeg 영상
-status: 착수 대기 (오케스트레이터 세션이 이 문서로 진입)
+status: Phase 1·2 완료 (2026-07-23). Phase 3(영상)·4(통합/폐기) 남음
 created: 2026-07-23
+last_updated: 2026-07-23
 ---
 
 # 카메라 브링업 오케스트레이터 브리프
@@ -10,6 +11,68 @@ created: 2026-07-23
 > **다음 세션 진입:** "너는 오케스트레이터이다"로 시작하고 이 문서 하나만 읽으면 된다.
 > `docs/vision_status.md`(트랙 보드)·`docs/vision_plan.md`는 필요 섹션만 열되, 이 작업의 지시는 여기에 자기완결적으로 있다.
 > 프로토콜은 메모리 `feedback_orchestrator_protocol` 준수 — **각 Phase는 fg가 아니면 bg, 세션 자기보고는 직접 재현 검증 필수, 진행상황 확인 없이 한 프롬프트로 몰아던지지 말 것.**
+
+---
+
+## ✅ 결과 요약 (2026-07-23 세션) — 정공법 성공
+
+**전제가 맞았다.** Ubuntu 패키징 누락이 유일한 병목이었고, 로컬 소스빌드로 해소됐다.
+libcamera가 카메라를 인식하고 AF/AE/AWB가 실측으로 동작한다. **우회책(V4L2 raw + 수동
+디베이어 + gray-world + 수동 초점스윕)은 이제 폐기 대상이다** — 단 Phase 4는 아직 미착수.
+
+| Phase | 결과 |
+|---|---|
+| 1a meson setup | ✅ `rpi/pisp` pipeline·IPA 양쪽 enabled, pycamera enabled |
+| 1b/1c 빌드 | ✅ 274/274, **`ipa_rpi_pisp.so` 생성** |
+| 1d 카메라 열거 | ✅ `cam --list`·Python 양쪽에서 imx708 인식 |
+| **1e IPA 서명 수정** | ✅ **아래 "최대 함정" 참조 — 이게 없었으면 전부 무의미했다** |
+| 2 6기능 실측 | ✅ 5 WORKS / 1 PARTIAL (④ AF윈도우는 장면 한계) |
+| 1f release+설치 | ✅ `-O3` 재빌드 후 로컬 prefix 설치, `env.sh` 확정 |
+
+### ⚠️ 최대 함정 — IPA 서명이 없으면 격리실행 → 수동 컨트롤 전부 FATAL
+
+meson이 crypto를 못 찾으면 `IPA modules signed with : None (modules will run isolated)`이
+되고, libcamera는 서명 없는 IPA를 **별도 프로세스로 격리** 실행한다. 그런데 라즈베리파이
+IPA는 V4L2 `ControlList`를 IPC 경계 너머로 넘겨야 해서 직렬화기가 죽는다:
+
+```
+FATAL Serializer control_serializer.cpp:626 A list of V4L2 controls requires a ControlInfoMap
+```
+
+**기본상태 캡처는 IPC를 안 타서 멀쩡하다.** 그래서 1d·2a 검증을 그대로 통과해버렸고,
+Phase 2에서 "6기능 전부 FAILS"라는 잘못된 결론까지 나왔다가 뒤집혔다.
+**해법:** `sudo apt install libssl-dev` → 재설정 시 `IPA modules signed with : libcrypto`
+→ 재빌드. 성공하면 런타임 로그에서 `Public key not valid` 경고와 `Starting worker for IPA
+module ... IPC fd` 줄이 **둘 다 사라진다**(= in-process 로드). **`libgnutls28-dev`는 쓰지 말 것**
+— nettle/gmp 버전포켓 충돌로 설치 불가.
+
+### 확정된 사용법
+
+```bash
+source /home/suri/local-libcamera/env.sh   # 이거 하나면 끝
+cam --list                                  # → 1: External camera 'imx708'
+$PICAM_PYTHON your_script.py                # picamera2는 별도 venv
+```
+
+### 실측으로 확정된 하드웨어 사실
+
+- **VCM 실가동범위는 0~15.0 디옵터.** 드라이버는 32.0까지 광고하지만 15.0에서 하드 클램프
+  (40프레임 유지 확인). 서드파티 클론이라 정품 CM3와 다름 — **초점 코드에서 32를 상한으로 쓰지 말 것.**
+- 컨트롤 적용에 **4~6프레임** 걸린다. 값은 하드웨어 양자화됨(노출 8000→7993, 게인 1.0→1.123=1024/912).
+  **최소 20프레임 창으로 측정하고, 정확히 일치하는지로 판정하지 말 것** — 5프레임 창으로 측정해
+  "게인이 안 변한다"고 오판한 사고가 실제로 있었다.
+
+### 남은 확인거리 (정직하게)
+
+- **release 빌드에서 연속 AF의 `Focused` 도달은 재확인 못 했다.** debug 빌드에선 확인됨
+  (119프레임/6.04초에 lens 5.563 수렴, lapvar 2.02→4.90). release 검증 시점엔 장면 조도가
+  178→91 Lux로 떨어지고 텍스처가 사라져 스윕 전체가 평평(피크비 1.3~1.4배)했고, AF는 피크
+  구간(11.50)에 도달했으나 `Failed`를 반환했다 — 신뢰도 임계 미달로 **알고리즘적으로 올바른
+  거동**이다. 렌즈 위치제어 자체는 0~15 전 구간 정확. **체커보드 촬영 때 텍스처 있는 장면에서
+  재확인할 것.**
+- ④ AF 윈도우: 두 윈도우 수렴값이 5.637 vs 5.570으로 0.067 차이 — 원격이라 사람이 물체를 다른
+  거리에 못 놓아 깊이 분리 자체가 불가능했다. 메커니즘(윈도우별 독립 재스캔)은 확인됨.
+  **현장에 사람이 있는 촬영 세션에서 자연히 해소된다.**
 
 ---
 
@@ -30,18 +93,18 @@ created: 2026-07-23
 
 ## 2. Phase별 실행 (각 Phase 끝에 보고 게이트)
 
-### Phase 1 — libcamera 부활 (핵심, 성패 결정)
+### Phase 1 — libcamera 부활 (핵심, 성패 결정) — ✅ **완료 2026-07-23** (아래는 당시 지시 원문)
 - **1a.** `/home/suri/local-libcamera-src/libcamera`에서 meson 옵션에 pisp 파이프라인/IPA가 켜지는지 확인 후 `meson setup build --prefix=/home/suri/local-libcamera` (필요시 `-Dpipelines=rpi/pisp -Dipas=rpi/pisp`). **→ 여기까지만 하고 보고.**
 - **1b.** `ninja -C build`. RPi5라 시간 걸릴 수 있으나 로컬 빌드라 네트워크 무관(과거 apt 지연은 네트워크 탓, 빌드엔 무관). **→ 보고.**
 - **1c.** 산출물에 **`ipa_rpi_pisp.so` 존재 확인** — 나오면 사실상 승리.
 - **1d.** 환경변수(`LIBCAMERA_IPA_MODULE_PATH`/`LD_LIBRARY_PATH`/`PYTHONPATH`)로 로컬 빌드를 가리켜 `CameraManager.singleton().cameras`가 **빈 리스트가 아닌지** 확인. **→ 보고.**
 - ⚠️ **1d까지 실패 시 후퇴선:** Bookworm A/B SD카드(빈 카드 굽고 `rpicam-hello` 10분 판정). 이주 아님, "카메라 진짜 되나"만 확인. SD가 부트순서 1순위라(BOOT_ORDER=0xf461, 실측) 카드만 꽂으면 Bookworm 부팅, 빼면 기존 Ubuntu USB 복귀 — 기존 시스템 무손상.
 
-### Phase 2 — picamera2로 6기능 실측 검증
+### Phase 2 — picamera2로 6기능 실측 검증 — ✅ **완료 2026-07-23** (5 WORKS / 1 PARTIAL, 위 요약 참조)
 libcamera 살면 picamera2 설치 후 각각 **직접 재현 검증**(pseudo 금지):
 ① 초점 목표값 1초내 반영 ② 진짜 연속 AF ③ AF↔MF 전환 ④ **AF 윈도우(영역) 지정** ⑤ AE 자동/수동 전환 ⑥ AWB 자동/수동 전환. 되면 지난 세션의 수동 스윕·gray-world·정착시간 조사가 전부 불필요해짐.
 
-### Phase 3 — ffmpeg 영상 (디버깅 + 다운링크 통합)
+### Phase 3 — ffmpeg 영상 (디버깅 + 다운링크 통합) — ▶ **다음 차례**
 - `rpicam-vid`/`libcamera-vid` → **연속 H.264** → 랩탑 `ffplay`/`mpv`(브라우저 아님, 저지연 UDP/RTSP). 이게 디버깅 주경로.
 - **같은 H.264 인코드를 RTL8812AU 다운링크와 공유** — 계획서 §7.7 EncoderSink 스왑 어댑터가 원래 의도한 구조. 인코드 경로 하나로 디버깅+대회 다운링크 동시 충족.
 - MJPEG-over-HTTP(`utils/stream.py`)는 이 시점에 폐기 후보로 전환.

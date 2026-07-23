@@ -26,7 +26,17 @@ last_updated: 2026-07-22e
 
 ## 트랙 보드
 
-### 👁 vision-정밀착륙 — ▶ 활성 (수동 초점/노출/게인 제어 추가 완료 — 2026-07-22e. 사용자가 지금 막혀있던 체커보드 캘리브레이션 촬영이 즉시 다음 행동 — 아래 "다음" 1번. 백로그 상 다음 순번은 여전히 `LiveFrameSource` V4L2 어댑터 재구현)
+### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. 다음은 Phase 3 영상 또는 체커보드 촬영)
+
+- **직전 완료(2026-07-23, 오케스트레이터 세션 — RPi 실기체):** **libcamera 로컬 소스빌드로 정공법 브링업 성공.** 지난 6세션의 V4L2 raw 우회(AF/AE/AWB 전무)를 대체할 정식 경로가 열렸다. 상세·재현법은 `docs/vision_camera_bringup.md`(요약 절), 근본원인·명령모음은 메모리 `project_rpi5_ubuntu_camera_stack.md`. 요점:
+  - **근본원인 해소:** Ubuntu `libcamera-ipa` 패키지에 RPi5용 `ipa_rpi_pisp.so`가 없던 것 → `raspberrypi/libcamera` v0.7.1+rpt20260609을 `/home/suri/local-libcamera` prefix에 소스빌드. **시스템 패키지(0.2.0) 무손상**(soname 0.7 vs 0.2로 섞이지 않음), `config.txt` 무접촉.
+  - **최대 함정 — IPA 서명:** crypto 없이 빌드하면 IPA가 격리 실행되고, RPi IPA는 V4L2 ControlList를 IPC로 못 넘겨 **수동 컨트롤마다 `FATAL Serializer control_serializer.cpp:626`**으로 죽는다. 기본 캡처는 IPC를 안 타 멀쩡해서 검증을 통과해버린다(실제로 "6기능 전부 FAILS" 오결론이 났다가 뒤집힘). `libssl-dev` 설치 → 재빌드로 해소.
+  - **6기능 실측:** ①초점 목표값(0.20~0.56초 안착) ②연속 AF(조대→반전→미세탐색→락, 6.04초 수렴) ③AF↔MF 양방향 ⑤AE 자동↔수동 ⑥AWB 자동↔수동 = **WORKS**. ④AF 윈도우는 **PARTIAL**(메커니즘 동작 확인, 원격이라 두 영역을 다른 거리에 못 둬서 분리 증명 불가 — 현장 촬영 시 해소).
+  - **하드웨어 사실:** **VCM 실가동범위 0~15.0 디옵터**(드라이버는 32.0 광고, 15.0에서 하드클램프). 초점 코드에서 32를 상한으로 쓰지 말 것.
+  - **측정 규칙:** 컨트롤 적용에 4~6프레임 소요, 값은 하드웨어 양자화(8000→7993, 게인 1.0→1.123). **최소 20프레임 창**으로 보고 정확 일치로 판정하지 말 것.
+  - **release 빌드 + 로컬 prefix 설치 완료**, `source /home/suri/local-libcamera/env.sh` 한 줄로 사용. picamera2는 별도 venv(`$PICAM_PYTHON`).
+  - **미확인으로 남긴 것:** release 빌드에서 연속 AF `Focused` 도달 재확인(검증 시점 장면 조도 178→91 Lux로 텍스처 소실, 스윕 전체 평평 → AF가 피크구간 도달 후 신뢰도 미달로 `Failed` 반환 = 올바른 거동). 체커보드 촬영 때 재확인.
+
 
 - **내용:** 착륙지점 인식·정밀착륙 시스템(RPi5 온보드). 고전 CV, 타겟별 coarse→fine 2단, 비전 폐루프 <30cm. 설계 정본 `docs/vision_plan.md`.
 - **직전 완료(2026-07-22e, RPi 실카메라 하드웨어 세션 — 체커보드 촬영이 초점 안 맞고 과다 어두운 문제 대응):** 사용자가 40cm/210cm에서 체커보드를 찍었는데 둘 다 흐리고 과다 어두웠던 문제 진단·대응. 원인: V4L2 raw 경로가 libcamera를 완전히 우회해 연속 AF/AE가 없음 — `focus_absolute`가 기본값(480)에서 한 번도 안 움직였고 `exposure`/`analogue_gain`도 방치. 상세:
