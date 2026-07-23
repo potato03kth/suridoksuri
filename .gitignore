@@ -42,3 +42,7 @@ venv/
 /.claude
 vtol_sim_checkpoint1/vtol_sim/tests/test_checkpoint1.py
 /vtol_sim_checkpoint1/vtol_sim/tests/__pycache__
+
+# 대용량 raw 캡처(체커보드 캘리브 등)만 예외로 무시한다 — 그 외 산출물은 커밋한다
+# (CLAUDE.md 공통규칙: 로컬 전용 파일이 고생시킨 이력 → 앵간하면 다 올린다). 파일은 디스크에 보존.
+vision/data/calibration_raw/
