@@ -1069,24 +1069,26 @@ def _preview_loop(session: CalibSession, streamer: MjpegStreamer, interval: floa
 
 
 def _render_page(session: CalibSession, video_host: str, video_port: int) -> str:
+    """조준용 메인 페이지 — **새로고침 없음**(2026-07-23 수정).
+
+    과거 `<meta http-equiv="refresh" content="2">`가 2초마다 문서 전체를 새로 불러와
+    `<img>` MJPEG 연결을 매번 끊고 재연결시켜, 85컷 촬영 내내 조준 중 화면이 계속
+    끊겼다(사용자 실측 불만). 존/샷 번호/직전 촬영 성공·거절(사유)/커버리지 맵은 이미
+    `render_preview_overlay()`가 프레임에 실시간으로 구워 넣으므로 이 페이지의 텍스트는
+    중복이었다 — 그 중복 텍스트(새로고침 없이는 오히려 고정된 채 낡아갈 정보)는 지우고,
+    필요하면 볼 수 있게 별도 `/status` 탭(그 페이지는 영상이 없어 새로고침해도 무해함)으로
+    옮겼다. 버튼(잠금/촬영/이전/건너뛰기/자동촬영 토글)은 그대로 둔다 — 전부 사용자
+    액션이 있을 때만 303 리다이렉트로 자기 자신을 갱신하므로 새로고침 없이도 낡지 않는다.
+    """
     status = session.status_dict()
-    lock_html = "미잠금"
-    if status["lock_ok"] and status["lock_distance_m"] == status["distance_m"]:
-        lv = status["lock_values"]
-        lock_html = f"잠김: lens={lv['lens_position']:.2f} exp={lv['exposure_time']} gain={lv['analogue_gain']:.2f}"
     ac_label = "자동촬영 끄기" if status["auto_capture_enabled"] else "자동촬영 켜기"
     ac_next = 0 if status["auto_capture_enabled"] else 1
     return f"""<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="refresh" content="2">
 <title>캘리브레이션 촬영</title></head>
 <body style="margin:0;background:#111;color:#eee;font-family:sans-serif">
 <img src="http://{video_host}:{video_port}/stream" style="width:100%;display:block;background:#000">
 <div style="padding:10px 14px">
-  <div style="font-size:18px;margin-bottom:4px">[{status['set']}] {status['distance_m']:g}m &middot; 샷 {status['seq']}/{status['total_in_distance']} &middot; 전체 {status['shot_index_overall']+1}/{status['total_shots_overall']} (완료 {status['done_overall']})</div>
-  <div style="margin-bottom:4px">{status['label_ko']}</div>
-  <div style="margin-bottom:8px;color:#9f9">{lock_html}</div>
-  <div style="margin-bottom:8px">커버리지: {status['coverage_fill_fraction']*100:.0f}%</div>
-  {'<div style="margin-bottom:8px;color:#ff8">' + status['last_result'] + '</div>' if status['last_result'] else ''}
+  <div style="margin-bottom:8px;color:#999;font-size:13px">존/샷 번호/직전 촬영 결과/커버리지는 영상 위에 실시간으로 표시됩니다 &middot; <a href="/status" target="_blank" style="color:#9cf">상태 텍스트만 보기(새 탭, 2초마다 자동갱신)</a></div>
 
   <form method="POST" action="/lock" style="margin-bottom:8px">
     <button style="width:100%;padding:14px;font-size:18px" type="submit">이 거리 초점/노출/WB 잠금 시작</button>
@@ -1099,6 +1101,31 @@ def _render_page(session: CalibSession, video_host: str, video_port: int) -> str
     <form method="GET" action="/skip" style="flex:1"><button style="width:100%;padding:12px">건너뛰기</button></form>
     <form method="GET" action="/autocapture?enabled={ac_next}" style="flex:1"><button style="width:100%;padding:12px">{ac_label}</button></form>
   </div>
+</div>
+</body></html>"""
+
+
+def _render_status_page(session: CalibSession) -> str:
+    """`/status` — 영상이 없는 별도 상태 페이지. 여기는 새로고침해도 아무것도 끊기지
+    않으므로(임베드된 `<img>` 스트림이 없음) 2초 자동 새로고침을 그대로 둔다. 두 번째
+    브라우저 탭으로 열어 텍스트로 진행 상황을 보고 싶을 때 쓴다 — 조준 페이지(`/`)
+    자체에는 더 이상 이 텍스트를 넣지 않는다(위 `_render_page` docstring 참조)."""
+    status = session.status_dict()
+    lock_html = "미잠금"
+    if status["lock_ok"] and status["lock_distance_m"] == status["distance_m"]:
+        lv = status["lock_values"]
+        lock_html = f"잠김: lens={lv['lens_position']:.2f} exp={lv['exposure_time']} gain={lv['analogue_gain']:.2f}"
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="2">
+<title>캘리브레이션 상태</title></head>
+<body style="margin:0;background:#111;color:#eee;font-family:sans-serif">
+<div style="padding:14px">
+  <div style="font-size:18px;margin-bottom:4px">[{status['set']}] {status['distance_m']:g}m &middot; 샷 {status['seq']}/{status['total_in_distance']} &middot; 전체 {status['shot_index_overall']+1}/{status['total_shots_overall']} (완료 {status['done_overall']})</div>
+  <div style="margin-bottom:4px">{status['label_ko']}</div>
+  <div style="margin-bottom:8px;color:#9f9">{lock_html}</div>
+  <div style="margin-bottom:8px">커버리지: {status['coverage_fill_fraction']*100:.0f}%</div>
+  {'<div style="margin-bottom:8px;color:#ff8">' + status['last_result'] + '</div>' if status['last_result'] else ''}
+  <div style="margin-top:14px;color:#999;font-size:13px">이 페이지는 영상을 포함하지 않아 2초마다 새로고침돼도 무해합니다. 영상은 <a href="/" style="color:#9cf">촬영 페이지</a>에서.</div>
 </div>
 </body></html>"""
 
@@ -1126,6 +1153,9 @@ class _ControlHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/":
             body = _render_page(self.session, self._video_host(), self.video_port).encode("utf-8")
+            self._send(body, "text/html; charset=utf-8")
+        elif parsed.path == "/status":
+            body = _render_status_page(self.session).encode("utf-8")
             self._send(body, "text/html; charset=utf-8")
         elif parsed.path == "/status.json":
             self._send(json.dumps(self.session.status_dict(), ensure_ascii=False).encode("utf-8"), "application/json")
@@ -1161,7 +1191,7 @@ class _ControlHandler(BaseHTTPRequestHandler):
                 self.session.run_focus_sweep_and_lock()
             except RuntimeError as e:
                 self.session.last_result_text = f"잠금 실패: {e}"
-                self.session.last_result_text_en = "LOCK FAILED - see status text above"
+                self.session.last_result_text_en = "LOCK FAILED - open /status tab for reason"
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()
