@@ -27,8 +27,17 @@ last_updated: 2026-07-24
 
 ## 트랙 보드
 
-### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. **2026-07-24: 체커보드 캘리브레이션은 보류, 다음은 nominal intrinsics → ArUco 브랜치 착수 — 자기완결 브리프 `docs/vision_aruco_branch.md` 준비됨, 다음 오케스트레이터 세션은 그 문서로 진입**)
+### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. **2026-07-24: ArUco 브랜치(Phase 1~4) 완료 — `docs/vision_aruco_branch.md` status를 "완료"로 갱신함. 다음은 아래 "다음" 목록 참조(골든셋 실촬영 교체·`LiveFrameSource` libcamera 재구현)**)
 
+- **✅ ArUco 브랜치 Phase 1~4 완료(2026-07-24, 노트북/WSL 로컬 세션 — 오케스트레이터, 합성 이미지로 전부 검증, RPi 실기체 불필요):** `docs/vision_aruco_branch.md`가 지시한 4개 Phase를 순서대로 완료해 브랜치 종료. `vision_plan.md` §9 4번(ArUco 브랜치 → `TargetEstimate` 출력 계약 확정)이 완결됨. 상세:
+  - **Phase 1 — nominal intrinsics:** `vision/tools/compute_nominal_intrinsics.py` 신설 → `vision/calibration/cam109-imx708af75/nominal.yaml`(HFOV=75°/수평 가정, `accuracy: unverified`/`not_for_closed_loop_30cm: true` 명시).
+  - **Phase 2 — ArUco 디코드:** `vision/modules/aruco.py`의 `ArucoDetector` — `DICT_4X4_50` ID=23 화이트리스트, 다른 ID는 거절 카운트로 로깅.
+  - **Phase 3 — solvePnP + `TargetEstimate`:** `vision/core/target.py`(`TargetEstimate`/`solve_target_pose`/`marker_object_points`/`rotation_matrix_to_quaternion`, 순수 기하·파일 I/O 없음) + `vision/utils/calibration_loader.py`(`load_camera_calibration`, nominal.yaml 로드 어댑터). 좌표계=카메라 광학 프레임, 단위=미터, orientation=quaternion(x,y,z,w), `uncertainty`는 항상 None(자리만), `calib_accuracy`/`not_for_closed_loop_30cm`/`calib_id` provenance echo 확정.
+  - **Phase 4 — 파이프라인 통합(이번 완료 단계):** 신규 preset `vision/presets/vertiport_fine.yaml`(`aruco_detector` 단일 스텝, `vertiport_coarse.yaml`과 완전 독립 실행 — 근거는 `vision/CLAUDE.md` "ArUco Phase 4 파이프라인 배선" 절). `main.py`/`replay.py`에 `--calib`(기본 nominal.yaml, 루프 시작 전 1회 로드) 배선 — 확정 ArUco 검출이 있으면 `solve_target_pose()` 호출 결과를 JSONL `chosen.target_estimate`에 기록(`blackbox.log_frame()` 시그니처는 안 바꿈, 기존 `chosen` 파라미터 재사용). calib 로드 실패/마커 없음 모두 크래시 없이 생략.
+  - **import 규칙 판단:** `modules/`에 신규 pose_estimator 모듈을 만드는 대신 `main.py`/`replay.py` 레벨에서 배선 — `modules/`는 "vision.core만 import" 규칙인데 `solve_target_pose` 호출엔 `utils/calibration_loader`(utils, core 아님) import가 필요해 전례 없는 위반이 되고, `main.py`/`replay.py`는 애초에 "presets+utils+core" 허용이라 위반 없이 자연스러움.
+  - **실측 검증:** `python -m vision.replay <합성 ArUco 프레임 폴더> --preset vision/presets/vertiport_fine.yaml`을 실제로 실행해 JSONL `chosen.target_estimate`에 position/orientation/calib_accuracy="unverified"/not_for_closed_loop_30cm=true/calib_id(nominal.yaml 경로)가 실제로 찍히는 것을 확인.
+  - `pytest vision/tests/` **319 passed**(Phase 3 완료 시점 310 + Phase 4 신규 9: `test_vertiport_fine.py` 3 + `test_main.py` 3 + `test_replay.py` 3).
+  - **다음 vision 세션은 ArUco 브랜치로 복귀하지 않는다(완전 종료)** — 아래 "다음" 목록(골든셋 실촬영 교체·`LiveFrameSource` libcamera 재구현)을 이어간다. offboard/`fc_ros` 연동(정밀착륙 폐루프 유도)은 별도 트랙 — 루트 `CLAUDE.md` "도메인 간 의존 관계" 절에 이미 명시된 향후 예정 항목이며 이번 완료로 그 전제(vision이 상대 pose `TargetEstimate`를 실제로 뱉는다)가 충족됨.
 - **직전 완료(2026-07-23, 오케스트레이터 세션 — RPi 실기체):** **libcamera 로컬 소스빌드로 정공법 브링업 성공.** 지난 6세션의 V4L2 raw 우회(AF/AE/AWB 전무)를 대체할 정식 경로가 열렸다. 상세·재현법은 `docs/vision_camera_bringup.md`(요약 절), 근본원인·명령모음은 메모리 `project_rpi5_ubuntu_camera_stack.md`. 요점:
   - **근본원인 해소:** Ubuntu `libcamera-ipa` 패키지에 RPi5용 `ipa_rpi_pisp.so`가 없던 것 → `raspberrypi/libcamera` v0.7.1+rpt20260609을 `/home/suri/local-libcamera` prefix에 소스빌드. **시스템 패키지(0.2.0) 무손상**(soname 0.7 vs 0.2로 섞이지 않음), `config.txt` 무접촉.
   - **최대 함정 — IPA 서명:** crypto 없이 빌드하면 IPA가 격리 실행되고, RPi IPA는 V4L2 ControlList를 IPC로 못 넘겨 **수동 컨트롤마다 `FATAL Serializer control_serializer.cpp:626`**으로 죽는다. 기본 캡처는 IPC를 안 타 멀쩡해서 검증을 통과해버린다(실제로 "6기능 전부 FAILS" 오결론이 났다가 뒤집힘). `libssl-dev` 설치 → 재빌드로 해소.
@@ -114,20 +123,12 @@ last_updated: 2026-07-24
   - `vision/CLAUDE.md`: 파일역할표에 `presets/distress_coarse.yaml`·`tests/golden/` 행, 테스트 규칙표에 골든 회귀 행, 공통규칙 4번의 "골든셋 회귀는 데이터 수집 후" 문구를 "합성 데이터로 스캐폴드 시작됨" 으로 갱신
   - `pytest vision/tests/` **106 passed**(기존 91 + 신규 15)
 - **✅ 카메라 V4L2 raw 브링업 완료(2026-07-22b) — 남은 건 체커보드 실촬영 캘리브레이션.** libcamera PiSP IPA 결여 문제는 libcamera를 완전히 우회(V4L2 raw 직접 캡처)해 해결됨. `rpi_capture.py`로 실제 촬영까지 검증 완료(상세는 위 2026-07-22b 항목). 카메라 인트린식/왜곡 캘리브레이션(체커보드 실촬영)은 다음 세션으로 넘김 — 무리하게 같은 세션에서 확장하지 않기로 결정(작은 단위로 끊어 넘기는 편이 안전).
-- **다음 (진입하면 이 순서, 2026-07-24 캘리브레이션 보류 결정으로 재배치됨 — 근거는 위 "🔴 [2026-07-24 결정]" 항목·`vision_plan.md` §9). Phase별 자기완결 지시는 `docs/vision_camera_bringup.md`와 같은 패턴으로 `docs/vision_aruco_branch.md`에 준비돼 있다 — 다음 오케스트레이터 세션은 그 문서 하나만 읽고 시작할 것:**
-  1. **nominal intrinsics 산출.** 체커보드 촬영 없이 실측 HFOV(75°)로 `fx=(W/2)/tan(HFOV_h/2)`,
-     `fy=fx`, `cx=W/2, cy=H/2`, `distCoeffs=0` 계산 → `vision/calibration/<camera_id>/nominal.yaml`.
-     `accuracy: unverified`/`not_for_closed_loop_30cm: true` 명시. HFOV 대각/수평 불일치 문제
-     (`docs/vision_camera_bringup.md` "미해결로 남긴 판단" 절)는 가정을 yaml에 기록해두고 실측
-     때 검정.
-  2. **ArUco 브랜치 착수** — `cv2.aruco` 디코드 + solvePnP(1번의 nominal intrinsics 사용) →
-     `TargetEstimate` 출력 계약. pose는 "근사치/미검증" 플래그를 달고 흐른다. `vision_plan.md` §9
-     4번 참조.
-  3. `LiveFrameSource`(`vision/utils/frame_source.py`)를 libcamera/picamera2 백엔드로 재구현 —
+- **다음 (2026-07-24 ArUco 브랜치 Phase 1~4 완료로 갱신 — 위 "✅ ArUco 브랜치 Phase 1~4 완료" 항목 참조). ArUco 브랜치는 완전 종료됐으니 다음 세션은 아래 두 항목(구 3·4번, 번호만 당김)을 이어간다:**
+  1. `LiveFrameSource`(`vision/utils/frame_source.py`)를 libcamera/picamera2 백엔드로 재구현 —
      2026-07-23 libcamera 정공법 브링업 성공(`docs/vision_camera_bringup.md` Phase 1·2 완료)으로
-     기존 V4L2 raw 우회(`rpi_capture.py`)는 폐기 대상 전환됐다. Phase 4 참조, 캘리브레이션과
-     무관하게 진행 가능.
-  4. 골든셋을 실촬영 데이터로 교체 — 절차는 `vision/tests/golden/README.md` "실기체 데이터가 들어오면" 참조. 이때 40m 티어의 `known_limitation` 두 건도 실측 재검증. `MjpegStreamer`도 실제 RPi 네트워크 환경에서 브라우저 접속 실측 필요.
+     기존 V4L2 raw 우회(`rpi_capture.py`)는 폐기 대상 전환됐다.
+  2. 골든셋을 실촬영 데이터로 교체 — 절차는 `vision/tests/golden/README.md` "실기체 데이터가 들어오면" 참조. 이때 40m 티어의 `known_limitation` 두 건도 실측 재검증. `MjpegStreamer`도 실제 RPi 네트워크 환경에서 브라우저 접속 실측 필요. ArUco fine 단계(`vertiport_fine.yaml`)도 실기체 마커 촬영으로 재검증 대상에 추가됨(nominal intrinsics 기반이라 pose 절대 정밀도는 "미검증" 상태 그대로).
   - **체커보드 실측 캘리브레이션 재개는 이 목록에 없다 — 예선 통과 후, §9 8번(폐루프 30cm 검증) 진입 직전에 별도로 재개한다.**
+  - **offboard/`fc_ros` 폐루프 유도 연동도 이 목록에 없다** — vision이 `TargetEstimate`를 뱉는 데까지가 이번 완료 범위이고, 실제 착륙 유도는 별도 트랙(루트 `CLAUDE.md` "도메인 간 의존 관계" 절 참조, vision 세션에서 `fc_ros`/`fc_bridge`를 건드리지 않는다).
 - **주의:** **초점/노출/게인이 이제 수동 제어 가능(2026-07-22e, `--focus`/`--exposure`/`--gain`/`--focus-sweep`)** — 하지만 실측한 좋은 값(exposure=2400~2602, gain=800~900, focus=540~600)은 **이번 세션 저녁 실내조도·카메라-배경 거리(~1.5~2m) 기준일 뿐 고정값이 아니다.** 주변광이 바뀌면(세션 내에서도 mean이 60~207 사이를 오갔음) exposure/gain을 다시 맞춰야 하고, 촬영 거리가 바뀌면(40cm ↔ 210cm 등) focus 최적값도 달라질 가능성이 높아(메커니즘은 실측으로 증명됨, 정량값은 거리마다 다름) 매번 `--focus-sweep`을 다시 돌려야 한다 · **`rpi_capture.py`의 `_MEDIA_DEVICE` 하드코딩 버그는 2026-07-22d에 동적 탐색(`_find_cfe_media_device()`)으로 수정 완료** — media 디바이스 번호(`/dev/mediaN`)가 부팅마다 바뀌는 게 실측으로 재확인된 현상이라 앞으로도 코드에서 이 번호를 다시 하드코딩하지 말 것(근거는 `vision/CLAUDE.md` "media 디바이스 동적 탐색" 절). `_VIDEO_DEVICE`/`_CSI2_SUBDEV`/`_SENSOR_SUBDEV`(video0/subdev0/subdev2)는 이번에도 안정적으로 재현돼 하드코딩 유지 중이나, 언젠가 이것도 흔들리는 게 관측되면 같은 패턴으로 동적화 검토 · Pi4 인코더/라이다 40m급 미확정 · 기존 `vision/` 틀은 폐기 아님(§12) · `geo_project.pixel_to_gps` 폐기 예정 · **버티포트 V 형상매칭은 실물 규격 미확인 상태의 합성테스트로만 검증됨** — 실기체 데이터 확보 후 `BlackVMatcher` 참조 V 템플릿(두께/종횡비)·`max_match_distance` 재검증 필요 · **카메라 화각이 계획서 가정(102°)과 다름(75°) — coarse 캐스케이드 탐지거리 가정 재검토 여지 있음. §4.1 GSD 표 자체(버티포트 기준, 102°)는 재검증 대기라 `vertiport` 골든셋 고도 라벨은 여전히 스키마 자리표시자다(§7.9 항목7 완료 노트 참조). 단 `distress` 골든셋은 2026-07-22a에 실측 화각 75°로 직접 재계산한 값으로 교체됐음 — 더 이상 placeholder 아님(vision_plan.md §5.3, vision/CLAUDE.md 참조)** · **`LiveFrameSource`는 2026-07-22b 실장치 테스트로 현재 구현이 V4L2 raw 경로와 비호환임이 확인됨**(`cv2.VideoCapture`가 `isOpened()`는 성공하지만 `read()`가 실패 — pRAA 10비트 패킹 베이어 fourcc를 OpenCV V4L2 백엔드가 못 다루는 것으로 추정) — 위 "다음" 2번 참조, 어댑터 재구현 필요 · `MjpegStreamer`(§7.9 항목5)는 로컬(WSL) HTTP 왕복만 검증됨, 실제 RPi↔랩탑 네트워크 환경(대역폭/지연/Wi-Fi 끊김 — `project_rpi5_tailscale_wifi_drops.md` 참조)에서의 실측은 아직 미검증(다음 기회에) · **`jsonl_view.py`의 state 서브플롯은 실기체 데이터 없음** — main.py/replay.py가 아직 `state`를 채우지 않아(§5.1 상태머신 미구현) 실사용 시엔 항상 "no state data" 안내만 뜬다. 상태머신 연결되면 자동으로 실데이터가 나타남(코드 변경 불필요, 이미 대응돼 있음) · **골든셋(`tests/golden/`)은 전부 합성 데이터** — 실기체 데이터 확보 후 교체 필요(§7.9 항목7 완료 노트) · **`vertiport_coarse.yaml`의 고정 `kernel_size=5` morphology가 저해상(작은 픽셀) 스케일에서 흰 필드 연결성을 깨는 스케일 민감성이 골든셋으로 새로 드러남** — 검출기 튜닝은 이번 세션 범위 밖, 실기체 데이터/저고도 재검증 필요 · 세부 정정 이력·논의는 `docs/session_log.md` 참조
 - **참조:** `docs/vision_plan.md` §2(타겟 스펙)/§5.2(버티포트 coarse 캐스케이드)/§5.5(색 항상성)/§7.5(기록·재생)/§7.9(관측성 워크플로) · `vision/CLAUDE.md`(파일역할표·테스트 규칙표) · 메모리 `project_rpi5_ubuntu_camera_stack.md`(카메라 브링업 전체 경과·진단명령·재현법)

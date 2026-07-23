@@ -26,7 +26,7 @@
 |---|---|---|
 | `core/state.py` | `VisionState`, `Detection` 데이터 계약 | 낮음 — 필드 추가 시 신중 |
 | `core/runner.py` | `Pipeline` 클래스: `from_config()`, `partial()` | 낮음 |
-| `core/target.py` | **신설(ArUco 브랜치 Phase 3, `docs/vision_aruco_branch.md`)** — `TargetEstimate` dataclass(상대 pose+신뢰도+타입+frame_id+timestamp+uncertainty(항상 None, 자리만)+calib provenance(`calib_accuracy`/`not_for_closed_loop_30cm`/`calib_id`)) + `solve_target_pose()`(`cv2.solvePnP`→rvec/tvec→`cv2.Rodrigues`→quaternion) + `marker_object_points()`(50cm 정사각 4코너, `ARUCO_TARGET_SIZE_M`) + `rotation_matrix_to_quaternion()`(scipy 미의존 순수 numpy, 표준 Shepperd's method — `vision/requirements.txt`에 scipy 없어 직접 구현). **순수 기하 계산만(파일 I/O 없음)** — import 규칙("core/ ← numpy, opencv만 허용")대로 yaml 로드는 `utils/calibration_loader.py`에 분리. 좌표계=카메라 광학 프레임, 단위=미터, orientation=quaternion(x,y,z,w) — 전부 `docs/vision_aruco_branch.md` §1 확정 전제, 재논의 대상 아님. Phase 4(파이프라인 통합)는 범위 밖 — 아직 `main.py`/`replay.py`에 연결 안 됨 | 낮음 |
+| `core/target.py` | **ArUco 브랜치 Phase 3(`docs/vision_aruco_branch.md`)** — `TargetEstimate` dataclass(상대 pose+신뢰도+타입+frame_id+timestamp+uncertainty(항상 None, 자리만)+calib provenance(`calib_accuracy`/`not_for_closed_loop_30cm`/`calib_id`)) + `solve_target_pose()`(`cv2.solvePnP`→rvec/tvec→`cv2.Rodrigues`→quaternion) + `marker_object_points()`(50cm 정사각 4코너, `ARUCO_TARGET_SIZE_M`) + `rotation_matrix_to_quaternion()`(scipy 미의존 순수 numpy, 표준 Shepperd's method — `vision/requirements.txt`에 scipy 없어 직접 구현). **순수 기하 계산만(파일 I/O 없음)** — import 규칙("core/ ← numpy, opencv만 허용")대로 yaml 로드는 `utils/calibration_loader.py`에 분리. 좌표계=카메라 광학 프레임, 단위=미터, orientation=quaternion(x,y,z,w) — 전부 `docs/vision_aruco_branch.md` §1 확정 전제, 재논의 대상 아님. **Phase 4(파이프라인 통합) 완료** — `main.py`/`replay.py`가 `state.detections`에서 확정 ArUco 검출을 찾아 `solve_target_pose()`를 호출하고 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절) | 낮음 |
 
 ### modules/
 
@@ -55,6 +55,7 @@
 | `presets/*.yaml` | 시나리오별 모듈 조합. 코드 수정 없이 파이프라인 변경 |
 | `config/default.yaml` | 전체 파라미터 기본값 참조용 (실행에 직접 사용하지 않음) |
 | `presets/distress_coarse.yaml` | ② 조난자 구역 coarse(§5.3) — 전용 모듈 없이 기존 `ColorFilter(mode=color)`+`RectDetector` 조합. §7.9 항목7 골든셋용으로 신규 추가(신규 검출 로직 아님). `min_area`/`max_area`는 실측 스펙 기반 도출값 — 근거는 아래 "distress_coarse.yaml min_area/max_area 도출 근거" 절 |
+| `presets/vertiport_fine.yaml` | **신설(ArUco 브랜치 Phase 4)** — `aruco_detector` 단일 스텝. `vertiport_coarse.yaml`의 3단 캐스케이드 **뒤에 이어붙이지 않고 완전히 독립 실행**한다 — `ArucoDetector`(Phase 2)가 ROI 인자 없이 `state.original` 전체 프레임에서 찾고 `state.detections`를 덮어쓰므로, coarse 뒤에 이어붙이면 coarse가 확정한 결과가 조용히 사라진다(설계 판단 근거는 yaml 파일 헤더 주석 참조). ArUco 피덕셜은 스케일/회전에 견고해 ROI 없이도 전체 프레임 탐색이 실용적 |
 | `utils/image_loader.py` | 파일 경로 → BGR numpy 배열 |
 | `utils/calibration_loader.py` | **신설(ArUco 브랜치 Phase 3)** — `vision/calibration/<camera_id>/nominal.yaml` 로드 어댑터. `CameraCalibration`(camera_matrix/dist_coeffs/image_size/accuracy/not_for_closed_loop_30cm/calib_id 등) 반환, `core/target.py::solve_target_pose()` 입력으로 바로 연결. `compute_nominal_intrinsics.py`가 만드는 `nominal.yaml` 스키마 전용(`calib_analyze.py`의 `<calib_id>.yaml`은 스키마가 달라 별개 — 과설계 금지, 필요해지면 그때 확장). `calib_id`는 로드에 쓴 파일 경로 문자열(§7.3 provenance echo) |
 | `utils/video_reader.py` | 영상 파일 → 프레임 이터레이터 |
@@ -64,8 +65,8 @@
 | `utils/blackbox.py` | 프레임별 JSONL 블랙박스 + 거절이유 로깅. bounded queue+drop-oldest 비차단 (§7.4). `main.py`/`replay.py`에 연결됨 |
 | `utils/stream.py` | `MjpegStreamer` — 라이브 저해상 MJPEG-over-HTTP 스트림(§7.9 항목5, "작동영상 피드백 3경로" (b)). `push_frame()`은 bounded queue+drop-oldest 비차단(`blackbox.py`와 동일 패턴 재사용). 다운스케일·인코딩·HTTP 서빙은 전부 별도 스레드. `main.py --display stream`/`replay.py --display stream`으로 opt-in 연결(항상 켜지지 않음). 기본값 결정 근거는 아래 "라이브 스트림 어댑터 기본값" 참조 |
 | `utils/frame_source.py` | `FrameRecord` + `LiveFrameSource`/`DirFrameSource`/`BagFrameSource` 어댑터 + `open_dir_or_bag()` 팩토리 (§7.2/§7.5/§7.9 항목4). Live=실카메라(재시도 후 `ConnectionError`), Dir=녹화폴더(프레임파일+선택적 `telemetry.jsonl`), Bag=단일 비디오파일(+선택적 사이드카 `<basename>.jsonl`) |
-| `main.py` | CLI 진입점. 이미지/영상 자동 분기. `--log-dir`/`--log-name`으로 이중싱크 로거+JSONL 블랙박스 실행(항상 on). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5) |
-| `replay.py` | 오프라인 재생 CLI(`python -m vision.replay <녹화폴더\|bag> --preset ...`, §7.9 (a)). `open_dir_or_bag`로 Dir/Bag 자동판별 → 동일 `Pipeline`으로 재생 → 로거+블랙박스 기록. **결정론적**(§7.5). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5) |
+| `main.py` | CLI 진입점. 이미지/영상 자동 분기. `--log-dir`/`--log-name`으로 이중싱크 로거+JSONL 블랙박스 실행(항상 on). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `--calib`(기본 `calibration/cam109-imx708af75/nominal.yaml`)로 캘리브레이션을 1회 로드해 재사용, 확정 ArUco 검출이 있으면 `solve_target_pose()` 호출 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절) |
+| `replay.py` | 오프라인 재생 CLI(`python -m vision.replay <녹화폴더\|bag> --preset ...`, §7.9 (a)). `open_dir_or_bag`로 Dir/Bag 자동판별 → 동일 `Pipeline`으로 재생 → 로거+블랙박스 기록. **결정론적**(§7.5). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `main.py`와 동일한 `--calib`/`TargetEstimate`→`chosen.target_estimate` 배선(헬퍼는 상호 import 안 함 원칙에 따라 얇게 중복) |
 | `tools/rpi_capture.py` | RPi 헤드리스 캘리브레이션 촬영 — 저해상도 스냅샷 자동갱신(브라우저) + 촬영 트리거(버튼/Enter). **2026-07-22b에 GStreamer `libcamerasrc`(작동 불가였음, libcamera PiSP IPA 결여) 대신 V4L2 RAW 직접 캡처+수동 디베이어로 전면 재작성해 브링업 완료** — media-ctl/v4l2-ctl로 rp1-cfe 파이프라인 직접 구성. 대상 media 디바이스(`/dev/mediaN`)는 부팅마다 번호가 바뀔 수 있어 하드코딩 대신 매 호출 동적 탐색(2026-07-22d, 아래 "media 디바이스 동적 탐색" 절). gray-world 화이트밸런스 보정 포함(아래 절). **수동 초점/노출/게인 제어 + 초점 스윕 도구 포함(2026-07-22e, 아래 "수동 초점/노출/게인 제어" 절)** — libcamera 우회 경로라 연속 AF/AE가 없어 방치돼 있던 것에 대한 대응. 상세 경과는 메모리 `project_rpi5_ubuntu_camera_stack.md` |
 | `tools/jsonl_view.py` | JSONL 블랙박스 뷰어/플롯 최소본(§7.9 항목6). `BlackBoxLogger`가 남긴 `.jsonl`을 읽어 시간축 score/latency/state 3단 플롯을 PNG로 저장(`matplotlib` Agg 백엔드, headless-safe). `python vision/tools/jsonl_view.py <jsonl> [--output out.png] [--x-axis ts\|frame_id]`. **하드웨어 의존 없음** — `rpi_capture.py`와 달리 `.venv`에 설치되고(`matplotlib` in `requirements.txt`) `tests/test_jsonl_view.py` 대상이다(tools/의 "CI/pytest 대상 아님" 규칙은 RPi 하드웨어 전용 스크립트에만 적용). |
 | `tools/calib_analyze.py` | **신설(2026-07-23)** — `calib_capture.py`가 만든 촬영 세트(`<raw_root>/<set>/<distance>m/<stem>.{png,json}`)를 캘리브레이션 아티팩트로. 그룹(set,distance_m)별 `cv2.calibrateCamera` → 사진별 재투영오차로 불량컷 색출·이상치 제외 재캘리브레이션 → **`fx`/`fy` vs `LensPosition` 직선적합으로 L=0(무한대) 외삽**(핵심 목적 — 기체 운용고도 10~40m는 사실상 무한대)·얇은렌즈 물리 일관성 검사(`b/a`→mm, IMX708급 통상 초점거리와 비교)·디옵터 가정(`LensPosition≈1/distance_m`) 직접 검정 → 세트B(2.5m, 최대커버리지)와 외삽값 대조 → fy/fx·주점·HFOV 등 정합성 검사(실패해도 크래시 없이 보고) → 진단 플롯 3종(Agg, `vision/results/`) → `vision/calibration/<camera_id>/<calib_id>.yaml` 아티팩트(그룹별 결과 전부 보존, `recommended`=fx/fy 외삽절편+세트B의 cx/cy/dist_coeffs, 근거는 yaml `note`). 모든 임계값 CLI 파라미터(매직넘버 금지, §7.3). **하드웨어 의존 없음** — `jsonl_view.py`와 동일한 예외로 `.venv` 설치 + `tests/test_calib_analyze.py` 대상. 정확성은 진짜 K/dist를 아는 합성 체스보드 투영 왕복 테스트로 담보(실촬영 사진은 이 스크립트 작성 시점에 아직 없었음 — `docs/vision_camera_bringup.md`). `recommended-source` CLI로 폴백/강제선택 가능, 그룹<2면 적합 생략 + LensPosition 최저 그룹 폴백(사유 yaml 명시, §9 견고성). |
@@ -292,6 +293,50 @@ vision_plan.md §7.9가 정확한 해상도/포트를 못박지 않아 세션 �
 
 ---
 
+## ArUco Phase 4 파이프라인 배선 (2026-07-24, `docs/vision_aruco_branch.md` Phase 4 — 브랜치 종료)
+
+Phase 1(`nominal.yaml`)·Phase 2(`ArucoDetector`)·Phase 3(`solve_target_pose`/`TargetEstimate`/
+`load_camera_calibration`)를 실제 파이프라인(`main.py`/`replay.py`)에 배선해 JSONL 블랙박스까지
+`TargetEstimate`가 실리도록 완성한 단계.
+
+- **배선 위치 판단: `modules/`의 신규 모듈이 아니라 `main.py`/`replay.py` 레벨.** import 규칙표
+  (아래 "import 규칙" 절)가 `modules/ ← vision.core 만 import`인데, `solve_target_pose()`를
+  호출하려면 `utils/calibration_loader.py`(utils, core 아님)를 반드시 import해야 한다 —
+  `modules/`의 현재 12개 파일 어디에도 `utils` import 전례가 없어(grep 확인) 새 모듈로 만들면
+  이 규칙을 위반하는 첫 사례가 된다. 반면 `main.py`/`replay.py`는 애초에 "presets 경로 + utils +
+  core 만 import" 규칙이라 `core.target`/`utils.calibration_loader` import가 위반 없이 자연스럽다.
+  `core/target.py` docstring이 애초에 "calib = load_camera_calibration(...); estimate =
+  solve_target_pose(...)" 호출 순서를 호출자 책임으로 문서화해둔 것도 이 판단과 일치한다.
+- **calib은 파이프라인 실행 중 매 프레임 로드하지 않는다** — `main()`/`run_replay()` 시작부에서
+  1회만 `load_camera_calibration()`하고 각 프레임 처리 함수(`_run_image`/`_run_video`/프레임
+  루프)에 결과 객체만 넘긴다(§7.1 config 레이어드, 파일 I/O 낭비 방지 — 세션 지시).
+- **calib 로드 실패는 전체 파이프라인을 막지 않는다** — `FileNotFoundError`를 잡아 경고 로그만
+  남기고 `calib=None`으로 계속 진행한다(ArUco와 무관한 `vertiport_coarse.yaml`/
+  `distress_coarse.yaml` 등 실행까지 nominal.yaml 부재로 죽으면 안 되므로).
+- **`solve_target_pose()`는 확정 ArUco 검출(코너 있음)이 있을 때만 호출한다** — `state.detections`
+  에서 `corners is not None and meta.get("aruco_id") is not None`인 첫 항목을 찾는 헬퍼
+  (`_find_aruco_detection`, `main.py`/`replay.py` 각자 얇게 중복)로 게이팅한다. 없으면 매 프레임
+  무조건 시도하지 않고 조용히 스킵(코너 없인 solvePnP 자체가 실패하므로).
+- **`blackbox.log_frame()` 시그니처는 바꾸지 않았다** — 세션 지시대로 기존 `chosen` 파라미터
+  ("확정된 결과"라는 의미가 이미 있음) 안에 `{"target_estimate": {...}}` 형태로 얹었다. 기존
+  버티포트/조난자 경로가 쓰는 `{"bbox":..., "confidence":...}` 형태의 `chosen`과 키가 겹치지
+  않아(둘 다 존재하면 병합) 회귀 없이 공존한다. `target_estimate` dict 필드:
+  `position`/`orientation`/`confidence`/`target_type`/`calib_accuracy`/
+  `not_for_closed_loop_30cm`/`calib_id`(전부 `TargetEstimate`를 그대로 dict화 — `uncertainty`는
+  이번 Phase 항상 None이라 dict에서 제외).
+- **preset 판단: 신규 `vertiport_fine.yaml`, `vertiport_coarse.yaml`과 완전히 독립 실행.** 근거는
+  위 "presets/vertiport_fine.yaml" 표 행 및 그 yaml 파일 헤더 주석 참조 — 핵심은 `ArucoDetector`
+  가 ROI를 받지 않고(Phase 2 완료 코드, 이번 Phase 수정 범위 밖) `state.detections`를 통째로
+  덮어쓰므로, coarse 캐스케이드 뒤에 이어붙이면 "ROI로 좁힌다"가 아니라 "coarse 결과를 파괴한다"가
+  된다.
+- **실측 검증(2026-07-24):** `python -m vision.replay <합성 ArUco 프레임 폴더> --preset
+  vision/presets/vertiport_fine.yaml`을 실제로 실행 — JSONL에 다음이 실제로 찍힘(발췌):
+  `"chosen": {"target_estimate": {"position": [...], "orientation": [...], "confidence": 1.0,
+  "target_type": "aruco_23", "calib_accuracy": "unverified", "not_for_closed_loop_30cm": true,
+  "calib_id": ".../calibration/cam109-imx708af75/nominal.yaml"}}`.
+
+---
+
 ## VisionState 필드 사용 규칙
 
 ```
@@ -430,6 +475,7 @@ pytest vision/tests/ -q -k main # 특정만
 |---|---|---|
 | core/runner `Pipeline` | from_config 로드·실행순서·`partial(N)`·unknown module→ValueError | ✅ test_pipeline |
 | core/target `solve_target_pose`/`TargetEstimate`(ArUco Phase 3) | **★합성 왕복(핵심, calib_analyze.py 패턴 재사용):** 알려진 실제 pose로 50cm 정사각 4코너를 합성투영(우선 임의 K, 이어서 실제 nominal.yaml intrinsics로도) → solvePnP 복원 pose가 원래 position/quaternion(부호 이중성 고려)과 허용오차 내 일치 · `rotation_matrix_to_quaternion` 다양한 회전에서 단위quaternion+독립 공식으로 재구성한 R과 일치 · provenance echo(calib_accuracy/not_for_closed_loop_30cm/calib_id)가 호출자 값 그대로 반영 · `uncertainty` 항상 None · 코너 순서 오배열 회귀(순환 오배열=position 보존·orientation 붕괴, 비순환 오배열=position 자체 붕괴 — 정사각형 90도 자기대칭 때문, 둘 다 실측 확인) | ✅ test_target |
+| ArUco Phase 4 파이프라인 배선(위 "ArUco Phase 4 파이프라인 배선" 절) | main.py/replay.py 각각: 합성 ID=23 마커 이미지/녹화폴더 실행 → JSONL `chosen.target_estimate`에 position/orientation/calib_accuracy/not_for_closed_loop_30cm/calib_id 실제 기록 · 마커 없는 프레임은 크래시 없이 `chosen=None` · calib 파일 없음(`--calib`/`calib_path` 오지정)도 크래시 없이 target_estimate만 생략+경고 로그 | ✅ test_main(아루코 3개)·test_replay(아루코 3개) |
 | utils/calibration_loader `load_camera_calibration`(ArUco Phase 3) | 실제 커밋된 `nominal.yaml` 로드(camera_matrix/dist_coeffs/image_size/accuracy/not_for_closed_loop_30cm/calib_id) · 합성 yaml round-trip(값이 실측/미검증 어느 쪽이든 하드코딩 없이 그대로 반영) · 파일 없음→`FileNotFoundError` | ✅ test_calibration_loader |
 | registry | 등록 이름 전부 실제 클래스 매핑·중복 없음 | ❌ TODO |
 | color `ColorFilter` | 모드별 mask 생성·임계값 경계·meta | ✅ test_color (gray+color, 빨강 Hue랩어라운드 미지원은 §5.4 blind spot로 별도 회귀테스트 기록) |
@@ -445,6 +491,7 @@ pytest vision/tests/ -q -k main # 특정만
 | vertiport_v `BlackVMatcher` | original 내 어두운 영역 matchShapes 검증·1차 bbox 밖 배경 오탐 배제·불일치 시 detections 제거 | ✅ test_vertiport_v |
 | vertiport_ring `RedRingDetector` | 빨강 Hue 양끝 게이팅(랩어라운드 대응)·최소외접원 피팅·중심/반지름 meta | ✅ test_vertiport_ring |
 | 버티포트 coarse 캐스케이드 통합(`presets/vertiport_coarse.yaml`) | 3단 전체 파이프라인 end-to-end·단계별 meta 기록·빈 이미지 0검출 | ✅ test_vertiport_cascade |
+| ArUco fine 프리셋 통합(`presets/vertiport_fine.yaml`, ArUco Phase 4) | `Pipeline.from_config` 실로드·ID 23 검출+코너·다른 ID 거절·빈 이미지 0검출(coarse와 독립 실행) | ✅ test_vertiport_fine |
 | utils/image_loader | 경로→BGR ndarray·없는 파일 에러 | ❌ TODO |
 | utils/video_reader | 프레임 이터레이트·fps·컨텍스트 종료 | ❌ TODO |
 | utils/visualize | draw_detections 형상·save_result 파일 생성 | ❌ TODO |

@@ -1,7 +1,7 @@
 ---
 doc_type: orchestrator_brief
 scope: nominal intrinsics 산출 + ArUco 브랜치 착수 — TargetEstimate 출력 계약 확정까지 (vision_plan.md §9 1·4번)
-status: ▶ 시작 대기 (2026-07-24 준비, 아직 미착수)
+status: ✅ 완료 (2026-07-24, Phase 1~4 전부 완료 — 브랜치 종료. `vision/CLAUDE.md` "ArUco Phase 4 파이프라인 배선" 절·`docs/vision_status.md` 트랙 보드 참조)
 created: 2026-07-24
 last_updated: 2026-07-24
 ---
@@ -87,13 +87,22 @@ calibration 관련 코드가 전혀 없다(`vision/calibration/` 디렉터리 �
 - provenance echo(§7.3)에 사용한 calib_id(`nominal.yaml` 경로/해시)가 실제로 찍히는지 확인.
 - **→ 보고.**
 
-### Phase 4 — 파이프라인 통합
+### Phase 4 — 파이프라인 통합 ✅ 완료(2026-07-24)
 - `vision/main.py`/`replay.py`에 ArUco 모듈을 fine 단계로 연결 — coarse(§5.2 버티포트 3단 캐스케이드,
   이미 있음)에 이어붙이는 신규 preset(예: `presets/vertiport_fine.yaml`) 또는 기존
   `vertiport_coarse.yaml` 확장 중 선택.
 - JSONL 블랙박스에 `TargetEstimate` 필드가 실제로 실리는지 확인(§7.4).
 - **`pytest vision/tests/` 전체 통과 확인.**
 - **→ 보고, 여기서 완료.**
+
+**완료 기록:** 신규 `presets/vertiport_fine.yaml`(`vertiport_coarse.yaml`과 완전 독립 실행 — 근거는
+그 yaml 헤더 주석·`vision/CLAUDE.md` "ArUco Phase 4 파이프라인 배선" 절). solvePnP 배선은
+`main.py`/`replay.py` 레벨(신규 `modules/` 모듈 아님 — import 규칙 판단 근거도 같은 절에 기록).
+`TargetEstimate`는 JSONL `chosen.target_estimate`에 실린다(`blackbox.log_frame()` 시그니처
+불변). `python -m vision.replay <합성 ArUco 프레임 폴더> --preset vision/presets/vertiport_fine.yaml`
+실행으로 실제 JSONL에 position/orientation/calib_accuracy/not_for_closed_loop_30cm/calib_id가
+찍히는 것을 확인. `pytest vision/tests/` 319 passed(Phase 3 완료 시점 310 + 9). 이로써 ArUco
+브랜치(Phase 1~4) 전체가 종료됐다.
 
 ---
 
