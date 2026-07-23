@@ -10,10 +10,12 @@ from .fusion import TemporalFusion
 from .vertiport_field import WhiteFieldDetector
 from .vertiport_v import BlackVMatcher
 from .vertiport_ring import RedRingDetector
+from .aruco import ArucoDetector
 
 __all__ = [
     "ColorFilter", "IlluminationModule", "DenoiseModule", "EdgeDetector",
     "MorphologyModule", "RectDetector", "BackgroundSubtractor",
     "KalmanTracker", "TemporalFusion",
     "WhiteFieldDetector", "BlackVMatcher", "RedRingDetector",
+    "ArucoDetector",
 ]
