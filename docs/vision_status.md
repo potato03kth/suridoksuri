@@ -27,7 +27,7 @@ last_updated: 2026-07-24
 
 ## 트랙 보드
 
-### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. **2026-07-24: 체커보드 캘리브레이션은 보류, 다음은 nominal intrinsics → ArUco 브랜치 착수(아래 "다음" 목록)**)
+### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. **2026-07-24: 체커보드 캘리브레이션은 보류, 다음은 nominal intrinsics → ArUco 브랜치 착수 — 자기완결 브리프 `docs/vision_aruco_branch.md` 준비됨, 다음 오케스트레이터 세션은 그 문서로 진입**)
 
 - **직전 완료(2026-07-23, 오케스트레이터 세션 — RPi 실기체):** **libcamera 로컬 소스빌드로 정공법 브링업 성공.** 지난 6세션의 V4L2 raw 우회(AF/AE/AWB 전무)를 대체할 정식 경로가 열렸다. 상세·재현법은 `docs/vision_camera_bringup.md`(요약 절), 근본원인·명령모음은 메모리 `project_rpi5_ubuntu_camera_stack.md`. 요점:
   - **근본원인 해소:** Ubuntu `libcamera-ipa` 패키지에 RPi5용 `ipa_rpi_pisp.so`가 없던 것 → `raspberrypi/libcamera` v0.7.1+rpt20260609을 `/home/suri/local-libcamera` prefix에 소스빌드. **시스템 패키지(0.2.0) 무손상**(soname 0.7 vs 0.2로 섞이지 않음), `config.txt` 무접촉.
@@ -114,7 +114,7 @@ last_updated: 2026-07-24
   - `vision/CLAUDE.md`: 파일역할표에 `presets/distress_coarse.yaml`·`tests/golden/` 행, 테스트 규칙표에 골든 회귀 행, 공통규칙 4번의 "골든셋 회귀는 데이터 수집 후" 문구를 "합성 데이터로 스캐폴드 시작됨" 으로 갱신
   - `pytest vision/tests/` **106 passed**(기존 91 + 신규 15)
 - **✅ 카메라 V4L2 raw 브링업 완료(2026-07-22b) — 남은 건 체커보드 실촬영 캘리브레이션.** libcamera PiSP IPA 결여 문제는 libcamera를 완전히 우회(V4L2 raw 직접 캡처)해 해결됨. `rpi_capture.py`로 실제 촬영까지 검증 완료(상세는 위 2026-07-22b 항목). 카메라 인트린식/왜곡 캘리브레이션(체커보드 실촬영)은 다음 세션으로 넘김 — 무리하게 같은 세션에서 확장하지 않기로 결정(작은 단위로 끊어 넘기는 편이 안전).
-- **다음 (진입하면 이 순서, 2026-07-24 캘리브레이션 보류 결정으로 재배치됨 — 근거는 위 "🔴 [2026-07-24 결정]" 항목·`vision_plan.md` §9):**
+- **다음 (진입하면 이 순서, 2026-07-24 캘리브레이션 보류 결정으로 재배치됨 — 근거는 위 "🔴 [2026-07-24 결정]" 항목·`vision_plan.md` §9). Phase별 자기완결 지시는 `docs/vision_camera_bringup.md`와 같은 패턴으로 `docs/vision_aruco_branch.md`에 준비돼 있다 — 다음 오케스트레이터 세션은 그 문서 하나만 읽고 시작할 것:**
   1. **nominal intrinsics 산출.** 체커보드 촬영 없이 실측 HFOV(75°)로 `fx=(W/2)/tan(HFOV_h/2)`,
      `fy=fx`, `cx=W/2, cy=H/2`, `distCoeffs=0` 계산 → `vision/calibration/<camera_id>/nominal.yaml`.
      `accuracy: unverified`/`not_for_closed_loop_30cm: true` 명시. HFOV 대각/수평 불일치 문제
