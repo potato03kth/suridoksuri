@@ -151,7 +151,8 @@ class ShotSpec:
     yaw_deg: float
     pitch_deg: float
     roll_deg: float
-    label_ko: str          # UI/오버레이에 표시할 한국어 지시문
+    label_ko: str          # HTML 컨트롤 페이지/JSON 사이드카용 한국어 지시문
+    label_en: str          # 프레임에 굽는 cv2 오버레이용 ASCII 지시문(위 "영문 버전" 절 참조)
 
     @property
     def dir_name(self) -> str:
@@ -240,14 +241,61 @@ def format_instruction_ko(yaw_deg: float, pitch_deg: float, roll_deg: float) -> 
     return ", ".join(parts)
 
 
+# --- 영문(ASCII) 버전 — 프레임에 직접 굽는 오버레이(cv2.putText) 전용 ---
+#
+# **실기체로 확인된 문제(2026-07-23):** cv2.putText는 Hershey 벌터 폰트만 쓰는데 이 폰트가
+# 한글 글리프를 지원하지 않는다 — 실행해 보면 한글 문자열이 전부 "?"로 깨져 나온다. 이
+# RPi에는 한글 지원 폰트가 시스템에 전혀 없고(`fc-list :lang=ko` 결과 0개, DejaVu만 설치됨),
+# 이 세션의 하드 리밋상 새 apt 패키지 설치가 금지돼 있어 폰트를 새로 깔 수 없다. 그래서
+# **프레임에 굽는 HUD 텍스트만** 영문으로 렌더링한다 — `label_ko`/`zone_label_ko`(HTML
+# 컨트롤 페이지, JSON 사이드카)는 그대로 두고 안 건드린다. 브라우저는 자체 폰트로 UTF-8
+# 한글을 정상 렌더링하므로(실측 확인됨) 사용자가 실제로 지시문을 읽는 주 경로(HTML 페이지)는
+# 이 문제의 영향을 받지 않는다.
+def zone_label_en(u: float, v: float) -> str:
+    near = lambda a, b: abs(a - b) < 1e-6
+    if near(u, 0.5) and near(v, 0.5):
+        return "CENTER"
+    if near(v, 0.2) and near(u, 0.2):
+        return "TL"
+    if near(v, 0.2) and near(u, 0.8):
+        return "TR"
+    if near(v, 0.8) and near(u, 0.2):
+        return "BL"
+    if near(v, 0.8) and near(u, 0.8):
+        return "BR"
+    if near(u, 0.2):
+        return "LEFT"
+    if near(u, 0.8):
+        return "RIGHT"
+    if near(v, 0.2):
+        return "TOP"
+    if near(v, 0.8):
+        return "BOTTOM"
+    return f"GRID(u={u:.2f},v={v:.2f})"
+
+
+def format_instruction_en(yaw_deg: float, pitch_deg: float, roll_deg: float) -> str:
+    parts = []
+    if abs(yaw_deg) > 1e-9:
+        parts.append(f"YAW{yaw_deg:+.0f}")
+    if abs(pitch_deg) > 1e-9:
+        parts.append(f"PITCH{pitch_deg:+.0f}")
+    if abs(roll_deg) > 1e-9:
+        parts.append(f"ROLL{roll_deg:+.0f}")
+    if not parts:
+        return "FRONTAL(no rotation)"
+    return " ".join(parts)
+
+
 def _make_shots_for_distance(
     set_name: str, distance_m: float, tuples: Sequence[Tuple[str, float, float, float, float, float]]
 ) -> List[ShotSpec]:
     total = len(tuples)
     shots = []
     for i, (zone, u, v, yaw, pitch, roll) in enumerate(tuples, start=1):
-        label = f"{zone_label_ko(u, v)} · {format_instruction_ko(yaw, pitch, roll)}"
-        shots.append(ShotSpec(set_name, distance_m, i, total, zone, u, v, yaw, pitch, roll, label))
+        label_ko = f"{zone_label_ko(u, v)} · {format_instruction_ko(yaw, pitch, roll)}"
+        label_en = f"{zone_label_en(u, v)} {format_instruction_en(yaw, pitch, roll)}"
+        shots.append(ShotSpec(set_name, distance_m, i, total, zone, u, v, yaw, pitch, roll, label_ko, label_en))
     return shots
 
 
@@ -559,7 +607,12 @@ def render_preview_overlay(
     countdown_s: Optional[float] = None,
     last_result_text: Optional[str] = None,
 ) -> np.ndarray:
-    """lores 프레임 위에 전체 오버레이를 그린다. 반환값은 lores_bgr을 제자리 수정한 참조."""
+    """lores 프레임 위에 전체 오버레이를 그린다. 반환값은 lores_bgr을 제자리 수정한 참조.
+
+    **텍스트는 전부 ASCII로 그린다** — cv2.putText(Hershey 폰트)가 한글 글리프를 지원하지
+    않아(실기체 확인, 이 파일 상단 "영문 버전" 절 참조) `current_shot.label_en`/영문 상태
+    문구를 쓴다. `last_result_text`도 호출자가 ASCII로 넘겨야 한다(한국어 원문은 HTML
+    컨트롤 페이지/JSON 사이드카가 따로 담당)."""
     h, w = lores_bgr.shape[:2]
     frame = lores_bgr
 
@@ -585,22 +638,22 @@ def render_preview_overlay(
     inset_origin = (w - COVERAGE_COLS * 12 - 14, 14)
     draw_coverage_inset(frame, coverage, inset_origin, cell_px=12)
 
-    # 5) 텍스트
-    lock_line = "잠금: 안 됨 — 촬영 전 잠금 필요"
+    # 5) 텍스트 (ASCII 전용 — docstring 참조)
+    lock_line = "LOCK: none - must lock before capture"
     if lock_ok and lock_values:
         lock_line = (
-            f"잠금: lens={lock_values['lens_position']:.2f} "
+            f"LOCK: lens={lock_values['lens_position']:.2f} "
             f"exp={lock_values['exposure_time']} gain={lock_values['analogue_gain']:.2f} "
             f"wb=({lock_values['colour_gains'][0]:.2f},{lock_values['colour_gains'][1]:.2f})"
         )
     lines = [
-        f"[{current_shot.set_name}] {current_shot.distance_m:g}m  샷 {current_shot.seq}/{current_shot.total_in_distance}",
-        current_shot.label_ko,
+        f"[{current_shot.set_name}] {current_shot.distance_m:g}m  SHOT {current_shot.seq}/{current_shot.total_in_distance}",
+        current_shot.label_en,
         lock_line,
-        f"커버리지 {coverage_fill_fraction(coverage) * 100:.0f}%",
+        f"COVERAGE {coverage_fill_fraction(coverage) * 100:.0f}%",
     ]
     if countdown_s is not None:
-        lines.append(f"자동촬영까지 {countdown_s:.1f}초")
+        lines.append(f"AUTO-CAPTURE in {countdown_s:.1f}s")
     if last_result_text:
         lines.append(last_result_text)
     _put_lines(frame, lines, (10, h - 20 * len(lines) - 6))
@@ -662,7 +715,8 @@ class CalibSession:
 
         self.corner_history: List[np.ndarray] = []
         self.autocapture_pending_since: Optional[float] = None
-        self.last_result_text: Optional[str] = None
+        self.last_result_text: Optional[str] = None      # 한국어 — HTML 컨트롤 페이지/JSON용
+        self.last_result_text_en: Optional[str] = None    # ASCII — 프레임에 굽는 오버레이용
         self._last_live_corners: Optional[np.ndarray] = None
         self._last_countdown: Optional[float] = None
 
@@ -811,6 +865,8 @@ class CalibSession:
             out_dir = self.out_root / shot.set_name / shot.dir_name
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / "_lock.json").write_text(json.dumps(lock_record, ensure_ascii=False, indent=2))
+            self.last_result_text = f"잠금 성공: lens={best_lens:.2f} exp={exposure} gain={gain:.2f}"
+            self.last_result_text_en = f"LOCK OK: lens={best_lens:.2f} exp={exposure} gain={gain:.2f}"
             return self.lock_values
 
     # ---------- 미리보기 틱 ----------
@@ -882,7 +938,7 @@ class CalibSession:
                 self.lock_values,
                 live_corners=corners_lores,
                 countdown_s=countdown,
-                last_result_text=self.last_result_text,
+                last_result_text=self.last_result_text_en,
             )
             return overlay
 
@@ -898,6 +954,7 @@ class CalibSession:
         if not (self.lock_ok and self.lock_distance_m == shot.distance_m):
             result = {"ok": False, "reason": f"{shot.distance_m:g}m 거리의 컨트롤이 아직 잠기지 않음 — 먼저 잠금을 실행하라"}
             self.last_result_text = result["reason"]
+            self.last_result_text_en = f"NOT LOCKED for {shot.distance_m:g}m - run lock first"
             return result
 
         bgr = self.picam.capture_array("main")
@@ -908,6 +965,7 @@ class CalibSession:
         if not found:
             result = {"ok": False, "reason": "체스보드 패턴을 찾지 못함(findChessboardCorners 실패) — 각도/거리/조명을 확인하고 다시 촬영"}
             self.last_result_text = result["reason"]
+            self.last_result_text_en = "PATTERN NOT FOUND - check angle/distance/light, retry"
             return result
 
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
@@ -922,6 +980,7 @@ class CalibSession:
                 "reason": f"흔들림(모션블러) 의심 — sharpness={sharpness:.1f} (기준 {ref:.1f}의 {self.blur_ratio*100:.0f}% 미만) — 손을 고정하고 다시 촬영",
             }
             self.last_result_text = result["reason"]
+            self.last_result_text_en = f"BLURRY - sharpness={sharpness:.1f} (< {self.blur_ratio*100:.0f}% of ref {ref:.1f}) - hold still, retry"
             return result
 
         out_dir = self.out_root / shot.set_name / shot.dir_name
@@ -964,6 +1023,7 @@ class CalibSession:
 
         result = {"ok": True, "path": str(png_path), "sharpness": sharpness, "num_corners": int(len(corners_flat))}
         self.last_result_text = f"촬영 성공: {png_path.name} (sharpness={sharpness:.1f})"
+        self.last_result_text_en = f"CAPTURED {png_path.name} (sharpness={sharpness:.1f})"
         return result
 
     def skip(self) -> None:
@@ -971,12 +1031,14 @@ class CalibSession:
             if self.shot_idx < len(self.shots) - 1:
                 self.shot_idx += 1
             self.last_result_text = "건너뜀(저장 안 됨)"
+            self.last_result_text_en = "SKIPPED (not saved)"
 
     def prev(self) -> None:
         with self._lock:
             if self.shot_idx > 0:
                 self.shot_idx -= 1
             self.last_result_text = "이전 샷으로 이동"
+            self.last_result_text_en = "MOVED TO PREVIOUS SHOT"
 
     def set_auto_capture(self, enabled: bool) -> None:
         with self._lock:
@@ -1099,6 +1161,7 @@ class _ControlHandler(BaseHTTPRequestHandler):
                 self.session.run_focus_sweep_and_lock()
             except RuntimeError as e:
                 self.session.last_result_text = f"잠금 실패: {e}"
+                self.session.last_result_text_en = "LOCK FAILED - see status text above"
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()
