@@ -1,9 +1,9 @@
 ---
 doc_type: orchestrator_brief
 scope: RPi5 카메라 정공법 브링업 — libcamera 부활 → picamera2 검증 → ffmpeg 영상
-status: Phase 1·2 완료 (2026-07-23). 체커보드 캘리브레이션 촬영(Phase 1·2 이후 착수됐던 트랙)은 2026-07-24 보류. Phase 3(영상)·4(LiveFrameSource 재구현)는 캘리브레이션과 무관하게 계속 진행 가능.
+status: Phase 1·2 완료 (2026-07-23). 체커보드 캘리브레이션 촬영(Phase 1·2 이후 착수됐던 트랙)은 2026-07-24 보류. Phase 3(영상, ffmpeg "1A 스모크"+"1B 도구화") 완료(2026-07-25) — `vision/tools/h264_stream.py`. Phase 4(LiveFrameSource 재구현)는 캘리브레이션과 무관하게 계속 진행 가능.
 created: 2026-07-23
-last_updated: 2026-07-24
+last_updated: 2026-07-25
 ---
 
 # 카메라 브링업 오케스트레이터 브리프
@@ -362,10 +362,95 @@ $PICAM_PYTHON your_script.py                # picamera2는 별도 venv
 libcamera 살면 picamera2 설치 후 각각 **직접 재현 검증**(pseudo 금지):
 ① 초점 목표값 1초내 반영 ② 진짜 연속 AF ③ AF↔MF 전환 ④ **AF 윈도우(영역) 지정** ⑤ AE 자동/수동 전환 ⑥ AWB 자동/수동 전환. 되면 지난 세션의 수동 스윕·gray-world·정착시간 조사가 전부 불필요해짐.
 
-### Phase 3 — ffmpeg 영상 (디버깅 + 다운링크 통합) — ▶ **다음 차례 (2026-07-24 재확인: 여전히 미착수, 다시 묻히지 말 것 — `docs/vision_status.md` 2026-07-24 "fps 튜닝 + ffmpeg Phase 3 혼동 재확인" 항목·메모리 `feedback_ffmpeg_phase3_not_deferred` 참조)**
-- `rpicam-vid`/`libcamera-vid` → **연속 H.264** → 랩탑 `ffplay`/`mpv`(브라우저 아님, 저지연 UDP/RTSP). 이게 디버깅 주경로.
-- **같은 H.264 인코드를 RTL8812AU 다운링크와 공유** — 계획서 §7.7 EncoderSink 스왑 어댑터가 원래 의도한 구조. 인코드 경로 하나로 디버깅+대회 다운링크 동시 충족.
-- MJPEG-over-HTTP(`utils/stream.py`)는 이 시점에 폐기 후보로 전환.
+### Phase 3 — ffmpeg 영상 (디버깅 + 다운링크 통합) — ✅ **완료(2026-07-25, "1A 스모크" + "1B 도구화" 두 세션)**
+
+**구현물:** `vision/tools/h264_stream.py`(신규) — `Picamera2.create_video_configuration(main={"size":(W,H),
+"format":"RGB888"}, controls={"FrameRate":FPS})` + `H264Encoder(bitrate=...)` +
+`FfmpegOutput("-f mpegts -listen 1 tcp://HOST:PORT")`. 랩탑에는 ffmpeg CLI가 없어(sudo 필요, 설치
+안 함 — 세션 지시) `cv2.VideoCapture(url, cv2.CAP_FFMPEG)`(cv2 5.0.0, `FFMPEG:YES` 빌드)로 수신
+검증한다. **MJPEG(`utils/stream.py`, MjpegStreamer)는 폐기하지 않고 병행 운용** — 용도가 다르다
+(MJPEG=검출결과 오버레이 관찰, H.264=카메라 원본 저지연 디버그). 검출 박스는 얹지 않는다.
+
+**실측 수치(1A 스모크, 오케스트레이터 직접 재현 + 1B 도구화 세션 재확인):**
+- 해상도 1536x864, 30fps, 5,000,000bps. 수신 프레임 shape=(864,1536,3), 프레임수 100~150개
+  요청 시 100%(150/150, 100/100, 90/90) 수신.
+- steady-state fps(앞 45프레임/~1.5초 워밍업 버스트 제외) **29.96~30.09** — `compute_fps_stats()`로
+  계산(워밍업 스킵 기본 내장).
+- 라이브니스(인접 프레임 완전동일 쌍) **0/74** — 정지 버퍼 아님, 프레임이 실제로 매번 갱신됨.
+- 장면이 매우 어두움(밝기 평균 0.15~0.28/255 수준, 야간/소등 상태) — **고장 아님**, 라이브니스로
+  이미 증명됨. 30fps 설정이라 노출 상한이 33ms로 제한되는 것도 한 원인.
+- `--af-mode manual --lens-position 5.0`, `--af-mode auto`, `--af-mode continuous` 전부 각각
+  최소 30~40프레임 창으로 실기체 기동 → 크래시 없이 프레임 수신 확인(로그에 파이썬 트레이스백
+  없음, ffmpeg 쪽 접속종료 노이즈만 정상 발생).
+
+**1A가 찾은 함정 3가지 — 도구에 반영됨:**
+1. **SIGINT 무력화** — 비대화형 SSH 백그라운드 자식은 bash가 SIGINT/SIGQUIT를 SIG_IGN으로
+   만든다(`/proc/PID/status` SigIgn 비트로 실측 확인, nohup/setsid로도 회피 안 됨) → `h264_stream.py`는
+   `SIGTERM` 핸들러를 명시적으로 달아 graceful shutdown을 보장한다(SIGINT도 보너스로 같이 걸지만
+   의존하지 않음).
+2. **`-listen 1`은 1회성** — 클라이언트가 끊으면 ffmpeg 프로세스가 종료되고 재접속 불가 →
+   `h264_stream.py`는 클라이언트 종료(ffmpeg 프로세스 종료/`output_broken`)를 감지해
+   `FfmpegOutput`만 교체하는 재기동 루프가 기본(카메라/인코더는 재시작하지 않음, `Encoder.output`
+   세터가 실행 중인 인코더에도 새 output을 등록하는 picamera2 동작을 그대로 활용). `--once`로
+   1A와 동일한 단발 모드도 유지.
+3. **연결 직후 버스트**(최초 ~1~1.5초, 밀린 프레임이 한꺼번에 도착) → `compute_fps_stats()`가
+   기본으로 앞 45프레임을 건너뛴다.
+
+**1B 도구화 세션이 실기체 재현으로 새로 찾은 함정 2가지 (중요 — 재조사 없이 그대로 반영할 것):**
+
+4. **⚠️ 이 RPi5는 `H264Encoder`가 실제로는 소프트웨어 인코더다.** `picamera2/encoders/__init__.py`가
+   `get_platform() == Platform.VC4`일 때만 진짜 하드웨어 V4L2 `H264Encoder`를 쓰고, 아니면
+   (`Platform.PISP`, RPi5가 여기 해당) `LibavH264Encoder`(PyAV/libx264 소프트웨어 인코딩)로
+   조용히 치환한다 — **재접속 시 `encoder.force_key_frame()`으로 즉시 IDR을 강제해 대기시간을
+   없애려 시도했으나, `LibavH264Encoder._encode()`의 `frame.pict_type = "I"`가 설치된 PyAV 버전과
+   맞지 않아 `TypeError: an integer is required`로 인코더 백그라운드 스레드가 크래시한다**(실측
+   재현 — 트레이스백은 `picamera2/encoders/libav_h264_encoder.py:155`). 크래시는 백그라운드
+   스레드에서 나서 메인 프로세스는 안 죽고 계속 살아있는 것처럼 보이지만 카메라 파이프라인
+   전체가 멈춘다 — **조용히 넘어갈 뻔한 경고가 아니라 실제 근본원인이었다.** RPi 시스템/venv
+   변경 범위 밖이라(세션 금지사항) `force_key_frame()` 호출을 아예 제거하고, 대신 인코더 기본값
+   `iperiod=30`(30fps 기준 약 1초 GOP)의 **자연 키프레임 재삽입에 의존**하도록 도구를 고쳤다.
+   → **재접속 후 새 클라이언트가 유효 프레임을 받기까지 실측 지연이 있다**: 반복 측정 3회 중
+   2회는 1.11~1.12s, 1회는 2.29s, 별도로 관찰된 1회는 십수 초(정밀 미측정, 로그상 반복된
+   "non-existing PPS 0 referenced"/"no frame!" 파싱 경고가 그 시간 동안 지속된 뒤 스스로 해소됨) —
+   **일관되게 빠르지 않다.** 향후 세션이 picamera2/PyAV 버전을 맞출 수 있으면 `force_key_frame()`
+   재도입으로 이 지연을 없앨 여지가 있다(현재는 보류).
+5. **`FfmpegOutput.stop()`이 무기한 대기할 수 있다.** picamera2 소스 확인 — `audio=False`(이
+   도구는 항상 그렇다)면 `self.timeout=None`으로 고정되어 `self.ffmpeg.wait(timeout=None)`이
+   ffmpeg 프로세스가 스스로 안 끝나면 영원히 블록된다. 위 4번 상황(재접속 후 파싱이 막혀있는
+   채로 SIGTERM이 오는 경우)에서 실제로 재현 — `picam2.stop_recording()`이 끝나지 않아 SIGTERM을
+   보내도 프로세스가 안 죽는 것을 실측으로 확인했다. `_stop_output_with_timeout()`을 안전망으로
+   추가 — `output.stop()`을 별도 스레드에서 실행하고 2초 안에 안 끝나면 ffmpeg 서브프로세스를
+   강제 kill한다(재접속 루프의 dead-output 정리·최종 SIGTERM 종료 양쪽에 적용).
+
+**경고 원문(치명적이지 않음, 매 실행마다 발생) — 원인 추정:**
+```
+WARN V4L2 v4l2_pixelformat.cpp:346 Unsupported V4L2 pixel format RPBP
+```
+`create_video_configuration()`이 요청한 메인 스트림(RGB888) 외에 내부적으로 RAW 스트림도 함께
+구성한다(로그: `configuring streams: (0) 1536x864-RGB888/... (1) 1536x864-BGGR_PISP_COMP1/RAW`).
+`BGGR_PISP_COMP1`은 PiSP 고유의 압축 Bayer 포맷인데, libcamera의 V4L2 호환 계층이 이 포맷의
+fourcc(RPBP로 추정)에 대한 이름 매핑을 갖고 있지 않아 로깅 목적의 "이름 모름" 경고를 낸다 —
+**이 라이브러리 코드를 직접 읽어 100% 확정하진 않았으나(다음 근거 기반 추정), 스트림은 실제로
+정상 동작함(위 실측 프레임/fps/라이브니스)으로 보아 이 RAW 스트림 자체를 이 도구가 소비하지
+않는 것과 일관된다** — V4L2 호환 이름표의 누락일 뿐 기능 결함은 아닌 것으로 판단.
+
+**검증 완료 항목(RPi 실기체 + 랩탑 cv2, pseudo 아님):**
+- 첫 연결: 150/150·100/100·90/90 프레임 각각 수신, shape/fps/라이브니스 위 수치.
+- 재접속: 연결→해제→재연결 시퀀스에서 실제로 새 프레임 수신 확인(90/90, shape 동일) — 위 함정4의
+  지연을 감안해 재시도 폴링으로 확인.
+- SIGTERM graceful shutdown: `kill -TERM` → 매번 완전 종료(`fuser -v /dev/video*` clean, 잔존
+  `h264_stream.py`/`ffmpeg` 프로세스 없음) 확인 — 소요시간은 상황에 따라 짧으면 ~3초, 함정4의
+  멈춘 재접속 직후에 걸리면 십수 초까지 걸렸으나(안전망 kill 로그 확인됨) **항상 완료됨**(무기한
+  행 없음).
+- `--once`: 첫 클라이언트 연결 종료 후 재접속 시도 없이 스스로 graceful 종료 확인.
+- `--af-mode continuous/auto/manual`(+`--lens-position 5.0`) 각각 크래시 없이 30~40프레임 수신
+  확인(§ 위 실측 수치).
+
+**남은 한계:** 재접속 지연이 일관되지 않음(1~수초 ~ 십수초, 위 함정4) — `force_key_frame()`을
+다시 쓰려면 picamera2/PyAV 버전을 맞춰야 한다(이번 세션 범위 밖). AF 모드별 실제 초점 이동(포커스
+목표 도달 여부)은 이번 세션에서 크래시 없음만 확인했고 라플라시안 선명도 등으로 "실제로 초점이
+옮겨갔는지"는 별도 검증하지 않았다(§ `calib_capture.py`/`rpi_capture.py`의 초점 스윕 도구가 이미
+그 검증 방법론을 갖고 있음 — 필요하면 재사용).
 
 ### Phase 4 — 통합·폐기 (별건, 위 검증 후)
 - `vision/utils/frame_source.py::LiveFrameSource`를 picamera2 백엔드로 재구현 — 계획서가 정한 정식 이음매(현재 `cv2.VideoCapture` 구현은 V4L2 raw 경로와 비호환, 실측됨).
