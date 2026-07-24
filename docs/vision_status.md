@@ -2,7 +2,7 @@
 doc_type: session_status
 project: suridoksuri-1
 scope: vision 세션 유일 진입점 — 트랙 보드 + 설계 포인터
-last_updated: 2026-07-24b
+last_updated: 2026-07-25
 ---
 
 # vision 세션 진입 상태 문서
@@ -27,7 +27,7 @@ last_updated: 2026-07-24b
 
 ## 트랙 보드
 
-### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. **2026-07-24: ArUco 브랜치(Phase 1~4) 완료 + `LiveFrameSource` picamera2 재구현 + `main.py` 라이브 배선까지 RPi 실기체 종단간 검증 완료(picam-venv opencv 업그레이드 포함). 다음 자기완결 브리프 `docs/vision_next_session_brief.md` 준비됨 — 다음 오케스트레이터 세션은 그 문서로 진입**)
+### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. **2026-07-24: ArUco 브랜치(Phase 1~4) 완료 + `LiveFrameSource` picamera2 재구현 + `main.py` 라이브 배선까지 RPi 실기체 종단간 검증 완료(picam-venv opencv 업그레이드 포함). 2026-07-24 후속: MjpegStreamer 실네트워크 검증+fps 튜닝(2→17fps) 완료. 2026-07-25: ffmpeg Phase 3(camera_bringup.md) 착수 준비 — 사전조사 완료(picamera2 H264Encoder 확인) + 다음 세션 브리프 재작성 완료. 다음 자기완결 브리프 `docs/vision_next_session_brief.md` 준비됨 — 다음 오케스트레이터 세션은 그 문서로 진입**)
 
 - **✅ ArUco 브랜치 Phase 1~4 완료(2026-07-24, 노트북/WSL 로컬 세션 — 오케스트레이터, 합성 이미지로 전부 검증, RPi 실기체 불필요):** `docs/vision_aruco_branch.md`가 지시한 4개 Phase를 순서대로 완료해 브랜치 종료. `vision_plan.md` §9 4번(ArUco 브랜치 → `TargetEstimate` 출력 계약 확정)이 완결됨. 상세:
   - **Phase 1 — nominal intrinsics:** `vision/tools/compute_nominal_intrinsics.py` 신설 → `vision/calibration/cam109-imx708af75/nominal.yaml`(HFOV=75°/수평 가정, `accuracy: unverified`/`not_for_closed_loop_30cm: true` 명시).
@@ -140,9 +140,12 @@ last_updated: 2026-07-24b
   - **fps 빠른 튜닝(임시 조치, ffmpeg 대체 아님):** `--live-resolution 1536x864`(기본 4608×2592에서 1/3 선형 축소)로 재실행 → 실측 **약 17fps**(103프레임/6초, 전부 `cv2.imdecode` 성공, 여전히 640×360 VGA박스 출력, 평균 프레임 24KB, 처리량 ≈414KB/s) — 이전 측정(4608×2592, ≈2fps) 대비 약 8배 개선, 목표(5fps+) 초과 달성. 캡처 해상도가 병목이었음을 실측으로 확인. **코드 변경 없음**, CLI 인자만 다르게 실행.
   - **초록 사각형은 ArUco 인식이 아니다 — 오해 정정.** Phase A/fps 튜닝 둘 다 `single_frame.yaml`(범용 흑백 사각형 검출기 `RectDetector`) 프리셋을 썼다. 화면의 초록 박스는 `draw_detections()`(`vision/utils/visualize.py:11`)가 `state.detections`(사각형 후보, ArUco와 무관)를 그린 것 — `vertiport_fine.yaml`(`aruco_detector` 스텝)을 안 써서 애초에 ArUco ID를 찾지도 않는다. **ArUco 파이프라인은 지금까지 합성 이미지 + RPi `--display none` 헤드리스 실행으로만 검증됐고, 실카메라로 실제 마커를 스트림 화면에서 눈으로 확인한 적은 아직 없다** — 필요시 별도로 `vertiport_fine.yaml`+실제 프린트 마커로 시연 가능(스코프 아님, 다음에 원하면).
   - **초점 미제어 확인.** `LiveFrameSource`(`vision/utils/frame_source.py`)는 `create_still_configuration()`만 호출하고 AF모드/렌즈위치를 명시적으로 세팅하는 코드가 없다 — 카메라 드라이버 기본 동작에 맡겨져 있다(`calib_capture.py`의 수동 초점 스윕/잠금 로직은 이 라이브 스트리밍 경로에 연결 안 됨). "초점이 안 맞는 것 같다"는 관찰과 일치 — 알려진 갭으로 기록, 이번 세션 스코프 밖.
-- **다음 (Phase A 완료로 갱신, Phase B만 남음). 자기완결 브리프 `docs/vision_next_session_brief.md`는 이제 Phase A 부분이 완료 처리됨 — Phase B 절만 유효:**
-  0. **🔴 Phase 3(ffmpeg/H.264, `docs/vision_camera_bringup.md` §Phase3) — 아직 미착수, 다음 vision 세션의 최우선 후보 중 하나로 반드시 검토할 것.** MJPEG(`utils/stream.py`)는 이게 끝나면 폐기 후보(문서에 이미 명시돼 있었음). "나중에"로 또 미루지 말 것 — 사용자가 명시적으로 이 항목이 계속 묻히는 것에 대해 강하게 문제 제기함(2026-07-24).
-  1. **Phase B(사용자 물리적 개입 필수 — 정지조건):** 골든셋을 실촬영 데이터로 교체 — 절차는 `vision/tests/golden/README.md` "실기체 데이터가 들어오면" 참조. 40m 티어의 `known_limitation` 두 건 실측 재검증, ArUco fine 단계(`vertiport_fine.yaml`)도 실기체 마커 촬영으로 재검증 대상(nominal intrinsics 기반이라 pose 절대 정밀도는 "미검증" 상태 그대로). `python -m vision.main live --preset ...`로 촬영 가능(이번에 배선 완료)하나 **실제 고도/거리에서 타겟을 배치하는 물리적 촬영이 필요해 오케스트레이터가 원격으로 대신할 수 없다** — 다음 세션은 이 Phase 진입 전 반드시 사용자에게 촬영 가능 시점부터 확인할 것.
+- **✅ 다음 세션 브리프 재작성 완료(2026-07-25, 같은 세션 연속) — 자기완결 브리프 `docs/vision_next_session_brief.md`를 새 범위로 전면 재작성함(Phase A/B 번호체계 폐기, 아래 새 우선순위로 대체):**
+  - **사전조사 완료(RPi 실기체, 2026-07-25):** `rpicam-vid`/`libcamera-vid` 없음(별도 저장소 `rpicam-apps`, 이번 브링업엔 `cam` 데모 앱만 빌드됨) · `ffmpeg` CLI 없음(RPi/노트북 양쪽) · **picamera2에 `H264Encoder`(`LibavH264Encoder`, 소프트웨어 인코딩) + `FfmpegOutput` 이미 존재 확인** — `rpicam-apps` 재소스빌드 불필요, 훨씬 가벼운 경로로 Phase 3 진행 가능해짐.
+  - **🔴 확정(2026-07-25 사용자 확인): H.264 라이브 스트림은 검출박스(annotated) 없이 카메라 원본만.** 검출결과 확인은 기존 재생 오버레이 뷰어(§7.9 (a))가 계속 담당 — 역할 분리. `MjpegStreamer`는 폐기하지 않고 병행 운용(용도가 다름: MJPEG=검출결과 관찰, H.264=카메라 원본 저지연 디버그).
+  - **다음 vision 세션 우선순위(전부 물리개입 불필요):** 1) ffmpeg/H.264 라이브 디버그 스트림(camera_bringup.md Phase 3, 경로A/B 후보 정리됨) → 2) §9 빌드순서 이어가기(6번 공통 상태머신 §5.1 미구현 확인됨·5번 현장 색 캘리브레이터 §5.5 미구현 확인됨, 둘 다 코드베이스에 관련 파일 전무 확인) → 3) 선택적 필러(라이브 경로 AF 제어 미배선·테스트 커버리지 TODO).
+  - **명시적 제외(이번엔 스코프 아님):** Phase B(골든셋 실촬영, 여전히 사용자 물리개입 정지조건) · §9 7번(offboard/fc_ros 배선, 도메인 밖) · 체커보드 캘리브레이션 재개(여전히 보류).
+  - 상세는 `docs/vision_next_session_brief.md` 전체(자기완결적으로 다시 씀, 이 트랙 보드 재독 불필요).
   - `LiveFrameSource`를 `replay.py`에도 배선할지는 브리프 범위 밖(필요성 자체가 불확실 — `replay.py`는 오프라인 재생 전용이라 개념적으로 안 맞을 수 있음, 필요해지면 별도 논의).
   - **체커보드 실측 캘리브레이션 재개는 이 목록에 없다 — 예선 통과 후, §9 8번(폐루프 30cm 검증) 진입 직전에 별도로 재개한다.**
   - **offboard/`fc_ros` 폐루프 유도 연동도 이 목록에 없다** — vision이 `TargetEstimate`를 뱉는 데까지가 이번 완료 범위이고, 실제 착륙 유도는 별도 트랙(루트 `CLAUDE.md` "도메인 간 의존 관계" 절 참조, vision 세션에서 `fc_ros`/`fc_bridge`를 건드리지 않는다).
