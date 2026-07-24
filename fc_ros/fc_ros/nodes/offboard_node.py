@@ -48,7 +48,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from rclpy.time import Time
 from geometry_msgs.msg import PoseStamped, TwistStamped
-from mavros_msgs.msg import State, ExtendedState, HomePosition
+from mavros_msgs.msg import State, ExtendedState, Altitude
 from mavros_msgs.srv import CommandBool, CommandLong, CommandTOL, SetMode
 from std_msgs.msg import Bool
 
@@ -231,7 +231,9 @@ class OffboardNode(Node):
         # ARM_TAKEOFF 시퀀스 플래그
         self._arm_sent = False
         self._takeoff_sent = False
-        # 이륙 지점 지면 AMSL (/mavros/home_position). CommandTOL 목표고도(절대) 기준.
+        # 이륙 지점 지면 AMSL (/mavros/altitude.amsl, 2026-07-24부터 — 이전엔
+        # /mavros/home_position/home.geo.altitude였으나 ellipsoid 혼동 버그로 교체됨,
+        # 아래 _cb_home 참조). CommandTOL 목표고도(절대) 기준.
         # 수신 즉시 단발 신뢰하지 않고 최근 N개가 tol 이내로 수렴해야 확정한다
         # (2026-07-23 실비행 사고: 막 재시작된 MAVROS가 첫 수신값을 그대로 썼다가
         # 26.7m 스테일 오차로 3m 상승명령이 29.7m 상승으로 실행됨 — state_logic.py
@@ -278,8 +280,8 @@ class OffboardNode(Node):
             "/mavros/extended_state",
             self._cb_extended, _MAVROS_QOS)
         self.create_subscription(
-            HomePosition,
-            "/mavros/home_position/home",
+            Altitude,
+            "/mavros/altitude",
             self._cb_home, _MAVROS_QOS)
         self.create_subscription(
             Bool,
@@ -321,12 +323,23 @@ class OffboardNode(Node):
         with self._vs_lock:
             update_from_extended_state(self._vehicle_state, msg)
 
-    def _cb_home(self, msg: HomePosition) -> None:
-        # geo.altitude = 이륙 지점 지면 AMSL. CommandTOL 목표고도(절대)의 기준값.
+    def _cb_home(self, msg: Altitude) -> None:
+        # amsl = 이륙 지점 지면 AMSL. CommandTOL 목표고도(절대)의 기준값.
         # 단발 스냅샷 대신 최근 샘플이 tol 이내로 수렴할 때만 확정한다(2026-07-23 대응).
         #
-        # (2026-07-24 SITL 재현 대응): 오래된(래치/캐시된) home_position은 수렴
-        # 표본에서 아예 제외한다 — 같은 세션 안에서 이전 PX4 인스턴스의 home이
+        # (2026-07-24 SITL H-2 체크리스트 재현 대응, geoid/ellipsoid 혼동 확정):
+        # 원래 /mavros/home_position/home 의 geo.altitude를 썼으나, 이는 MAVROS가
+        # ROS REP-103 관례(NavSatFix.altitude=WGS84 타원체고)를 맞추려 EGM96 보정을
+        # 적용한 값 — 반면 CommandTOL(MAV_CMD_NAV_TAKEOFF param7)이 기대하는 값은
+        # AMSL이라, 그 보정치(한국 기준 약 24.8m, geoid separation)만큼 목표고도가
+        # 부풀려져 3~4m 상승명령이 실제로 ~28m까지 과상승했다(PX4_HOME_LAT/LON/ALT를
+        # 실측값으로 지정한 통제 SITL 재현으로 확정, docs/sitl_verification_log.md
+        # "작업 H-2" 참조). /mavros/altitude.amsl은 GLOBAL_POSITION_INT.alt(이미
+        # AMSL)를 그대로 relay해 이 보정을 거치지 않으므로 CommandTOL과 프레임이
+        # 일치한다.
+        #
+        # (2026-07-24 이전 SITL 재현 대응, 여전히 유효): 오래된(래치/캐시된) 표본은
+        # 수렴 표본에서 아예 제외한다 — 같은 세션 안에서 이전 PX4 인스턴스의 값이
         # 그대로 섞여 들어와 우연히 min_samples개가 서로 tol 이내로 일치해버리면
         # home_amsl_confirmed()가 그 stale 값을 그대로 확정하는 사고를 막기 위함
         # (실측: 이번 비행 지면 0.25m AMSL인데 이전 비행 값 47.5m대가 새어들어가
@@ -335,11 +348,11 @@ class OffboardNode(Node):
                  - Time.from_msg(msg.header.stamp)).nanoseconds / 1e9
         if not home_amsl_sample_fresh(age_s, self._home_amsl_max_age):
             self.get_logger().warn(
-                f"home_position 메시지 지연 age={age_s:.1f}s > "
+                f"altitude 메시지 지연 age={age_s:.1f}s > "
                 f"{self._home_amsl_max_age:.1f}s — 래치/캐시 의심, 수렴 표본에서 제외",
                 throttle_duration_sec=2.0)
             return
-        self._home_amsl_samples.append(float(msg.geo.altitude))
+        self._home_amsl_samples.append(float(msg.amsl))
         del self._home_amsl_samples[:-20]  # 무한 성장 방지, 최근 20개만 유지
         self._home_amsl = home_amsl_confirmed(
             self._home_amsl_samples,
