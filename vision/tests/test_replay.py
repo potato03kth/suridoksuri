@@ -359,3 +359,72 @@ def test_missing_calib_file_logs_warning_and_still_runs(tmp_path):
 
     log_text = (log_dir / "nocalibrep.log").read_text()
     assert "캘리브레이션 로드 실패" in log_text
+
+
+# ===========================================================================
+# §9 6번(공통 상태머신) 배선 — JSONL `state` 필드가 실제로 채워지는지(더 이상 전부 null 아님)
+# ===========================================================================
+
+
+def _make_aruco_recording_dir_with_telemetry(tmp_path, n: int, alts: list[float | None], marker_id: int = 23):
+    """`_make_aruco_recording_dir`에 telemetry.jsonl(alt)을 얹은 변형 — replay.py가 AGL을
+    실제로 읽어 상태머신에 먹이는지(§9 6번 배선 3) 검증하는 데 쓴다."""
+    rec_dir = tmp_path / "aruco_recording_telem"
+    rec_dir.mkdir()
+    marker_gray = cv2.aruco.generateImageMarker(_DICTIONARY, marker_id, 150)
+    marker_bgr = cv2.cvtColor(marker_gray, cv2.COLOR_GRAY2BGR)
+    for i in range(n):
+        canvas = np.full((300, 300, 3), 255, dtype=np.uint8)
+        canvas[50:200, 50:200] = marker_bgr
+        cv2.imwrite(str(rec_dir / f"frame_{i:04d}.png"), canvas)
+    lines = []
+    for i in range(n):
+        rec = {"frame_id": i, "ts": float(i) * 0.1}
+        if alts[i] is not None:
+            rec["alt"] = alts[i]
+        lines.append(json.dumps(rec))
+    (rec_dir / "telemetry.jsonl").write_text("\n".join(lines) + "\n")
+    return rec_dir
+
+
+def test_state_field_is_populated_and_progresses_through_real_pipeline(tmp_path):
+    """§9 6번 요구: log_frame의 `state` 파라미터에 실제 상태머신 결과가 실려야 한다 —
+    몽키패치 없이 실제 ArUco 검출이 반복되는 실제 녹화 폴더를 실제로 재생해 JSONL에
+    null이 아닌 실제 상태 문자열이(ACQUIRE에 머물지 않고 진행하며) 찍히는지 확인."""
+    rec_dir = _make_aruco_recording_dir(tmp_path, n=6)
+    log_dir = tmp_path / "logs"
+
+    frame_count = replay_mod.run_replay(
+        str(rec_dir), _VERTIPORT_FINE_PRESET, display="none", output=None,
+        log_dir=str(log_dir), log_name="staterep",
+    )
+    assert frame_count == 6
+
+    records = [json.loads(l) for l in (log_dir / "staterep.jsonl").read_text().splitlines()]
+    assert len(records) == 6
+    states = [r["state"] for r in records]
+
+    assert all(s is not None for s in states), "state 필드가 여전히 전부 null — 배선 안 됨"
+    assert states[0] != "ACQUIRE"
+    assert "PRECISION_SERVO" in states or "LOCK" in states
+    assert all(r["command"] is not None for r in records)
+
+
+def test_agl_from_telemetry_drives_state_machine_into_terminal(tmp_path):
+    """§9 6번 배선 3 요구: telemetry.jsonl의 alt(라이다 AGL)가 있으면 상태머신에 실제로
+    쓰여야 한다 — AGL이 낮아지는 실제 녹화를 재생해 TERMINAL까지 실제로 도달하는지 확인
+    (없으면 그냥 None으로 흘려보내는 것과 구분이 안 되므로 이 테스트가 진짜 배선을 담보)."""
+    alts = [None, None, None, 2.0, 2.0, 2.0, 2.0, 2.0]
+    rec_dir = _make_aruco_recording_dir_with_telemetry(tmp_path, n=8, alts=alts)
+    log_dir = tmp_path / "logs"
+
+    frame_count = replay_mod.run_replay(
+        str(rec_dir), _VERTIPORT_FINE_PRESET, display="none", output=None,
+        log_dir=str(log_dir), log_name="aglrep",
+    )
+    assert frame_count == 8
+
+    records = [json.loads(l) for l in (log_dir / "aglrep.jsonl").read_text().splitlines()]
+    assert [r["alt"] for r in records] == alts
+    states = [r["state"] for r in records]
+    assert "TERMINAL" in states, f"AGL<=terminal_agl_m인데 TERMINAL 미도달 — 실제 상태열: {states}"

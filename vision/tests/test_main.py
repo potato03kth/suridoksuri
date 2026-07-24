@@ -273,6 +273,58 @@ def test_missing_calib_file_logs_warning_and_still_runs(tmp_path, monkeypatch):
 
 
 # ===========================================================================
+# §9 6번(공통 상태머신) 배선 — JSONL `state` 필드가 실제로 채워지는지(더 이상 전부 null 아님)
+# ===========================================================================
+
+
+def _write_aruco_video(tmp_path, n_frames: int = 6, marker_id: int = 23) -> str:
+    """같은 ArUco ID=23 마커 프레임을 n_frames번 반복한 영상 — 상태머신이 실제로
+    ACQUIRE 이후 단계까지 전이하려면 연속 프레임(lock_confirm_frames 기본 3)이 필요하다."""
+    video_path = tmp_path / "aruco_clip.mp4"
+    canvas = np.full((300, 300, 3), 255, dtype=np.uint8)
+    marker_gray = cv2.aruco.generateImageMarker(_DICTIONARY, marker_id, 150)
+    canvas[50:200, 50:200] = cv2.cvtColor(marker_gray, cv2.COLOR_GRAY2BGR)
+    writer = cv2.VideoWriter(
+        str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), 10, (300, 300)
+    )
+    for _ in range(n_frames):
+        writer.write(canvas)
+    writer.release()
+    return str(video_path)
+
+
+def test_state_field_is_populated_and_progresses_through_real_pipeline(tmp_path, monkeypatch):
+    """§9 6번 요구: log_frame의 `state` 파라미터에 실제 상태머신 결과가 실려야 한다 —
+    몽키패치로 값을 주입하지 않고, 실제 ArUco 검출이 반복되는 실제 영상을 실제로 돌려
+    JSONL에 null이 아닌 실제 상태 문자열이(그것도 ACQUIRE에 머물지 않고 진행하며) 찍히는지 확인."""
+    video_path = _write_aruco_video(tmp_path, n_frames=6)
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "vision.main", video_path,
+            "--preset", _VERTIPORT_FINE_PRESET,
+            "--log-dir", str(log_dir), "--log-name", "staterun",
+        ],
+    )
+    main_mod.main()
+
+    records = [json.loads(l) for l in (log_dir / "staterun.jsonl").read_text().splitlines()]
+    assert len(records) == 6
+    states = [r["state"] for r in records]
+
+    assert all(s is not None for s in states), "state 필드가 여전히 전부 null — 배선 안 됨"
+    assert all(isinstance(s, str) and s for s in states)
+    # 반복되는 실제 검출만으로 ACQUIRE에 머물지 않고 실제로 진행해야 한다(커밋 게이트를
+    # 실제로 통과한다는 증거) — 정확한 프레임별 값은 core/state_machine 단위테스트가 담당.
+    assert states[0] != "ACQUIRE"
+    assert "PRECISION_SERVO" in states or "LOCK" in states
+    # command 힌트도 함께 실린다(같은 log_frame 파라미터 재사용).
+    assert all(r["command"] is not None for r in records)
+
+
+# ===========================================================================
 # 라이브 모드(LiveFrameSource 배선) — 실카메라/picamera2 없이 `main_mod.LiveFrameSource`를
 # 몽키패치해 검증(vision.utils.frame_source의 LiveFrameSource 몽키패치 대신 이 방식을 택한
 # 이유: main.py가 top-level에서 `from vision.utils.frame_source import LiveFrameSource`로

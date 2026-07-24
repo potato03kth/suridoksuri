@@ -5,9 +5,14 @@
 일치하고, (b) 만든 Figure의 각 서브플롯 데이터 포인트 수가 그 행 수(또는 score가 있는
 행 수)와 일치하며, (c) PNG 플롯 파일이 실제로 디스크에 생성되는지 확인한다.
 
-거절(rejection)·state 다중값 케이스는 main.py/replay.py가 아직 그 필드들을 채우지
-않으므로(§5.1 상태머신 미구현), 실제 BlackBoxLogger.log_frame/log_rejection을 직접
-호출해(수기로 JSON을 쓰지 않음 — 실제 BlackBoxLogger 산출물) 스키마 경계 케이스를 검증한다.
+§5.1 상태머신(`core/state_machine.py`)이 main.py/replay.py에 배선된 뒤로 `real_jsonl`
+픽스처(vision.main 실제 실행)도 매 프레임 실제 `state` 문자열을 남긴다(아래
+"state는 이제 실제로 채워진다" 절 참조). 다만 이 픽스처는 짧은 4프레임 합성 시퀀스라
+상태가 한 값(`CENTER_DESCEND`)에 머무는데, 거절(rejection)·**다중** state 값이 시간축에
+걸쳐 어떻게 그려지는지(안내 텍스트 대신 step 라인)는 실제 `BlackBoxLogger.log_frame`/
+`log_rejection`을 직접 호출해(수기로 JSON을 쓰지 않음 — 실제 BlackBoxLogger 산출물) 별도로
+검증한다(아래 "거절/다중 state 경계 케이스" 절). main.py는 여전히 거절 사유를 기록하지
+않는다(§7.4 거절이유 로깅은 이번 §9 6번 범위 밖).
 """
 import json
 import sys
@@ -137,9 +142,17 @@ def test_build_figure_point_counts_match_scored_rows(real_jsonl):
     latency_line = ax_latency.lines[0]
     assert len(latency_line.get_xdata()) == len(frame_rows) == 4
 
-    # state는 main.py가 아직 채우지 않으므로(§5.1 미구현) 빈 상태 안내 텍스트만 있고 라인은 없어야 함
-    assert len(ax_state.lines) == 0
-    assert len(ax_state.texts) == 1
+    # §9 6번 배선 이후: main.py가 매 프레임 실제 state 문자열을 남긴다 — 이 4프레임 합성
+    # 시퀀스는 첫 프레임부터 이미 coarse 후보가 있어(rect_direct.yaml) 곧장 CENTER_DESCEND로
+    # 전이되고(ACQUIRE는 후보 0인 프레임에서만 관측됨) 그 뒤로도 계속 그 상태에 머문다
+    # (fine_locked 신호가 없는 프리셋이라 LOCK 이상으로는 못 감 — 커밋 게이트 불변식과 일치).
+    # 값이 하나뿐이라도 실제 상태 데이터이므로 안내 텍스트가 아니라 step 라인이 그려져야 한다.
+    assert [r.state for r in frame_rows] == ["CENTER_DESCEND"] * 4
+    assert len(ax_state.lines) == 1
+    assert len(ax_state.texts) == 0
+    state_line = ax_state.lines[0]
+    assert len(state_line.get_xdata()) == len(frame_rows) == 4
+    assert ax_state.get_yticklabels()[0].get_text() == "CENTER_DESCEND"
 
     import matplotlib.pyplot as plt
     plt.close(fig)
@@ -242,6 +255,29 @@ def test_rejection_lines_and_multi_state_from_real_blackbox_logger(tmp_path):
     assert len(ax_state.lines) == 1
     assert len(ax_state.texts) == 0
     assert list(ax_state.get_yticklabels()[i].get_text() for i in range(2)) == ["LOCKED", "SEARCH"]
+
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+def test_no_state_data_still_shows_guidance_text(tmp_path):
+    """§9 6번 배선 이후로도 main.py/replay.py가 항상 state를 채운다고 이 파일(jsonl_view.py)이
+    가정하면 안 된다 — state가 전혀 없는(예: 상태머신 배선 전 구 JSONL) 입력도 크래시 없이
+    안내 텍스트로 우아하게 처리돼야 한다는 회귀를 여기서 직접 만든 JSONL로 계속 지킨다."""
+    bb = BlackBoxLogger(str(tmp_path), name="nostate", max_queue=100)
+    bb.log_frame(frame_id=0, ts=0.0, detections=[], latency=0.01)  # state 인자 생략 -> None
+    bb.log_frame(frame_id=1, ts=0.1, detections=[], latency=0.01)
+    bb.close()
+
+    jsonl_path = tmp_path / "nostate.jsonl"
+    frame_rows, rejection_ts = load_records(jsonl_path)
+    assert all(r.state is None for r in frame_rows)
+
+    fig = build_figure(frame_rows, rejection_ts, x_field="ts")
+    ax_score, ax_latency, ax_state = fig.axes
+    assert len(ax_state.lines) == 0
+    assert len(ax_state.texts) == 1
+    assert "no state data" in ax_state.texts[0].get_text()
 
     import matplotlib.pyplot as plt
     plt.close(fig)

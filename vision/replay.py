@@ -22,6 +22,7 @@ from typing import Optional
 import cv2
 
 from vision.core.runner import Pipeline
+from vision.core.state_machine import LandingStateMachine, Observation
 from vision.core.target import solve_target_pose
 from vision.utils.blackbox import BlackBoxLogger
 from vision.utils.calibration_loader import CameraCalibration, load_camera_calibration
@@ -110,6 +111,30 @@ def _solve_aruco_chosen(
     return {"target_estimate": _target_estimate_to_dict(estimate)}
 
 
+def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] = None) -> Observation:
+    """§9 6번(공통 상태머신) 배선 — main.py와 동일 로직(상호 import 안 함 원칙에 따라 얇게
+    중복, vision/CLAUDE.md import 규칙). `fine_locked`은 지금 유일하게 구현된 fine 검증인
+    ArUco ID 확정 검출 유무로 판단한다 — coarse 전용 프리셋은 항상 False로 degrade."""
+    det = state.confirmed if state.confirmed is not None else (
+        state.detections[0] if state.detections else None
+    )
+    center_error_px = None
+    if det is not None:
+        h, w = state.original.shape[:2]
+        cx, cy = det.center
+        dx = (cx - w / 2.0) / (w / 2.0)
+        dy = (cy - h / 2.0) / (h / 2.0)
+        center_error_px = float((dx ** 2 + dy ** 2) ** 0.5)
+    return Observation(
+        ts=ts,
+        frame_id=frame_id,
+        n_candidates=len(state.detections),
+        center_error_px=center_error_px,
+        fine_locked=_find_aruco_detection(state.detections) is not None,
+        agl_m=agl_m,
+    )
+
+
 def run_replay(
     input_path: str,
     preset: str,
@@ -143,6 +168,10 @@ def run_replay(
     except FileNotFoundError as e:
         logger.warning("캘리브레이션 로드 실패(%s) — ArUco TargetEstimate 계산 생략: %s", calib_path, e)
 
+    # §9 6번 — 공통 상태머신. 재생 전체에 걸쳐 인스턴스 하나 재사용(결정론적 재생, §7.5 —
+    # 매 프레임 새로 만들면 상태 누적 자체가 사라진다).
+    state_machine = LandingStateMachine()
+
     streamer = None
     writer = None
     frame_count = 0
@@ -167,11 +196,21 @@ def run_replay(
                 if aruco_chosen is not None:
                     chosen = {**(chosen or {}), **aruco_chosen}
 
+                # telemetry.jsonl에 alt(라이다 AGL)가 있으면 쓰고, 없으면 None으로 우아하게
+                # degrade한다(실기체 telemetry 아직 없음 — AGL 없이도 상태머신은 동작해야 함).
+                decision = state_machine.update(
+                    _build_observation(
+                        state, record.frame_id, record.ts, agl_m=record.telemetry.get("alt")
+                    )
+                )
+
                 blackbox.log_frame(
                     frame_id=record.frame_id,
                     ts=record.ts,
                     detections=_detections_to_list(state.detections),
                     chosen=chosen,
+                    state=decision.state.value,
+                    command=decision.command,
                     alt=record.telemetry.get("alt"),
                     attitude=record.telemetry.get("attitude"),
                     latency=latency,

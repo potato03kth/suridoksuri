@@ -37,6 +37,7 @@ from typing import Optional, Tuple
 import cv2
 
 from vision.core.runner import Pipeline
+from vision.core.state_machine import LandingStateMachine, Observation
 from vision.core.target import solve_target_pose
 from vision.utils.blackbox import BlackBoxLogger
 from vision.utils.calibration_loader import CameraCalibration, load_camera_calibration
@@ -139,6 +140,34 @@ def _solve_aruco_chosen(
     return {"target_estimate": _target_estimate_to_dict(estimate)}
 
 
+def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] = None) -> Observation:
+    """§9 6번(공통 상태머신) 배선 — 현재 파이프라인 산출물에서 `Observation` 최소 필드만 뽑는다.
+
+    `fine_locked`은 지금 코드베이스에 유일하게 구현된 fine 검증인 ArUco ID 확정 검출
+    (`_find_aruco_detection`) 유무로 판단한다 — 버티포트/조난자 coarse 전용 프리셋은 아직
+    fine 검증 모듈이 없어(§9 5번은 coarse까지만 완료) 항상 False로 degrade한다. 상태머신은
+    이 사실을 모르는 채 그대로 안전하게 ACQUIRE/CENTER_DESCEND에 머문다 — 타겟 종류 무관
+    공통 골격 원칙과 커밋 게이트 불변식 둘 다와 일치하는 자연스러운 결과다."""
+    det = state.confirmed if state.confirmed is not None else (
+        state.detections[0] if state.detections else None
+    )
+    center_error_px = None
+    if det is not None:
+        h, w = state.original.shape[:2]
+        cx, cy = det.center
+        dx = (cx - w / 2.0) / (w / 2.0)
+        dy = (cy - h / 2.0) / (h / 2.0)
+        center_error_px = float((dx ** 2 + dy ** 2) ** 0.5)
+    return Observation(
+        ts=ts,
+        frame_id=frame_id,
+        n_candidates=len(state.detections),
+        center_error_px=center_error_px,
+        fine_locked=_find_aruco_detection(state.detections) is not None,
+        agl_m=agl_m,
+    )
+
+
 def _parse_live_camera_num(input_arg: str) -> Optional[int]:
     """`input` 위치인자가 라이브 모드 스펙(`live` 또는 `live:<camera_num>`)이면 camera_num을
     반환하고, 일반 파일 경로면 None을 반환한다(기존 이미지/영상 분기로 폴백, 옵션 A —
@@ -178,6 +207,7 @@ def _run_image(
     blackbox: BlackBoxLogger,
     streamer: MjpegStreamer | None = None,
     calib: Optional[CameraCalibration] = None,
+    state_machine: Optional[LandingStateMachine] = None,
 ) -> None:
     image = load_image(str(input_path))
     t0 = time.perf_counter()
@@ -196,6 +226,10 @@ def _run_image(
     if aruco_chosen is not None:
         chosen = {**(chosen or {}), **aruco_chosen}
 
+    decision = None
+    if state_machine is not None:
+        decision = state_machine.update(_build_observation(state, 0, ts))
+
     logger.info(
         "image %s: %d detections, confirmed=%s, latency=%.4fs",
         input_path.name, len(state.detections), state.confirmed is not None, latency,
@@ -205,6 +239,8 @@ def _run_image(
         ts=ts,
         detections=_detections_to_list(state.detections),
         chosen=chosen,
+        state=decision.state.value if decision is not None else None,
+        command=decision.command if decision is not None else None,
         latency=latency,
     )
 
@@ -230,6 +266,7 @@ def _run_video(
     blackbox: BlackBoxLogger,
     streamer: MjpegStreamer | None = None,
     calib: Optional[CameraCalibration] = None,
+    state_machine: Optional[LandingStateMachine] = None,
 ) -> None:
     from vision.utils.video_reader import VideoReader
 
@@ -248,11 +285,17 @@ def _run_video(
             if aruco_chosen is not None:
                 chosen = {**(chosen or {}), **aruco_chosen}
 
+            decision = None
+            if state_machine is not None:
+                decision = state_machine.update(_build_observation(state, frame_count, ts))
+
             blackbox.log_frame(
                 frame_id=frame_count,
                 ts=ts,
                 detections=_detections_to_list(state.detections),
                 chosen=chosen,
+                state=decision.state.value if decision is not None else None,
+                command=decision.command if decision is not None else None,
                 latency=latency,
             )
             logger.debug(
@@ -294,6 +337,7 @@ def _run_live(
     blackbox: BlackBoxLogger,
     streamer: MjpegStreamer | None = None,
     calib: Optional[CameraCalibration] = None,
+    state_machine: Optional[LandingStateMachine] = None,
 ) -> None:
     """실카메라 라이브 모드 — `_run_video`와 거의 동일한 프레임 루프(무한 이터레이터라는 점만
     다름). 헤드리스(`--display none`)에서는 무한정 도는 게 정상 동작이라 Ctrl+C(KeyboardInterrupt)가
@@ -319,11 +363,19 @@ def _run_live(
                 if aruco_chosen is not None:
                     chosen = {**(chosen or {}), **aruco_chosen}
 
+                decision = None
+                if state_machine is not None:
+                    decision = state_machine.update(
+                        _build_observation(state, frame_count, ts, agl_m=record.telemetry.get("alt"))
+                    )
+
                 blackbox.log_frame(
                     frame_id=frame_count,
                     ts=ts,
                     detections=_detections_to_list(state.detections),
                     chosen=chosen,
+                    state=decision.state.value if decision is not None else None,
+                    command=decision.command if decision is not None else None,
                     latency=latency,
                 )
                 logger.debug(
@@ -450,6 +502,11 @@ def main() -> None:
     except FileNotFoundError as e:
         logger.warning("캘리브레이션 로드 실패(%s) — ArUco TargetEstimate 계산 생략: %s", args.calib, e)
 
+    # §9 6번 — 공통 상태머신. 실행 전체에 걸쳐 인스턴스 하나 재사용(프레임 간 상태 누적이
+    # 상태머신의 본질이므로 매 프레임 새로 만들면 안 됨). 단일 이미지 경로에서도 그대로
+    # 통과시킨다 — 관측 1개짜리 시퀀스로 취급해도 크래시 없이 동작한다.
+    state_machine = LandingStateMachine()
+
     streamer = None
     try:
         if args.display == "stream":
@@ -462,11 +519,18 @@ def main() -> None:
             _run_live(
                 pipeline, live_camera_num, args.live_resolution, args.live_retries,
                 args.live_retry_delay, args.output, args.display, logger, blackbox, streamer, calib,
+                state_machine,
             )
         elif input_path.suffix.lower() in _VIDEO_SUFFIXES:
-            _run_video(pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib)
+            _run_video(
+                pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib,
+                state_machine,
+            )
         else:
-            _run_image(pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib)
+            _run_image(
+                pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib,
+                state_machine,
+            )
     finally:
         blackbox.close()
         if streamer is not None:
