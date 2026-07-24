@@ -25,6 +25,13 @@
 주석, `vision/CLAUDE.md` "distress_coarse.yaml min_area/max_area 도출 근거" 참조). 여전히
 합성(synthetic) 이미지라는 점은 vertiport와 동일하다 — 실촬영이 아니라 "실측 스펙에서 GSD로
 역산한 픽셀 크기"라는 의미다. 실기체 데이터가 들어오면 이 자리도 진짜 촬영 프레임으로 교체한다.
+
+**distress `fine/`(②, [2026-07-25] 신설)는 `distress_fine.yaml`(coarse 뒤에 `white_box_detector`를
+잇는 캐스케이드, §9 빌드순서 — "끊어진 체인을 잇는 작업") 회귀용이다.** `_synthetic_distress()`의
+`box_ratio`를 실측 스펙 그대로(§2 "정중앙 20cm 흰 사무박스" / 매트 3.0m → 선형비 0.2/3.0≈0.0667)
+써서 위 10m/20m/40m 리프(box_ratio 기본값 0.22, 흰 박스가 그려져 있어도 `distress_coarse.yaml`
+검증에서는 안 쓰이는 배경 요소일 뿐이었음)와 구분한다. **여전히 합성 데이터다** — 실촬영
+교체는 계속 미실시(§9 진행 중 결정, 카메라 브링업 이후로 후순위 유지).
 """
 import json
 from pathlib import Path
@@ -228,6 +235,38 @@ def generate() -> None:
         },
     )
 
+    # --- distress/fine (② — distress_fine.yaml, coarse 뒤에 white_box_detector 캐스케이드) ---
+    # [2026-07-25 신설, §9 "끊어진 체인을 잇는 작업"] 매트 크기는 위 10m 리프와 동일 공식값
+    # (mat_size=300, ~90,000px² — coarse/fine 둘 다 같은 물리 매트를 보므로 같은 고도에서
+    # 같은 픽셀 크기가 나오는 게 당연하다). box_ratio만 실측 스펙 그대로(0.0667, 위 docstring
+    # 참조)로 바꿔 흰 박스가 물리적으로 정확한 상대 크기로 그려지게 한다.
+    _write_frame(
+        _ROOT / "distress" / "fine",
+        _synthetic_distress(mat_size=300, canvas=460, box_ratio=0.0667),
+        {
+            "target": "distress",
+            "altitude_label": "~10m — distress_fine.yaml 대표 근접치(fine 대역 ≤~15m 내), 스키마 자리표시자",
+            "preset": "distress_fine.yaml",
+            "note": (
+                "coarse 매트(10m 리프와 동일 물리 크기, ~90,000px²) + 실측 비율(20cm/3.0m≈0.0667 "
+                "선형, 면적비≈0.00444) 흰 박스. white_box_detector 기본 파라미터(min_area_ratio="
+                "0.0015~max_area_ratio=0.02) 범위 내라 확정되고, landing_point_px가 detection.meta에 "
+                "실려야 한다 — §5.3 '박스 옆 빈 초록면' 착륙점 산출이 실제 재생 경로로 검증되는 케이스."
+            ),
+            "frames": [
+                {
+                    "file": "frame_000.png",
+                    "expect_num_detections": 1,
+                    "expect_stage_meta": {
+                        "rect_detector": {"candidates": 1},
+                        "white_box_detector": {"confirmed": 1, "rejected": 0, "reject_reasons": []},
+                    },
+                    "known_limitation": False,
+                }
+            ],
+        },
+    )
+
     # --- no_target (④ 단순착륙과 동일 조건 대응: 피듀셜 없는 평지 — 오탐 방지 회귀) ---
     blank = np.full((400, 400, 3), (70, 70, 70), dtype=np.uint8)
     rng = np.random.default_rng(seed=42)
@@ -244,6 +283,29 @@ def generate() -> None:
                 "④ 단순 착륙은 비전 개입 없음(GPS+라이다만, §5.6)이라 전용 골든셋 대상이 아니다. "
                 "대신 이 프레임은 '피듀셜 없는 평지에서 가장 정교한 캐스케이드(vertiport)조차 "
                 "오탐하지 않는가'를 회귀로 고정한다."
+            ),
+            "frames": [
+                {
+                    "file": "frame_000.png",
+                    "expect_num_detections": 0,
+                    "expect_stage_meta": None,
+                    "known_limitation": False,
+                }
+            ],
+        },
+    )
+    _write_frame(
+        _ROOT / "no_target" / "distress_fine",
+        blank,
+        {
+            "target": "no_target",
+            "altitude_label": "n/a — ④ 단순착륙(피듀셜 없음)과 동일 조건, vision_plan.md §5.6",
+            "preset": "distress_fine.yaml",
+            "note": (
+                "같은 no_target 프레임을 ② 조난자 fine 프리셋(distress_coarse.yaml + "
+                "white_box_detector 캐스케이드, [2026-07-25] 신설)으로도 재생해 오탐 방지를 "
+                "검증한다 — 새 모듈(white_box_detector)이 coarse 자체가 0건인 장면에서 엉뚱한 "
+                "흰 박스를 만들어내지 않는지까지 포함해서 확인."
             ),
             "frames": [
                 {

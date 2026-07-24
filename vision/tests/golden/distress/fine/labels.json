@@ -1,0 +1,23 @@
+{
+  "target": "distress",
+  "altitude_label": "~10m — distress_fine.yaml 대표 근접치(fine 대역 ≤~15m 내), 스키마 자리표시자",
+  "preset": "distress_fine.yaml",
+  "note": "coarse 매트(10m 리프와 동일 물리 크기, ~90,000px²) + 실측 비율(20cm/3.0m≈0.0667 선형, 면적비≈0.00444) 흰 박스. white_box_detector 기본 파라미터(min_area_ratio=0.0015~max_area_ratio=0.02) 범위 내라 확정되고, landing_point_px가 detection.meta에 실려야 한다 — §5.3 '박스 옆 빈 초록면' 착륙점 산출이 실제 재생 경로로 검증되는 케이스.",
+  "frames": [
+    {
+      "file": "frame_000.png",
+      "expect_num_detections": 1,
+      "expect_stage_meta": {
+        "rect_detector": {
+          "candidates": 1
+        },
+        "white_box_detector": {
+          "confirmed": 1,
+          "rejected": 0,
+          "reject_reasons": []
+        }
+      },
+      "known_limitation": false
+    }
+  ]
+}

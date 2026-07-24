@@ -51,18 +51,24 @@ vision/tests/golden/
   "현재 파이프라인의 실제 동작"이지 "바람직한 동작"이 아님을 표시 — 회귀 테스트는 이 값을
   그대로 assert하되, 검출기를 몰래 고쳐서 통과시키면 안 된다(vision/CLAUDE.md 공통 규칙).
 
-## 현재 들어있는 것 (2026-07-21c)
+## 현재 들어있는 것 (2026-07-25 갱신, 최초 2026-07-21c)
 
 | 타겟 | 고도 티어 | preset | 근거 |
 |---|---|---|---|
 | `vertiport`(①) | 10m/20m/40m | `vertiport_coarse.yaml` | 3단 캐스케이드(white_field→black_v→red_ring) 전체 exercise. 10m/20m은 3단 전부 확인, 40m은 **알려진 한계**(white_field만 후보 내고 black_v 형상매칭 탈락 → 최종 0건, 저해상 스케일에서 고정 `kernel_size=5` morphology가 원인으로 보임) — `generate_synthetic.py` docstring 참조 |
-| `distress`(②) | 10m/20m/40m | `distress_coarse.yaml`(전용 검출 모듈 없이 기존 `ColorFilter`+`RectDetector` 조합, 신규 검출 로직 아님) | 초록 매트(3.0m×3.0m×0.105m 라이즈드 플랫폼, 실측)+흰 박스. **[2026-07-22]** 매트 한 변 px은 실측 스펙 + 실측 화각 75°로 역산한 계산값(`generate_synthetic.py`/`distress_coarse.yaml` 헤더 주석/`vision/CLAUDE.md` 참조, 더 이상 임의 placeholder 아님). 10m(~90,000px²)/20m(~22,500px²)는 검출, 40m(~5,625px²)는 `min_area`(8000, 안전마진 반영) 미만인 **물리적으로 타당한** 원거리 미검출 케이스 |
-| `no_target` | — (④ 단순착륙과 동일 조건, §5.6) | `vertiport_coarse.yaml` (루트) + `distress_coarse.yaml` (`no_target/distress_coarse/`) | 피듀셜 없는 평지에서 가장 정교한 캐스케이드(vertiport)도, 색 기준이 전혀 다른 조난자 coarse(초록 HSV) 필터도 오탐하지 않는지. 두 프리셋은 필터 기준이 완전히 달라(무채색 사각형 vs 초록 HSV) 한쪽만 회귀검증하면 다른 쪽 오탐을 놓칠 수 있어 리프를 분리했다 |
+| `distress`(②) | 10m/20m/40m | `distress_coarse.yaml`(전용 검출 모듈 없이 기존 `ColorFilter`+`RectDetector` 조합, 신규 검출 로직 아님) | 초록 매트(3.0m×3.0m×0.105m 라이즈드 플랫폼, 실측)+흰 박스. **[2026-07-22]** 매트 한 변 px은 실측 스펙 + 실측 화각 75°로 역산한 계산값(`generate_synthetic.py`/`distress_coarse.yaml` 헤더 주석/`vision/CLAUDE.md` 참조, 더 이상 임의 placeholder 아님). 10m(~90,000px²)/20m(~22,500px²)는 검출, 40m(~5,625px²)는 `min_area`(8000, 안전마진 반영) 미만인 **물리적으로 타당한** 원거리 미검출 케이스. 이 세 리프의 흰 박스는 `box_ratio` 기본값(0.22, 임의 시각용)으로 그려져 있으나 `distress_coarse.yaml`은 박스를 검증하지 않으므로(전용 fine 모듈이 없던 시절 스캐폴드) 배경 요소일 뿐이다 |
+| `distress/fine`(②, **[2026-07-25 신설]**) | ~10m(fine 대역 ≤~15m 내 대표값) | `distress_fine.yaml`(`distress_coarse.yaml` 뒤에 `white_box_detector` 캐스케이드 — §9 "끊어진 체인을 잇는 작업") | 매트는 위 10m 리프와 동일 물리 크기(~90,000px², 같은 고도라 당연히 같음)지만 흰 박스를 **실측 비율 그대로**(20cm/3.0m≈0.0667 선형, 면적비≈0.00444, `vision_plan.md` §2) 그려 `white_box_detector`가 실제로 확정하고 `detection.meta["white_box_detector"]["landing_point_px"]`(박스 옆 착륙점, §5.3 "박스 옆 빈 초록면")를 싣는지까지 실제 재생 경로로 검증한다 |
+| `no_target` | — (④ 단순착륙과 동일 조건, §5.6) | `vertiport_coarse.yaml` (루트) + `distress_coarse.yaml` (`no_target/distress_coarse/`) + `distress_fine.yaml` (`no_target/distress_fine/`, **[2026-07-25 신설]**) | 피듀셜 없는 평지에서 가장 정교한 캐스케이드(vertiport)도, 색 기준이 전혀 다른 조난자 coarse(초록 HSV) 필터도, 그 위에 얹은 `white_box_detector` 캐스케이드도 오탐하지 않는지. 세 프리셋은 필터/캐스케이드 기준이 서로 달라 한쪽만 회귀검증하면 다른 쪽 오탐을 놓칠 수 있어 리프를 분리했다 |
 
 **빠진 것 (의도적):** ③ 하기구역(빨간 십자)은 전용 형상판별 검출기가 아직 없어(규정도 비공개
 확정 상태, §5.4) 골든셋에서 제외 — 제네릭 rect_detector로 "십자"라고 우기면 허위 검증이 된다.
 ④ 단순착륙은 애초에 비전 검출 대상이 아니다(§5.6) — 대신 `no_target`이 관련 리스크(오탐 방지)를
 간접적으로 커버한다.
+
+**참고:** `no_target/distress_coarse/`는 이 스크립트가 재생성하지 않는다(2026-07-21 감사 세션에서
+별도로 추가된 리프로 추정 — 이번 세션에서 발견된 기존 갭이며 이번 세션 범위 밖이라 그대로 둠).
+반면 이번 세션에서 새로 추가한 `distress/fine/`과 `no_target/distress_fine/`은 둘 다 아래
+재생성 명령으로 완전히 재현된다.
 
 ## 재생성
 

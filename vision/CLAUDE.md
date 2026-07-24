@@ -47,6 +47,7 @@
 | `vertiport_field.py` | `WhiteFieldDetector` | `mask` | `detections`, `meta` |
 | `vertiport_v.py` | `BlackVMatcher` | `original`, `detections` | `detections`, `meta` |
 | `vertiport_ring.py` | `RedRingDetector` | `original`, `detections` | `detections`, `meta` |
+| `distress_box.py` | `WhiteBoxDetector` | `original`, `detections` | `detections`, `meta` |
 
 ### 그 외
 
@@ -57,6 +58,7 @@
 | `config/default.yaml` | 전체 파라미터 기본값 참조용 (실행에 직접 사용하지 않음) |
 | `presets/distress_coarse.yaml` | ② 조난자 구역 coarse(§5.3) — 전용 모듈 없이 기존 `ColorFilter(mode=color)`+`RectDetector` 조합. §7.9 항목7 골든셋용으로 신규 추가(신규 검출 로직 아님). `min_area`/`max_area`는 실측 스펙 기반 도출값 — 근거는 아래 "distress_coarse.yaml min_area/max_area 도출 근거" 절 |
 | `presets/vertiport_fine.yaml` | **신설(ArUco 브랜치 Phase 4)** — `aruco_detector` 단일 스텝. `vertiport_coarse.yaml`의 3단 캐스케이드 **뒤에 이어붙이지 않고 완전히 독립 실행**한다 — `ArucoDetector`(Phase 2)가 ROI 인자 없이 `state.original` 전체 프레임에서 찾고 `state.detections`를 덮어쓰므로, coarse 뒤에 이어붙이면 coarse가 확정한 결과가 조용히 사라진다(설계 판단 근거는 yaml 파일 헤더 주석 참조). ArUco 피덕셜은 스케일/회전에 견고해 ROI 없이도 전체 프레임 탐색이 실용적 |
+| `presets/distress_fine.yaml` | **신설(2026-07-25, §9 "끊어진 체인을 잇는 작업")** — `distress_coarse.yaml`(초록 HSV+`RectDetector`) 뒤에 `white_box_detector`(`modules/distress_box.py`)를 잇는 **캐스케이드**(vertiport_fine.yaml과 반대 판단 — 근거는 이 yaml 헤더 주석과 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절 참조). `rect_detector`의 `min_area`/`max_area`(14000/2,200,000)는 `distress_coarse.yaml` 값을 복사하지 않고 fine 대역(≤~15m, 상한은 `state_machine.py`의 `terminal_agl_m` 기본값 3m 근방)에 맞게 동일 공식으로 재도출(근거는 yaml 헤더 주석) |
 | `utils/image_loader.py` | 파일 경로 → BGR numpy 배열 |
 | `utils/calibration_loader.py` | **신설(ArUco 브랜치 Phase 3)** — `vision/calibration/<camera_id>/nominal.yaml` 로드 어댑터. `CameraCalibration`(camera_matrix/dist_coeffs/image_size/accuracy/not_for_closed_loop_30cm/calib_id 등) 반환, `core/target.py::solve_target_pose()` 입력으로 바로 연결. `compute_nominal_intrinsics.py`가 만드는 `nominal.yaml` 스키마 전용(`calib_analyze.py`의 `<calib_id>.yaml`은 스키마가 달라 별개 — 과설계 금지, 필요해지면 그때 확장). `calib_id`는 로드에 쓴 파일 경로 문자열(§7.3 provenance echo) |
 | `utils/video_reader.py` | 영상 파일 → 프레임 이터레이터 |
@@ -66,13 +68,13 @@
 | `utils/blackbox.py` | 프레임별 JSONL 블랙박스 + 거절이유 로깅. bounded queue+drop-oldest 비차단 (§7.4). `main.py`/`replay.py`에 연결됨 |
 | `utils/stream.py` | `MjpegStreamer` — 라이브 저해상 MJPEG-over-HTTP 스트림(§7.9 항목5, "작동영상 피드백 3경로" (b)). `push_frame()`은 bounded queue+drop-oldest 비차단(`blackbox.py`와 동일 패턴 재사용). 다운스케일·인코딩·HTTP 서빙은 전부 별도 스레드. `main.py --display stream`/`replay.py --display stream`으로 opt-in 연결(항상 켜지지 않음). 기본값 결정 근거는 아래 "라이브 스트림 어댑터 기본값" 참조 |
 | `utils/frame_source.py` | `FrameRecord` + `LiveFrameSource`/`DirFrameSource`/`BagFrameSource` 어댑터 + `open_dir_or_bag()` 팩토리 (§7.2/§7.5/§7.9 항목4). Live=실카메라(재시도 후 `ConnectionError`), Dir=녹화폴더(프레임파일+선택적 `telemetry.jsonl`), Bag=단일 비디오파일(+선택적 사이드카 `<basename>.jsonl`). **`LiveFrameSource`는 2026-07-24 카메라 브링업(`docs/vision_camera_bringup.md`) Phase 4에서 picamera2 백엔드로 재구현됨** — 이전 `cv2.VideoCapture` 구현은 V4L2 raw 경로와 비호환임이 실측 확인돼(`docs/vision_status.md` 2026-07-22b) 폐기. 생성자 인자도 `device`(cv2 정수/경로) → `camera_num`(picamera2 카메라 인덱스) + `resolution`(기본 `nominal.yaml`의 `image_size` 4608x2592와 일치, solvePnP 캘리브레이션과 어긋나지 않게)으로 교체. `create_still_configuration(main={"format": "RGB888", ...})` 요청이 실제로는 BGR 바이트순서를 준다는 picamera2 명명 역전(`tools/calib_capture.py`에서 실기체로 이미 확인된 사실)을 재사용해 별도 색공간 변환 없이 BGR 관례를 만족시킨다. picamera2는 이 `.venv`에 없는 RPi 전용 라이브러리라 `open()` 내부 지연 import로 격리(모듈 최상단 import 금지 — 그러면 이 `.venv`의 `DirFrameSource`/`BagFrameSource` 사용처까지 깨짐). 단위테스트는 `sys.modules`에 가짜 `picamera2` 모듈을 주입해 실기 없이 검증하고, 지연 import 격리 자체도 회귀테스트(소스 텍스트에 최상단 import 없음 + `sys.modules["picamera2"]=None`으로 강제 차단해도 모듈 import는 성공) 대상 |
-| `main.py` | CLI 진입점. 이미지/영상 자동 분기. `--log-dir`/`--log-name`으로 이중싱크 로거+JSONL 블랙박스 실행(항상 on). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `--calib`(기본 `calibration/cam109-imx708af75/nominal.yaml`)로 캘리브레이션을 1회 로드해 재사용, 확정 ArUco 검출이 있으면 `solve_target_pose()` 호출 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절). **§9 6번 상태머신 배선** — 실행 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나를 재사용(`_run_image`/`_run_video`/`_run_live` 전부, 단일 이미지 경로도 관측 1개짜리로 통과)해 매 프레임 `_build_observation()`으로 `Observation`을 만들고 `update()` 결과를 JSONL `state`/`command`에 싣는다(아래 "공통 상태머신 파이프라인 배선" 절) |
-| `replay.py` | 오프라인 재생 CLI(`python -m vision.replay <녹화폴더\|bag> --preset ...`, §7.9 (a)). `open_dir_or_bag`로 Dir/Bag 자동판별 → 동일 `Pipeline`으로 재생 → 로거+블랙박스 기록. **결정론적**(§7.5). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `main.py`와 동일한 `--calib`/`TargetEstimate`→`chosen.target_estimate` 배선(헬퍼는 상호 import 안 함 원칙에 따라 얇게 중복). **§9 6번 상태머신 배선** — `main.py`와 동일 원칙(얇게 중복)으로 재생 루프 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나 재사용, `record.telemetry.get("alt")`가 있으면 `Observation.agl_m`으로 흘려보내고 없으면 None으로 우아하게 degrade(아래 "공통 상태머신 파이프라인 배선" 절) |
+| `main.py` | CLI 진입점. 이미지/영상 자동 분기. `--log-dir`/`--log-name`으로 이중싱크 로거+JSONL 블랙박스 실행(항상 on). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `--calib`(기본 `calibration/cam109-imx708af75/nominal.yaml`)로 캘리브레이션을 1회 로드해 재사용, 확정 ArUco 검출이 있으면 `solve_target_pose()` 호출 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절). **§9 6번 상태머신 배선** — 실행 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나를 재사용(`_run_image`/`_run_video`/`_run_live` 전부, 단일 이미지 경로도 관측 1개짜리로 통과)해 매 프레임 `_build_observation()`으로 `Observation`을 만들고 `update()` 결과를 JSONL `state`/`command`에 싣는다(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절 |
+| `replay.py` | 오프라인 재생 CLI(`python -m vision.replay <녹화폴더\|bag> --preset ...`, §7.9 (a)). `open_dir_or_bag`로 Dir/Bag 자동판별 → 동일 `Pipeline`으로 재생 → 로거+블랙박스 기록. **결정론적**(§7.5). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `main.py`와 동일한 `--calib`/`TargetEstimate`→`chosen.target_estimate` 배선(헬퍼는 상호 import 안 함 원칙에 따라 얇게 중복). **§9 6번 상태머신 배선** — `main.py`와 동일 원칙(얇게 중복)으로 재생 루프 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나 재사용, `record.telemetry.get("alt")`가 있으면 `Observation.agl_m`으로 흘려보내고 없으면 None으로 우아하게 degrade(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절 |
 | `tools/rpi_capture.py` | RPi 헤드리스 캘리브레이션 촬영 — 저해상도 스냅샷 자동갱신(브라우저) + 촬영 트리거(버튼/Enter). **2026-07-22b에 GStreamer `libcamerasrc`(작동 불가였음, libcamera PiSP IPA 결여) 대신 V4L2 RAW 직접 캡처+수동 디베이어로 전면 재작성해 브링업 완료** — media-ctl/v4l2-ctl로 rp1-cfe 파이프라인 직접 구성. 대상 media 디바이스(`/dev/mediaN`)는 부팅마다 번호가 바뀔 수 있어 하드코딩 대신 매 호출 동적 탐색(2026-07-22d, 아래 "media 디바이스 동적 탐색" 절). gray-world 화이트밸런스 보정 포함(아래 절). **수동 초점/노출/게인 제어 + 초점 스윕 도구 포함(2026-07-22e, 아래 "수동 초점/노출/게인 제어" 절)** — libcamera 우회 경로라 연속 AF/AE가 없어 방치돼 있던 것에 대한 대응. 상세 경과는 메모리 `project_rpi5_ubuntu_camera_stack.md` |
 | `tools/jsonl_view.py` | JSONL 블랙박스 뷰어/플롯 최소본(§7.9 항목6). `BlackBoxLogger`가 남긴 `.jsonl`을 읽어 시간축 score/latency/state 3단 플롯을 PNG로 저장(`matplotlib` Agg 백엔드, headless-safe). `python vision/tools/jsonl_view.py <jsonl> [--output out.png] [--x-axis ts\|frame_id]`. **하드웨어 의존 없음** — `rpi_capture.py`와 달리 `.venv`에 설치되고(`matplotlib` in `requirements.txt`) `tests/test_jsonl_view.py` 대상이다(tools/의 "CI/pytest 대상 아님" 규칙은 RPi 하드웨어 전용 스크립트에만 적용). |
 | `tools/calib_analyze.py` | **신설(2026-07-23)** — `calib_capture.py`가 만든 촬영 세트(`<raw_root>/<set>/<distance>m/<stem>.{png,json}`)를 캘리브레이션 아티팩트로. 그룹(set,distance_m)별 `cv2.calibrateCamera` → 사진별 재투영오차로 불량컷 색출·이상치 제외 재캘리브레이션 → **`fx`/`fy` vs `LensPosition` 직선적합으로 L=0(무한대) 외삽**(핵심 목적 — 기체 운용고도 10~40m는 사실상 무한대)·얇은렌즈 물리 일관성 검사(`b/a`→mm, IMX708급 통상 초점거리와 비교)·디옵터 가정(`LensPosition≈1/distance_m`) 직접 검정 → 세트B(2.5m, 최대커버리지)와 외삽값 대조 → fy/fx·주점·HFOV 등 정합성 검사(실패해도 크래시 없이 보고) → 진단 플롯 3종(Agg, `vision/results/`) → `vision/calibration/<camera_id>/<calib_id>.yaml` 아티팩트(그룹별 결과 전부 보존, `recommended`=fx/fy 외삽절편+세트B의 cx/cy/dist_coeffs, 근거는 yaml `note`). 모든 임계값 CLI 파라미터(매직넘버 금지, §7.3). **하드웨어 의존 없음** — `jsonl_view.py`와 동일한 예외로 `.venv` 설치 + `tests/test_calib_analyze.py` 대상. 정확성은 진짜 K/dist를 아는 합성 체스보드 투영 왕복 테스트로 담보(실촬영 사진은 이 스크립트 작성 시점에 아직 없었음 — `docs/vision_camera_bringup.md`). `recommended-source` CLI로 폴백/강제선택 가능, 그룹<2면 적합 생략 + LensPosition 최저 그룹 폴백(사유 yaml 명시, §9 견고성). |
 | `tools/h264_stream.py` | **신설(2026-07-25, ffmpeg Phase 3 "1B 도구화" — `docs/vision_camera_bringup.md` §Phase 3 완료)** — RPi H.264 라이브 디버그 스트림 정식 도구. `Picamera2.create_video_configuration(RGB888, FrameRate)` + `H264Encoder(bitrate=...)` + `FfmpegOutput("-f mpegts -listen 1 tcp://HOST:PORT")`(1A 실증 조합). `SIGTERM` 핸들러로 graceful shutdown 보장(SIGINT는 비대화형 SSH 자식에서 SIG_IGN이 될 수 있어 못 믿음, 1A 실측) + 클라이언트 연결 종료(ffmpeg 프로세스 종료) 감지 시 카메라/인코더 재시작 없이 `FfmpegOutput`만 교체하는 재기동 루프가 기본(`--once`로 단발 모드). `--af-mode continuous\|auto\|manual`(+ `--lens-position`, VCM 실가동범위 0~15.0 디옵터 검증 — 32.0 아님) 지원. **`vision/utils/stream.py`(MjpegStreamer)는 병행 운용, 폐기 아님**(용도가 다름 — 이쪽은 카메라 원본, 그쪽은 검출 오버레이). **하드웨어 의존 로직(run_server, picamera2/libcamera 지연 import)은 tools/의 "CI/pytest 대상 아님" 예외** — 단, 해상도/ffmpeg 스펙 파싱·렌즈위치 검증·AF 모드 매핑·fps/라이브니스 통계·output 사망 판정·bounded stop 안전망·SIGTERM 핸들러는 순수 로직으로 분리해 `tests/test_h264_stream.py` 대상(picamera2 지연 import 격리는 `LiveFrameSource`와 동일 패턴). **실측(RPi5)으로 확인된 핵심 함정** — 이 플랫폼(비-VC4, `Platform.PISP`)의 `H264Encoder`는 실제로는 `picamera2.encoders.LibavH264Encoder`(소프트웨어 x264)로 치환되는데, 그 `force_key_frame()`이 설치된 PyAV 버전과 안 맞아 `frame.pict_type = "I"`가 `TypeError`로 인코더 백그라운드 스레드를 크래시시킨다 — 그래서 이 도구는 `force_key_frame()`을 호출하지 않고 `iperiod` 기본값(약 1초 GOP)의 자연 키프레임 재삽입에 기대며, 재접속 후 새 클라이언트가 유효 프레임을 받기까지 실측 약 1~2초(가끔 더 걸림) 지연이 있다. 또한 `FfmpegOutput.stop()`이 `audio=False`면 무기한 대기(`timeout=None`)할 수 있어(재접속 실패로 멈춘 ffmpeg에서 실제로 재현됨) `_stop_output_with_timeout()`이 별도 스레드+bounded timeout+강제 kill로 안전망을 건다. 상세 실측 수치·경과는 `docs/vision_camera_bringup.md` §Phase 3 |
-| `tests/golden/` | 골든셋 회귀 픽스처(§7.9 항목7). `<타겟>/<고도>/frame_NNN.png`+`labels.json` — 구조·스키마·현재 들어있는 것·재생성법은 `tests/golden/README.md`. **⚠️ 전부 합성(synthetic) 데이터** — 실촬영 아님(카메라 브링업 전, `docs/vision_status.md`). `tests/golden/generate_synthetic.py`가 생성 소스(pytest 대상 아님, 수동 재생성 도구) |
+| `tests/golden/` | 골든셋 회귀 픽스처(§7.9 항목7). `<타겟>/<고도>/frame_NNN.png`+`labels.json` — 구조·스키마·현재 들어있는 것·재생성법은 `tests/golden/README.md`. **⚠️ 전부 합성(synthetic) 데이터** — 실촬영 아님(카메라 브링업 전, `docs/vision_status.md`). `tests/golden/generate_synthetic.py`가 생성 소스(pytest 대상 아님, 수동 재생성 도구). **[2026-07-25]** `distress/fine/`(`white_box_detector` 캐스케이드, 실측 박스 비율 0.0667) + `no_target/distress_fine/`(오탐 회귀) 추가 — 여전히 합성 |
 
 ---
 
@@ -383,6 +385,75 @@ Phase 1(`nominal.yaml`)·Phase 2(`ArucoDetector`)·Phase 3(`solve_target_pose`/`
 
 ---
 
+## 조난자 fine 파이프라인 배선(체인 잇기) (2026-07-25, `docs/vision_plan.md` §5.3/§9)
+
+바로 위 절이 배선한 `fine_locked`은 그 시점엔 ArUco ID 확정 검출 하나만 반영했다 — ②
+조난자 구역(초록구역, 대회 2차예선 우선 타겟으로 확정됨) fine 검출기가 아직 없어서
+**`distress_coarse.yaml`만으로는 `fine_locked`가 영원히 False → 상태머신이 `CENTER_DESCEND`에서
+절대 못 벗어나는 끊어진 체인**이었다(커밋 게이트가 `Observation.fine_locked=True` 없이는
+`LOCK` 이상을 구조적으로 막으므로). 이번 세션은 `modules/distress_box.py::WhiteBoxDetector`
+(§5.3 fine 단계 — 매트 안 흰 박스 확인 + **"박스 옆 빈 초록면" 착륙점 산출**)를 만들고
+`_build_observation()`을 확장해 이 체인을 이었다.
+
+- **모듈 배치 판단: `modules/`, 캐스케이드 패턴.** `vertiport_v.py`/`vertiport_ring.py`와 동일하게
+  이전 단계(coarse, 매트) `detections`를 ROI로 읽어 그 안에서만 찾고 자기 결과로 덮어쓴다.
+  `vertiport_fine.yaml`(ArUco)이 **독립 실행**을 택한 것과 반대 판단인데, 이유는 흰 박스가
+  ArUco 마커와 달리 ROI 인자 없이 전체 프레임을 덮어쓰는 검출기가 아니라 "매트 안에서만
+  찾는" 캐스케이드 검출기이기 때문(근거는 `presets/distress_fine.yaml` 헤더 주석에도 병기).
+- **착륙점(landing point) 산출 — "가장 먼 모서리를 안쪽으로 당기기":** 매트 bbox의 네 모서리 중
+  흰 박스 중심에서 가장 먼 것을 고르고, 매트 중심 쪽으로 `interior_margin_ratio`(기본 0.3)만큼
+  당긴다. 이 방법을 고른 이유는 `modules/distress_box.py::WhiteBoxDetector` docstring에 상세히
+  적혀 있다 — 요약하면 (a) 박스가 매트 정중앙에 있는 현재 실측 배치(§2)에서도 고정된 모서리
+  순회 순서 덕에 결정론이 깨지지 않고, (b) 박스가 중심을 벗어난 가상 배치에도 별도 분기 없이
+  자연스럽게 "반대편"을 가리키며, (c) 매트가 페인트 선이 아니라 실제 0.105m 구조물이라
+  가장자리 이탈이 진짜 낙하 위험이라는 점을 안전마진으로 반영한다. **"박스 옆"의 정확한
+  방향·거리는 대회측 미회신 상태**(`vision_plan.md` §9 "중요" 각주)이므로 잠정 합리적 기본값이다.
+- **`distress_fine.yaml` rect_detector 임계값 재도출** — `distress_coarse.yaml`의 8000/200000을
+  그대로 복사하지 않고 fine 대역(≤~15m)에 맞게 같은 공식(gw(h)=1.535h, 1536px 다운스케일
+  가정)으로 재계산(14000/2,200,000). 근거는 yaml 헤더 주석.
+- **`white_box_detector` 임계값의 altitude-불변 성질** — 박스/매트 면적비(≈0.00444, 실측
+  20cm/3.0m)는 매트 픽셀 bbox 대비 **상대값**이라 고도(GSD)에 무관하게 불변이다(매트·박스
+  둘 다 같은 GSD로 함께 스케일되므로) — rect_detector의 절대 px² 임계값과 달리 altitude tier별
+  재계산이 필요 없다는 게 이 설계의 실질적 이점.
+- **`_build_observation()` 확장(main.py/replay.py, 각자 얇게 중복)**:
+  - `fine_locked` = ArUco 확정 검출(`_find_aruco_detection`) **또는** 흰 박스 확정 검출
+    (`_find_white_box_detection`, `meta["white_box_detector"]["landing_point_px"]` 존재로 판별)
+    중 하나라도 있으면 True.
+  - `center_error_px`는 **착륙점 기준**(흰 박스 lock이 있으면 `landing_point_px`, 없으면 기존처럼
+    `confirmed`/첫 detection의 bbox 중심으로 폴백)으로 계산 — §5.3 설계 포인트(착륙 목표는
+    박스가 아니라 그 옆 빈 초록면)를 상태머신에 들어가는 관측값 레벨에서부터 반영한다.
+  - `scale_source`(§5.1 blob 스케일 융합 규칙)는 흰 박스 blob 확정 시에만 채운다(AGL 유효 시
+    `"agl"`, 없으면 `"known_size"`) — ArUco는 solvePnP 자체 스케일이라 이 규칙 대상이 아니다.
+    이번 세션은 `scale_source`를 실제로 채우는 **첫** 배선이다(그 전까지는 `Observation`/
+    `Decision`에 필드만 있고 아무도 채우지 않고 있었음).
+  - `core/state_machine.py`는 손대지 않았다(§9 6번 요구 — 타겟 종류 무관 공통 골격, 타겟별
+    특수성은 전부 호출자의 `Observation` 구성 쪽에 흡수).
+- **실측 검증(2026-07-25):** 초록 매트+흰 박스 합성 프레임 11장(고도가 점점 낮아짐, `alt`
+  텔레메트리 포함) + 마지막 3장은 매트가 화각을 이탈한 것으로 가정한 빈 프레임을 실제로
+  `python -m vision.replay <녹화폴더> --preset vision/presets/distress_fine.yaml`로 재생 →
+  JSONL `state`가 실제로 `CENTER_DESCEND(f0)→LOCK(f1)→PRECISION_SERVO(f2~f4)→TERMINAL(f5~f10)`
+  로 진행함을 확인(끊어진 체인이 실제로 이어짐, 이번 세션의 성공 기준). 마지막 3장(블라인드)은
+  `ABORT_ASCEND`로 빠졌는데, 이는 `max_blind_duration_s` 초과가 아니라 **근사 이탈추정
+  (`drift_estimate = |center_error_px| × 마지막 유효 AGL`) 초과** 때문이다 — 착륙점을 매트
+  중심에서 의도적으로 밀어낸 설계 탓에 `center_error_px`가 (마트 자체는 화면 중앙에 있어도)
+  0에 가깝지 않아 드리프트 추정치가 쉽게 임계값을 넘는다(§ 아래 "미해결/관찰된 상호작용" 참고).
+  `vision/results/distress_fine_demo/demo.jsonl` + `tools/jsonl_view.py`로 그린
+  `demo_state.png`(5단 계단형 state 라인 — CENTER_DESCEND/LOCK/PRECISION_SERVO/TERMINAL/
+  ABORT_ASCEND 전부 실제로 렌더링됨)로 남겨뒀다. **이 데모 입력 프레임 자체는 커밋 저장소
+  밖(`/tmp`)에서 임시 생성했다** — `state_machine_demo/`의 ArUco 데모 전례와 동일하게 결과물
+  (jsonl/log/png)만 남기고 재현 가능한 합성 소스 프레임은 커밋하지 않는다.
+- **미해결/관찰된 상호작용 (버그 아님, 설계 특성으로 문서화):** `state_machine.py`의
+  드리프트 안전망(§5.1)은 `center_error_px`를 "타겟을 얼마나 잘 추적 중인가"의 근사치로
+  가정하는데, 조난자 fine의 `center_error_px`는 "선택한 착륙점이 화면 중심에서 얼마나
+  떨어져 있는가"다 — 이 둘은 ArUco(마커 중심 ≈ 실제 타겟 위치)에서는 거의 같지만, 조난자
+  fine에서는 착륙점을 의도적으로 매트 중심에서 밀어내므로 구조적으로 다르다. 결과적으로
+  조난자 fine 경로는 ArUco보다 블라인드 진입 시 `ABORT_ASCEND`(드리프트 초과 경로)로 더 쉽게
+  빠지는 경향이 있다 — 안전 쪽으로 치우친 결과라 이번 세션에서 "고쳐야 할 버그"로 보진
+  않았으나(state_machine.py 수정은 이번 세션 범위 밖이기도 함), 향후 실제 착륙점 오프셋
+  크기와 안전 임계값(`max_drift_estimate_m`)의 관계를 재검토할 만하다.
+
+---
+
 ## VisionState 필드 사용 규칙
 
 ```
@@ -539,6 +610,8 @@ pytest vision/tests/ -q -k main # 특정만
 | vertiport_ring `RedRingDetector` | 빨강 Hue 양끝 게이팅(랩어라운드 대응)·최소외접원 피팅·중심/반지름 meta | ✅ test_vertiport_ring |
 | 버티포트 coarse 캐스케이드 통합(`presets/vertiport_coarse.yaml`) | 3단 전체 파이프라인 end-to-end·단계별 meta 기록·빈 이미지 0검출 | ✅ test_vertiport_cascade |
 | ArUco fine 프리셋 통합(`presets/vertiport_fine.yaml`, ArUco Phase 4) | `Pipeline.from_config` 실로드·ID 23 검출+코너·다른 ID 거절·빈 이미지 0검출(coarse와 독립 실행) | ✅ test_vertiport_fine |
+| distress_box `WhiteBoxDetector`(§5.3 fine, 2026-07-25) | 매트 내 흰 박스 확인·`landing_point_px`가 매트 bbox 내부에 있음·박스가 매트 좌상단에 치우치면 착륙점이 반대편(우하단)으로 밀림·박스 없음/너무 큼/너무 작음/종횡비 초과 각각 거절+reject_reasons 기록·detections 2개(확정1+거절1) 혼합·빈 detections·zero bbox·original/current/mask 비변형(선언 필드 계약)·결정론 | ✅ test_distress_box |
+| ② 조난자 fine 프리셋 통합(`presets/distress_fine.yaml`, 2026-07-25) | `distress_coarse.yaml` 뒤에 `white_box_detector` 캐스케이드 실로드·매트+박스 실제 확정·`Detection.meta`에 `landing_point_px` 실제 기록(`Pipeline.from_config` 경유, 클래스 직접 호출 아님) | ✅ test_replay(`test_distress_fine_preset_confirmed_detection_carries_landing_point_meta`) |
 | utils/image_loader | 경로→BGR ndarray·없는 파일 에러 | ❌ TODO |
 | utils/video_reader | 프레임 이터레이트·fps·컨텍스트 종료 | ❌ TODO |
 | utils/visualize | draw_detections 형상·save_result 파일 생성 | ❌ TODO |
@@ -547,12 +620,12 @@ pytest vision/tests/ -q -k main # 특정만
 | utils/blackbox | 프레임/거절이유 JSONL 기록·bounded queue drop-oldest(최신 안 잃음)·close() 큐 가득해도 안전 | ✅ test_blackbox |
 | utils/stream `MjpegStreamer`(§7.9 항목5) | 실제 HTTP 서버 기동 → 실제 프레임 push → 실제 클라이언트로 `/stream` 접속해 진짜 MJPEG 바이트 수신·`cv2.imdecode` 디코드 성공·VGA 박스 축소(종횡비 유지, 업스케일 없음)·`push_frame()` 비차단(클라이언트 없음/느린 클라이언트 붙어있어도 논-블로킹, 실측 시간)·`start()` 전 `push_frame` 안전 no-op·idempotent stop/restart | ✅ test_stream |
 | utils/frame_source | Dir/Bag: 실제 파일→실제 프레임 디코딩·순서 결정론·telemetry.jsonl(사이드카 포함) frame_id 매칭·빈/누락 입력 에러. Live: 연결 실패 시 재시도 후 `ConnectionError`·읽기 실패 시 `ConnectionError`·`open_dir_or_bag` 디렉터리/파일 자동판별 | ✅ test_frame_source |
-| main.py | `--display` 게이팅: **none=imshow 0회**(헤드리스 안전 불변식)·file→output 강제·stream 미구현 · **로거+JSONL 블랙박스 실연결**: 실행 시 실제 `.log`/`.jsonl`이 디스크에 생성되고 detections/latency/provenance가 올바름 · **§9 6번 상태머신 배선**: 반복 ArUco 프레임 실제 영상 실행 → JSONL `state`가 전부 null 아니고 ACQUIRE에 머물지 않고 실제로 진행(LOCK/PRECISION_SERVO 도달)함을 실제 파이프라인으로 확인, `command`도 함께 실림 | ✅ test_main |
-| replay.py | `open_dir_or_bag`로 Dir/Bag 자동판별 재생·실제 프레임 처리로 JSONL(telemetry 포함)/사람로그 실생성·`--output` 지정 시 실제 mp4 기록 · **§9 6번 상태머신 배선**: 반복 ArUco 녹화 재생 → JSONL `state` 실제 진행 확인(main.py와 동일) + **telemetry.jsonl의 alt가 실제로 상태머신에 흘러 TERMINAL까지 도달**함을 실제 재생으로 확인(AGL 배선이 진짜로 연결됐다는 증거) | ✅ test_replay |
+| main.py | `--display` 게이팅: **none=imshow 0회**(헤드리스 안전 불변식)·file→output 강제·stream 미구현 · **로거+JSONL 블랙박스 실연결**: 실행 시 실제 `.log`/`.jsonl`이 디스크에 생성되고 detections/latency/provenance가 올바름 · **§9 6번 상태머신 배선**: 반복 ArUco 프레임 실제 영상 실행 → JSONL `state`가 전부 null 아니고 ACQUIRE에 머물지 않고 실제로 진행(LOCK/PRECISION_SERVO 도달)함을 실제 파이프라인으로 확인, `command`도 함께 실림 · **[2026-07-25] ② 조난자 fine 체인**: 흰 박스 확정 반복 영상(`distress_fine.yaml`)도 ArUco와 별개 경로로 CENTER_DESCEND를 넘어 진행함을 실제 파이프라인으로 확인 | ✅ test_main |
+| replay.py | `open_dir_or_bag`로 Dir/Bag 자동판별 재생·실제 프레임 처리로 JSONL(telemetry 포함)/사람로그 실생성·`--output` 지정 시 실제 mp4 기록 · **§9 6번 상태머신 배선**: 반복 ArUco 녹화 재생 → JSONL `state` 실제 진행 확인(main.py와 동일) + **telemetry.jsonl의 alt가 실제로 상태머신에 흘러 TERMINAL까지 도달**함을 실제 재생으로 확인(AGL 배선이 진짜로 연결됐다는 증거) · **[2026-07-25] ② 조난자 fine 체인**: 흰 박스 확정 녹화 재생도 CENTER_DESCEND를 넘어 진행 + telemetry alt로 TERMINAL까지 도달 확인(ArUco와 별개 경로) + `landing_point_px`가 실제 `Pipeline.from_config` 경로로 `Detection.meta`에 실림을 확인 | ✅ test_replay |
 | tools/jsonl_view.py | 실제 `main.py` 실행으로 만든 진짜 JSONL 로드·행 수=JSONL type=frame 행 수 일치·score/latency 라인 포인트 수=행 수(결측은 nan 구멍, 이어붙이지 않음)·state 미기록 시 안내 텍스트·rejection→세로선·PNG 실파일 생성 | ✅ test_jsonl_view |
 | tools/calib_analyze.py | **★합성 왕복(핵심):** 진짜 K/dist를 알고 합성 투영한 ~20장 사이드카 → 복원 fx/fy/cx/cy 1% 이내·dist 허용오차 내 · fx-vs-LensPosition 직선적합이 알려진 (L,fx) 직선을 복원 · 이상치 검출(코너 오염 이미지가 플래그되고 제외 시 RMS 개선) · 부분 데이터(그룹 1개)에서 크래시 없이 적합 생략+`recommended` 폴백 사유 기록 · yaml 아티팩트 `yaml.safe_load` 왕복 + 필수 키 전부(`checks[].ok`가 python bool인지 — numpy.bool_ 누출 회귀 포함) · `--redetect` PNG 재검출 경로 · CLI(`main()`) end-to-end로 진단 플롯 3종 PNG 실파일 생성 | ✅ test_calib_analyze |
 | tools/h264_stream.py(ffmpeg Phase 3) | **순수 로직만(하드웨어 없음, `LiveFrameSource`와 동일 예외 패턴):** `parse_resolution`/`build_ffmpeg_listen_spec` 파싱·경계값 · `validate_lens_position`(0~15.0 경계, 32.0 오해 방지 에러 메시지) · `validate_af_args`(manual↔lens-position 필수/배타 조합) · `compute_fps_stats`(워밍업 스킵 기본 내장, 표본부족/비단조 거부) · `count_identical_frame_pairs`(라이브니스) · `_make_af_controls`(continuous/auto/manual→AfMode/AfTrigger 매핑, 가짜 controls 모듈로 검증) · `_is_output_dead`/`_stop_output_with_timeout`(duck-typing, 정상종료 시 kill 안 함·행잉 시 kill 개입 둘 다 검증) · `_install_sigterm_handler`(실제 SIGTERM 전송→stop_event 세팅 확인, 전역 핸들러 복원) · CLI 파싱 기본값/에러종료 · picamera2/libcamera 지연 import 격리 회귀(최상단 import 없음 + `sys.modules`에 None 주입해도 import 성공). **run_server 자체(picamera2/libcamera 실제 하드웨어 연동)는 tools/ 예외로 pytest 대상 아님** — RPi 실기체 기동+랩탑 `cv2.VideoCapture` 실접속으로 검증(§Phase 3 완료 절, `docs/vision_camera_bringup.md`) | ✅ test_h264_stream |
-| tests/golden 회귀(§7.9 항목7) | `vision.replay.run_replay()`로 골든셋(§ tests/golden/README.md) 실제 재생 → JSONL 검출 개수가 `labels.json` 기대값과 일치·캐스케이드 단계별 meta도 실제 `Pipeline.run()`으로 검증. 몽키패치 없음(실제 파이프라인) | ✅ test_golden_regression |
+| tests/golden 회귀(§7.9 항목7) | `vision.replay.run_replay()`로 골든셋(§ tests/golden/README.md) 실제 재생 → JSONL 검출 개수가 `labels.json` 기대값과 일치·캐스케이드 단계별 meta도 실제 `Pipeline.run()`으로 검증. 몽키패치 없음(실제 파이프라인). **[2026-07-25]** `distress/fine`(`white_box_detector` 확정+`landing_point_px`)과 `no_target/distress_fine`(오탐 회귀) 리프 추가 | ✅ test_golden_regression |
 
 **공통 규칙 (모든 모듈 테스트):**
 1. **선언 필드 계약** — 위 파일표대로 "읽는 필드"만 읽고 "쓰는 필드"만 쓴다.

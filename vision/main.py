@@ -98,6 +98,18 @@ def _find_aruco_detection(detections):
     return None
 
 
+def _find_white_box_detection(detections):
+    """② 조난자 fine(§5.3, `modules/distress_box.py`) — state.detections에서 착륙점이 확정된
+    흰 박스 검출을 찾는다. `WhiteBoxDetector`는 확정한 것만 `meta["white_box_detector"]`에
+    `landing_point_px`를 실어 남기므로(거절된 매트 후보는 detections에서 아예 제거됨) 첫
+    항목을 그대로 쓴다(ArUco와 동일 단일 타겟 전제)."""
+    for d in detections:
+        wb = d.meta.get("white_box_detector")
+        if wb is not None and wb.get("landing_point_px") is not None:
+            return d
+    return None
+
+
 def _target_estimate_to_dict(estimate) -> dict:
     return {
         "position": list(estimate.position),
@@ -143,28 +155,54 @@ def _solve_aruco_chosen(
 def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] = None) -> Observation:
     """§9 6번(공통 상태머신) 배선 — 현재 파이프라인 산출물에서 `Observation` 최소 필드만 뽑는다.
 
-    `fine_locked`은 지금 코드베이스에 유일하게 구현된 fine 검증인 ArUco ID 확정 검출
-    (`_find_aruco_detection`) 유무로 판단한다 — 버티포트/조난자 coarse 전용 프리셋은 아직
-    fine 검증 모듈이 없어(§9 5번은 coarse까지만 완료) 항상 False로 degrade한다. 상태머신은
-    이 사실을 모르는 채 그대로 안전하게 ACQUIRE/CENTER_DESCEND에 머문다 — 타겟 종류 무관
-    공통 골격 원칙과 커밋 게이트 불변식 둘 다와 일치하는 자연스러운 결과다."""
-    det = state.confirmed if state.confirmed is not None else (
-        state.detections[0] if state.detections else None
-    )
+    `fine_locked`은 지금 코드베이스에 구현된 두 fine 검증 중 하나라도 있으면 True다:
+    ArUco ID 확정 검출(`_find_aruco_detection`) 또는 ② 조난자 fine 흰 박스 확정
+    (`_find_white_box_detection`, §5.3). 버티포트/조난자 coarse 전용 프리셋은 아직 fine 검증
+    모듈이 없어 항상 False로 degrade한다 — 상태머신은 이 사실을 모르는 채 그대로 안전하게
+    ACQUIRE/CENTER_DESCEND에 머문다(타겟 종류 무관 공통 골격 + 커밋 게이트 불변식과 일치).
+
+    `center_error_px`는 **착륙점 기준**으로 계산한다(§5.3 설계 포인트 — 착륙 목표는 흰 박스가
+    아니라 "박스 옆 빈 초록면"이므로 화면중심 정렬 오차도 박스 중심이 아니라 착륙점 기준이어야
+    한다). 흰 박스 fine lock이 없으면(ArUco 등 기존 경로) `state.confirmed`/첫 detection의
+    bbox 중심으로 폴백 — 기존 동작 그대로 보존.
+
+    `scale_source`(§5.1 "blob 타겟 스케일 융합 규칙")는 흰 박스 blob 확정 시에만 채운다 —
+    ArUco는 solvePnP로 자체 스케일이 나오므로 이 융합 규칙 대상이 아니다. AGL(라이다) 유효
+    시 "agl", 없으면 (기지 매트 물리크기 기반) "known_size"로 대체 추정."""
+    aruco_det = _find_aruco_detection(state.detections)
+    white_box_det = _find_white_box_detection(state.detections)
+    fine_locked = aruco_det is not None or white_box_det is not None
+
+    center_px = None
+    if white_box_det is not None:
+        center_px = tuple(white_box_det.meta["white_box_detector"]["landing_point_px"])
+    else:
+        det = state.confirmed if state.confirmed is not None else (
+            state.detections[0] if state.detections else None
+        )
+        if det is not None:
+            center_px = det.center
+
     center_error_px = None
-    if det is not None:
+    if center_px is not None:
         h, w = state.original.shape[:2]
-        cx, cy = det.center
+        cx, cy = center_px
         dx = (cx - w / 2.0) / (w / 2.0)
         dy = (cy - h / 2.0) / (h / 2.0)
         center_error_px = float((dx ** 2 + dy ** 2) ** 0.5)
+
+    scale_source = None
+    if white_box_det is not None:
+        scale_source = "agl" if agl_m is not None else "known_size"
+
     return Observation(
         ts=ts,
         frame_id=frame_id,
         n_candidates=len(state.detections),
         center_error_px=center_error_px,
-        fine_locked=_find_aruco_detection(state.detections) is not None,
+        fine_locked=fine_locked,
         agl_m=agl_m,
+        scale_source=scale_source,
     )
 
 

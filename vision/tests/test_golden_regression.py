@@ -58,6 +58,20 @@ def test_no_target_has_distress_coarse_regression_case():
     )
 
 
+def test_no_target_has_distress_fine_regression_case():
+    """[2026-07-25 신설] white_box_detector 캐스케이드(distress_fine.yaml)도 빈 장면에서
+    엉뚱한 흰 박스를 만들어내지 않는지 — 위 distress_coarse 커버리지 갭 회귀와 동일 이유로
+    새 모듈에 대해서도 반복한다."""
+    no_target_presets = {
+        json.loads((leaf / "labels.json").read_text(encoding="utf-8"))["preset"]
+        for leaf in _LEAF_DIRS
+        if leaf.relative_to(_GOLDEN_ROOT).parts[0] == "no_target"
+    }
+    assert "distress_fine.yaml" in no_target_presets, (
+        "no_target 오탐 회귀가 distress_fine.yaml(white_box_detector) 프리셋으로 커버되지 않음"
+    )
+
+
 @pytest.mark.parametrize("leaf_dir", _LEAF_DIRS, ids=_leaf_id)
 def test_replay_matches_golden_labels(leaf_dir, tmp_path):
     """§ 요구사항 핵심: vision/replay.py의 run_replay()로 골든 프레임을 실제로 재생하고,

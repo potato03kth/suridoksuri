@@ -20,6 +20,7 @@ from vision.utils.stream import MjpegStreamer
 
 _DICTIONARY = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 _VERTIPORT_FINE_PRESET = str(Path(replay_mod.__file__).parent / "presets" / "vertiport_fine.yaml")
+_DISTRESS_FINE_PRESET = str(Path(replay_mod.__file__).parent / "presets" / "distress_fine.yaml")
 
 
 def _make_recording_dir(tmp_path, n=3):
@@ -428,3 +429,108 @@ def test_agl_from_telemetry_drives_state_machine_into_terminal(tmp_path):
     assert [r["alt"] for r in records] == alts
     states = [r["state"] for r in records]
     assert "TERMINAL" in states, f"AGL<=terminal_agl_m인데 TERMINAL 미도달 — 실제 상태열: {states}"
+
+
+# ===========================================================================
+# ② 조난자 fine(§5.3, white_box_detector) 배선 — ArUco와 별개 경로로 fine_locked/체인이
+# 실제로 이어지는지 (§9 "끊어진 체인을 잇는 작업")
+# ===========================================================================
+
+
+def _distress_fine_frame(mat_size: int = 300, canvas: int = 460, box_ratio: float = 0.0667) -> np.ndarray:
+    """distress_fine.yaml 캐스케이드 검증용 최소 합성 프레임 — `vision/tests/golden/
+    generate_synthetic.py`의 `_synthetic_distress`와 동일 패턴(실측 스펙 비율, vision/CLAUDE.md
+    참조). 테스트 파일 간 상호 의존을 피하려 이 파일 안에 얇게 중복(test_main.py와 동일 중복,
+    프로젝트 "각자 얇게 중복" 관례)."""
+    img = np.full((canvas, canvas, 3), (60, 60, 60), dtype=np.uint8)
+    hsv_green = np.array([[[60, 200, 180]]], dtype=np.uint8)
+    bgr_green = tuple(int(v) for v in cv2.cvtColor(hsv_green, cv2.COLOR_HSV2BGR)[0, 0])
+    c = canvas // 2
+    half = mat_size // 2
+    cv2.rectangle(img, (c - half, c - half), (c + half, c + half), bgr_green, -1)
+    box_half = int(mat_size * box_ratio / 2)
+    if box_half > 0:
+        cv2.rectangle(img, (c - box_half, c - box_half), (c + box_half, c + box_half), (255, 255, 255), -1)
+    return img
+
+
+def _make_distress_fine_recording_dir(tmp_path, n: int) -> Path:
+    rec_dir = tmp_path / "distress_fine_recording"
+    rec_dir.mkdir()
+    frame = _distress_fine_frame()
+    for i in range(n):
+        cv2.imwrite(str(rec_dir / f"frame_{i:04d}.png"), frame)
+    return rec_dir
+
+
+def _make_distress_fine_recording_dir_with_telemetry(tmp_path, n: int, alts: list) -> Path:
+    rec_dir = _make_distress_fine_recording_dir(tmp_path, n)
+    lines = []
+    for i in range(n):
+        rec = {"frame_id": i, "ts": float(i)}
+        if alts[i] is not None:
+            rec["alt"] = alts[i]
+        lines.append(json.dumps(rec))
+    (rec_dir / "telemetry.jsonl").write_text("\n".join(lines) + "\n")
+    return rec_dir
+
+
+def test_distress_fine_state_progresses_through_real_pipeline(tmp_path):
+    """ArUco가 아니라 흰 박스 확정(white_box_detector) 경로로도 상태머신이 CENTER_DESCEND를
+    넘어 진행하는지 — 몽키패치 없이 실제 재생으로 확인."""
+    rec_dir = _make_distress_fine_recording_dir(tmp_path, n=6)
+    log_dir = tmp_path / "logs"
+
+    frame_count = replay_mod.run_replay(
+        str(rec_dir), _DISTRESS_FINE_PRESET, display="none", output=None,
+        log_dir=str(log_dir), log_name="distressrep",
+    )
+    assert frame_count == 6
+
+    records = [json.loads(l) for l in (log_dir / "distressrep.jsonl").read_text().splitlines()]
+    assert len(records) == 6
+    states = [r["state"] for r in records]
+
+    assert all(s is not None for s in states), "state 필드가 여전히 전부 null — 배선 안 됨"
+    assert states[0] != "ACQUIRE"
+    assert "PRECISION_SERVO" in states or "LOCK" in states
+
+
+def test_distress_fine_agl_from_telemetry_drives_state_machine_into_terminal(tmp_path):
+    """§9 6번 배선(AGL) + 이번 세션(② fine 체인 연결)의 결합 — telemetry.jsonl의 alt가
+    white_box_detector 경로에서도 상태머신을 실제로 TERMINAL까지 진행시키는지 확인."""
+    alts = [None, None, None, 2.0, 2.0, 2.0, 2.0, 2.0]
+    rec_dir = _make_distress_fine_recording_dir_with_telemetry(tmp_path, n=8, alts=alts)
+    log_dir = tmp_path / "logs"
+
+    frame_count = replay_mod.run_replay(
+        str(rec_dir), _DISTRESS_FINE_PRESET, display="none", output=None,
+        log_dir=str(log_dir), log_name="distressaglrep",
+    )
+    assert frame_count == 8
+
+    records = [json.loads(l) for l in (log_dir / "distressaglrep.jsonl").read_text().splitlines()]
+    assert [r["alt"] for r in records] == alts
+    states = [r["state"] for r in records]
+    assert "TERMINAL" in states, f"AGL<=terminal_agl_m인데 TERMINAL 미도달 — 실제 상태열: {states}"
+
+
+def test_distress_fine_preset_confirmed_detection_carries_landing_point_meta():
+    """§5.3 설계 포인트 배선 증거 — `distress_fine.yaml`을 실제 `Pipeline.from_config`로 로드해
+    돌렸을 때(레지스트리/preset 경로 전부 경유, 클래스 직접 호출 아님) 확정 detection에
+    `landing_point_px`가 실제로 실리는지. **JSONL 자체(`_detections_to_list`)는 bbox/confidence만
+    담고 meta를 싣지 않아 이 확인 불가**(로그 스키마 변경 금지 원칙) — 그래서 파이프라인
+    출력을 직접 본다(replay.py가 내부적으로 쓰는 것과 동일한 실제 `Pipeline.run()` 호출,
+    `test_golden_regression.py`의 이차 테스트와 동일 원칙)."""
+    from vision.core.runner import Pipeline
+
+    pipeline = Pipeline.from_config(_DISTRESS_FINE_PRESET)
+    state = pipeline.run(_distress_fine_frame())
+
+    assert len(state.detections) == 1
+    wb_meta = state.detections[0].meta["white_box_detector"]
+    assert "landing_point_px" in wb_meta
+    x, y, w, h = state.detections[0].bbox
+    lx, ly = wb_meta["landing_point_px"]
+    assert x <= lx <= x + w
+    assert y <= ly <= y + h

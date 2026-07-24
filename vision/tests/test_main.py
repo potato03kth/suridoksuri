@@ -19,6 +19,7 @@ from vision.utils.frame_source import FrameRecord
 
 _DICTIONARY = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 _VERTIPORT_FINE_PRESET = str(Path(main_mod.__file__).parent / "presets" / "vertiport_fine.yaml")
+_DISTRESS_FINE_PRESET = str(Path(main_mod.__file__).parent / "presets" / "distress_fine.yaml")
 
 
 def _write_image(tmp_path) -> str:
@@ -322,6 +323,68 @@ def test_state_field_is_populated_and_progresses_through_real_pipeline(tmp_path,
     assert "PRECISION_SERVO" in states or "LOCK" in states
     # command 힌트도 함께 실린다(같은 log_frame 파라미터 재사용).
     assert all(r["command"] is not None for r in records)
+
+
+def _distress_fine_frame(mat_size: int = 300, canvas: int = 460, box_ratio: float = 0.0667) -> np.ndarray:
+    """distress_fine.yaml 캐스케이드(초록 매트+흰 박스) 검증용 최소 합성 프레임 —
+    vision/tests/golden/generate_synthetic.py의 `_synthetic_distress`와 동일 패턴(실측 스펙
+    비율 20cm/3.0m≈0.0667, vision/CLAUDE.md 참조). 테스트 파일 간 상호 의존을 피하려 이
+    파일 안에 얇게 중복(프로젝트 "각자 얇게 중복" 관례, 기존 `_write_aruco_image`도 동일)."""
+    img = np.full((canvas, canvas, 3), (60, 60, 60), dtype=np.uint8)
+    hsv_green = np.array([[[60, 200, 180]]], dtype=np.uint8)
+    bgr_green = tuple(int(v) for v in cv2.cvtColor(hsv_green, cv2.COLOR_HSV2BGR)[0, 0])
+    c = canvas // 2
+    half = mat_size // 2
+    cv2.rectangle(img, (c - half, c - half), (c + half, c + half), bgr_green, -1)
+    box_half = int(mat_size * box_ratio / 2)
+    if box_half > 0:
+        cv2.rectangle(img, (c - box_half, c - box_half), (c + box_half, c + box_half), (255, 255, 255), -1)
+    return img
+
+
+def _write_distress_fine_video(tmp_path, n_frames: int = 6) -> str:
+    """같은 초록 매트+흰 박스 프레임을 n_frames번 반복한 영상 — ArUco 경로와 별개로
+    white_box_detector가 실제로 fine_locked를 True로 만들어 상태머신이 진행하는지 검증."""
+    video_path = tmp_path / "distress_fine_clip.mp4"
+    frame = _distress_fine_frame()
+    h, w = frame.shape[:2]
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), 10, (w, h))
+    for _ in range(n_frames):
+        writer.write(frame)
+    writer.release()
+    return str(video_path)
+
+
+def test_distress_fine_state_progresses_through_real_pipeline(tmp_path, monkeypatch):
+    """§9 "끊어진 체인을 잇는 작업" 요구: ArUco가 아니라 ② 조난자 fine(흰 박스 확정, §5.3)
+    경로로도 `fine_locked`가 실제로 True가 되어 상태머신이 CENTER_DESCEND를 넘어 진행하는지 —
+    몽키패치 없이 실제 영상+실제 파이프라인+실제 white_box_detector로 확인."""
+    video_path = _write_distress_fine_video(tmp_path, n_frames=6)
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "vision.main", video_path,
+            "--preset", _DISTRESS_FINE_PRESET,
+            "--log-dir", str(log_dir), "--log-name", "distressrun",
+        ],
+    )
+    main_mod.main()
+
+    records = [json.loads(l) for l in (log_dir / "distressrun.jsonl").read_text().splitlines()]
+    assert len(records) == 6
+    states = [r["state"] for r in records]
+
+    assert all(s is not None for s in states), "state 필드가 여전히 전부 null — 배선 안 됨"
+    assert states[0] != "ACQUIRE"
+    assert "PRECISION_SERVO" in states or "LOCK" in states
+    assert all(r["command"] is not None for r in records)
+
+    # 착륙점(landing_point_px) 기준 center_error_px가 실제로 detections에 실렸는지도 확인
+    # (박스 중심이 아니라 착륙점 기준이어야 한다는 §5.3 설계 포인트의 배선 증거).
+    for r in records:
+        assert r["detections"], "white_box_detector 확정 detection이 실려야 한다"
 
 
 # ===========================================================================

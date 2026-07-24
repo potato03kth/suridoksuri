@@ -70,6 +70,16 @@ def _find_aruco_detection(detections):
     return None
 
 
+def _find_white_box_detection(detections):
+    """② 조난자 fine(§5.3, `modules/distress_box.py`) — state.detections에서 착륙점이 확정된
+    흰 박스 검출을 찾는다(main.py와 동일 로직, 상호 import 안 함 원칙에 따라 얇게 중복)."""
+    for d in detections:
+        wb = d.meta.get("white_box_detector")
+        if wb is not None and wb.get("landing_point_px") is not None:
+            return d
+    return None
+
+
 def _target_estimate_to_dict(estimate) -> dict:
     return {
         "position": list(estimate.position),
@@ -113,25 +123,50 @@ def _solve_aruco_chosen(
 
 def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] = None) -> Observation:
     """§9 6번(공통 상태머신) 배선 — main.py와 동일 로직(상호 import 안 함 원칙에 따라 얇게
-    중복, vision/CLAUDE.md import 규칙). `fine_locked`은 지금 유일하게 구현된 fine 검증인
-    ArUco ID 확정 검출 유무로 판단한다 — coarse 전용 프리셋은 항상 False로 degrade."""
-    det = state.confirmed if state.confirmed is not None else (
-        state.detections[0] if state.detections else None
-    )
+    중복, vision/CLAUDE.md import 규칙).
+
+    `fine_locked`은 지금 구현된 두 fine 검증 중 하나라도 있으면 True다: ArUco ID 확정 검출
+    또는 ② 조난자 fine 흰 박스 확정(§5.3). coarse 전용 프리셋은 둘 다 없어 항상 False로 degrade.
+
+    `center_error_px`는 착륙점 기준(§5.3 "박스 옆 빈 초록면" — 박스 중심이 아님)으로 계산하고,
+    흰 박스 lock이 없으면 기존처럼 confirmed/첫 detection bbox 중심으로 폴백한다.
+
+    `scale_source`(§5.1 blob 스케일 융합 규칙)는 흰 박스 blob 확정 시에만 채운다 — AGL 유효
+    시 "agl", 없으면 "known_size". ArUco는 solvePnP 자체 스케일이라 대상 아님."""
+    aruco_det = _find_aruco_detection(state.detections)
+    white_box_det = _find_white_box_detection(state.detections)
+    fine_locked = aruco_det is not None or white_box_det is not None
+
+    center_px = None
+    if white_box_det is not None:
+        center_px = tuple(white_box_det.meta["white_box_detector"]["landing_point_px"])
+    else:
+        det = state.confirmed if state.confirmed is not None else (
+            state.detections[0] if state.detections else None
+        )
+        if det is not None:
+            center_px = det.center
+
     center_error_px = None
-    if det is not None:
+    if center_px is not None:
         h, w = state.original.shape[:2]
-        cx, cy = det.center
+        cx, cy = center_px
         dx = (cx - w / 2.0) / (w / 2.0)
         dy = (cy - h / 2.0) / (h / 2.0)
         center_error_px = float((dx ** 2 + dy ** 2) ** 0.5)
+
+    scale_source = None
+    if white_box_det is not None:
+        scale_source = "agl" if agl_m is not None else "known_size"
+
     return Observation(
         ts=ts,
         frame_id=frame_id,
         n_candidates=len(state.detections),
         center_error_px=center_error_px,
-        fine_locked=_find_aruco_detection(state.detections) is not None,
+        fine_locked=fine_locked,
         agl_m=agl_m,
+        scale_source=scale_source,
     )
 
 

@@ -1,0 +1,14 @@
+{
+  "target": "no_target",
+  "altitude_label": "n/a — ④ 단순착륙(피듀셜 없음)과 동일 조건, vision_plan.md §5.6",
+  "preset": "distress_fine.yaml",
+  "note": "같은 no_target 프레임을 ② 조난자 fine 프리셋(distress_coarse.yaml + white_box_detector 캐스케이드, [2026-07-25] 신설)으로도 재생해 오탐 방지를 검증한다 — 새 모듈(white_box_detector)이 coarse 자체가 0건인 장면에서 엉뚱한 흰 박스를 만들어내지 않는지까지 포함해서 확인.",
+  "frames": [
+    {
+      "file": "frame_000.png",
+      "expect_num_detections": 0,
+      "expect_stage_meta": null,
+      "known_limitation": false
+    }
+  ]
+}
