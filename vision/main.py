@@ -161,10 +161,12 @@ def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] =
     모듈이 없어 항상 False로 degrade한다 — 상태머신은 이 사실을 모르는 채 그대로 안전하게
     ACQUIRE/CENTER_DESCEND에 머문다(타겟 종류 무관 공통 골격 + 커밋 게이트 불변식과 일치).
 
-    `center_error_px`는 **착륙점 기준**으로 계산한다(§5.3 설계 포인트 — 착륙 목표는 흰 박스가
+    `center_error_norm`은 **착륙점 기준**으로 계산한다(§5.3 설계 포인트 — 착륙 목표는 흰 박스가
     아니라 "박스 옆 빈 초록면"이므로 화면중심 정렬 오차도 박스 중심이 아니라 착륙점 기준이어야
     한다). 흰 박스 fine lock이 없으면(ArUco 등 기존 경로) `state.confirmed`/첫 detection의
-    bbox 중심으로 폴백 — 기존 동작 그대로 보존.
+    bbox 중심으로 폴백 — 기존 동작 그대로 보존. **이름 주의**: `_norm`은 정규화(dx/dy를
+    화면 절반폭/절반높이로 나눈 값의 노름, 0~약1.41)라는 뜻이지 픽셀이 아니다 — 예전 이름
+    `center_error_px`는 단위를 거짓으로 암시해 정정했다(`core/state_machine.py` 참조).
 
     `scale_source`(§5.1 "blob 타겟 스케일 융합 규칙")는 흰 박스 blob 확정 시에만 채운다 —
     ArUco는 solvePnP로 자체 스케일이 나오므로 이 융합 규칙 대상이 아니다. AGL(라이다) 유효
@@ -183,13 +185,13 @@ def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] =
         if det is not None:
             center_px = det.center
 
-    center_error_px = None
+    center_error_norm = None
     if center_px is not None:
         h, w = state.original.shape[:2]
         cx, cy = center_px
         dx = (cx - w / 2.0) / (w / 2.0)
         dy = (cy - h / 2.0) / (h / 2.0)
-        center_error_px = float((dx ** 2 + dy ** 2) ** 0.5)
+        center_error_norm = float((dx ** 2 + dy ** 2) ** 0.5)
 
     scale_source = None
     if white_box_det is not None:
@@ -199,7 +201,7 @@ def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] =
         ts=ts,
         frame_id=frame_id,
         n_candidates=len(state.detections),
-        center_error_px=center_error_px,
+        center_error_norm=center_error_norm,
         fine_locked=fine_locked,
         agl_m=agl_m,
         scale_source=scale_source,

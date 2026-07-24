@@ -21,7 +21,7 @@ def _obs(
     ts: float,
     frame_id: int,
     n_candidates: int = 0,
-    center_error_px=None,
+    center_error_norm=None,
     fine_locked: bool = False,
     agl_m=None,
     scale_source=None,
@@ -30,7 +30,7 @@ def _obs(
         ts=ts,
         frame_id=frame_id,
         n_candidates=n_candidates,
-        center_error_px=center_error_px,
+        center_error_norm=center_error_norm,
         fine_locked=fine_locked,
         agl_m=agl_m,
         scale_source=scale_source,
@@ -47,13 +47,13 @@ def _normal_sequence_observations():
     terminal_agl_m=3.0) 그대로 트리거되도록 값을 골랐다."""
     return [
         _obs(0.0, 0, n_candidates=0),                                              # ACQUIRE 유지
-        _obs(0.1, 1, n_candidates=1, center_error_px=0.5, fine_locked=False),      # coarse 발견
-        _obs(0.2, 2, n_candidates=1, center_error_px=0.5, fine_locked=False),      # 센터링 중
-        _obs(0.3, 3, n_candidates=1, center_error_px=0.02, fine_locked=True),      # fine lock 신호 최초
-        _obs(0.4, 4, n_candidates=1, center_error_px=0.02, fine_locked=True),      # 확정 카운트 2
-        _obs(0.5, 5, n_candidates=1, center_error_px=0.02, fine_locked=True),      # 확정 카운트 3 → 커밋
-        _obs(0.6, 6, n_candidates=1, center_error_px=0.01, fine_locked=True),      # servo 유지
-        _obs(0.7, 7, n_candidates=1, center_error_px=0.01, fine_locked=True, agl_m=2.0),  # 근접 → TERMINAL
+        _obs(0.1, 1, n_candidates=1, center_error_norm=0.5, fine_locked=False),      # coarse 발견
+        _obs(0.2, 2, n_candidates=1, center_error_norm=0.5, fine_locked=False),      # 센터링 중
+        _obs(0.3, 3, n_candidates=1, center_error_norm=0.02, fine_locked=True),      # fine lock 신호 최초
+        _obs(0.4, 4, n_candidates=1, center_error_norm=0.02, fine_locked=True),      # 확정 카운트 2
+        _obs(0.5, 5, n_candidates=1, center_error_norm=0.02, fine_locked=True),      # 확정 카운트 3 → 커밋
+        _obs(0.6, 6, n_candidates=1, center_error_norm=0.01, fine_locked=True),      # servo 유지
+        _obs(0.7, 7, n_candidates=1, center_error_norm=0.01, fine_locked=True, agl_m=2.0),  # 근접 → TERMINAL
     ]
 
 
@@ -136,7 +136,7 @@ def test_hold_recovers_when_candidate_reacquired():
         d = sm.update(_obs(ts, 200 + i, n_candidates=0))
     assert d.state == LandingState.HOLD
 
-    d = sm.update(_obs(ts + 0.1, 210, n_candidates=1, center_error_px=0.3, fine_locked=False))
+    d = sm.update(_obs(ts + 0.1, 210, n_candidates=1, center_error_norm=0.3, fine_locked=False))
     assert d.state == LandingState.CENTER_DESCEND
 
 
@@ -180,7 +180,7 @@ def test_terminal_visual_reacquisition_resets_blind_timer():
     assert d.state == LandingState.TERMINAL  # 아직 1.0초 안 됨
 
     last_ts += 0.1
-    d = sm.update(_obs(last_ts, 401, n_candidates=1, center_error_px=0.01, fine_locked=True))
+    d = sm.update(_obs(last_ts, 401, n_candidates=1, center_error_norm=0.01, fine_locked=True))
     assert d.state == LandingState.TERMINAL  # 재포착 — 타이머 리셋
 
     last_ts += 0.8
@@ -194,10 +194,10 @@ def test_terminal_drift_estimate_exceeded_triggers_abort_ascend():
     cfg = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.5)
     sm = LandingStateMachine(cfg)
     # 마지막 유효 관측이 중심오차 크고 고도 낮은 상태로 TERMINAL 진입하도록 직접 구성.
-    sm.update(_obs(0.0, 0, n_candidates=1, center_error_px=0.5, fine_locked=True))
+    sm.update(_obs(0.0, 0, n_candidates=1, center_error_norm=0.5, fine_locked=True))
     for _ in range(3):
-        sm.update(_obs(0.1, 1, n_candidates=1, center_error_px=0.5, fine_locked=True))
-    d = sm.update(_obs(0.4, 4, n_candidates=1, center_error_px=0.5, fine_locked=True, agl_m=2.0))
+        sm.update(_obs(0.1, 1, n_candidates=1, center_error_norm=0.5, fine_locked=True))
+    d = sm.update(_obs(0.4, 4, n_candidates=1, center_error_norm=0.5, fine_locked=True, agl_m=2.0))
     assert d.state == LandingState.TERMINAL
 
     d = sm.update(_obs(0.5, 5, n_candidates=0))  # drift_estimate ≈ 0.5*2.0=1.0 > 0.5 임계
@@ -247,7 +247,7 @@ def test_never_reaches_lock_states_without_fine_locked_even_with_low_agl():
         # 후보는 있다 갔다 하지만 fine_locked은 한 번도 True가 아니다. agl_m은 항상 매우 낮다
         # (근접 하강 상황을 흉내) — 그럼에도 커밋 게이트를 절대 통과할 수 없어야 한다.
         n = 1 if i % 3 != 0 else 0
-        d = sm.update(_obs(float(i) * 0.1, i, n_candidates=n, center_error_px=0.02,
+        d = sm.update(_obs(float(i) * 0.1, i, n_candidates=n, center_error_norm=0.02,
                             fine_locked=False, agl_m=0.2))
         states.append(d.state)
 
@@ -265,7 +265,7 @@ def test_never_reaches_lock_states_without_fine_locked_even_with_low_agl():
 def test_runs_without_crashing_when_agl_always_none():
     sm = LandingStateMachine()
     observations = [
-        _obs(o.ts, o.frame_id, n_candidates=o.n_candidates, center_error_px=o.center_error_px,
+        _obs(o.ts, o.frame_id, n_candidates=o.n_candidates, center_error_norm=o.center_error_norm,
              fine_locked=o.fine_locked, agl_m=None)
         for o in _normal_sequence_observations()
     ]
@@ -313,7 +313,7 @@ def test_config_thresholds_are_named_fields_not_magic_numbers():
         max_drift_estimate_m=2.0,
         lock_confirm_frames=1,
         loss_tolerance_frames=0,
-        center_tolerance_px=0.1,
+        center_tolerance_norm=0.1,
         max_candidates_for_lock=2,
         terminal_agl_m=1.0,
     )

@@ -56,8 +56,10 @@ class LandingSMConfig:
     lock_confirm_frames: int = 3
     # 검출 상실 허용 연속 프레임 수 — 이 이하는 일시적 흔들림으로 보고 넘어간다.
     loss_tolerance_frames: int = 5
-    # 중심정렬 허용오차(정규화 오차, 0~1 근사) — 이 이하면 "정렬됨"으로 보고 하강 명령.
-    center_tolerance_px: float = 0.05
+    # 중심정렬 허용오차 — 단위 없음(정규화, dx=(cx-w/2)/(w/2), dy 동일 → 노름 0~약1.41).
+    # ⚠️ 이름에 _norm이 붙어있지 픽셀이 아니다 — main.py/replay.py의 _build_observation()이
+    # 화면 절반폭/절반높이로 나눠 정규화한 값을 그대로 넣는다(픽셀값을 넣으면 즉시 오작동).
+    center_tolerance_norm: float = 0.05
     # 이 개수를 넘는 동시 후보는 "모호"로 취급 — 커밋 게이트가 락을 거절한다(§5.1).
     max_candidates_for_lock: int = 1
     # 이 고도(AGL, m) 이하에서만 PRECISION_SERVO -> TERMINAL 진입(§5.1 "근접 하강").
@@ -71,7 +73,10 @@ class Observation:
     ts: float                                   # 초
     frame_id: int
     n_candidates: int = 0                       # 이번 프레임 후보 개수(coarse/fine 통틀어)
-    center_error_px: Optional[float] = None     # 화면중심 대비 정규화 오차(없으면 None)
+    # 화면중심 대비 정규화 오차(없으면 None). ⚠️ 이름에 _norm이 붙어있지 픽셀이 아니다 —
+    # dx=(cx-w/2)/(w/2), dy=(cy-h/2)/(h/2)의 노름(0~약1.41 근사, main.py/replay.py 참조).
+    # 픽셀 단위 값을 그대로 넣으면 center_tolerance_norm(0.05 기본)과 비교가 즉시 어긋난다.
+    center_error_norm: Optional[float] = None
     fine_locked: bool = False                   # fine 피처 확정·검증(ArUco ID 등)
     agl_m: Optional[float] = None                # 라이다 AGL(없으면 None)
     target_estimate: Optional[Any] = None       # 있으면 TargetEstimate류(dict/객체), 없으면 None
@@ -99,7 +104,7 @@ class LandingStateMachine:
         self._consecutive_lost = 0
         self._consecutive_fine_locked = 0
         self._blind_since_ts: Optional[float] = None
-        self._last_center_error_px: Optional[float] = None
+        self._last_center_error_norm: Optional[float] = None
         self._last_agl_m: Optional[float] = None
 
     @property
@@ -114,15 +119,15 @@ class LandingStateMachine:
         ambiguous = obs.n_candidates > cfg.max_candidates_for_lock
         near_ground = obs.agl_m is not None and obs.agl_m <= cfg.terminal_agl_m
         centered = (
-            obs.center_error_px is not None
-            and abs(obs.center_error_px) <= cfg.center_tolerance_px
+            obs.center_error_norm is not None
+            and abs(obs.center_error_norm) <= cfg.center_tolerance_norm
         )
 
         # 최근 유효 관측 갱신 — TERMINAL 블라인드 데드레코닝/이탈 추정에만 쓴다.
         if has_candidate:
             self._consecutive_lost = 0
-            if obs.center_error_px is not None:
-                self._last_center_error_px = obs.center_error_px
+            if obs.center_error_norm is not None:
+                self._last_center_error_norm = obs.center_error_norm
             if obs.agl_m is not None:
                 self._last_agl_m = obs.agl_m
         else:
@@ -193,9 +198,15 @@ class LandingStateMachine:
                 # 근사 이탈 추정 — 마지막 유효 정규화 중심오차 x 마지막 유효 AGL(§5.1 "예상
                 # 착륙점 이탈 임계"). 정밀 기하가 아니라 안전 폴백 게이트용 근사치임을 의도적으로
                 # 유지한다(세션 지시 "정밀도·물리 튜닝에 시간을 쓰지 말 것").
+                # ⚠️ 단위 주의: 이 곱은 미터가 아니다 — "정규화 오차 × 미터"는 차원상 미터가
+                # 아니다. 실제 지상거리 근사는 `정규화오차 × agl × tan(HFOV/2)`이고, 실측
+                # HFOV 75°면 tan(37.5°)≈0.767이라 이 tan 항을 생략한 현재 근사값은 실제
+                # 지상 이탈거리보다 약 1/0.767 ≈ 1.3배 크게(=보수적으로) 나온다. 안전 방향
+                # (더 쉽게 ABORT_ASCEND로 빠짐)이라 급하지 않음 — 계산식은 바꾸지 않는다.
+                # 임계값(`max_drift_estimate_m`) 재튜닝은 실기체 데이터 확보 후에 할 일.
                 drift_estimate = 0.0
-                if self._last_center_error_px is not None and self._last_agl_m is not None:
-                    drift_estimate = abs(self._last_center_error_px) * self._last_agl_m
+                if self._last_center_error_norm is not None and self._last_agl_m is not None:
+                    drift_estimate = abs(self._last_center_error_norm) * self._last_agl_m
                 if blind_duration > cfg.max_blind_duration_s:
                     next_state, reason = LandingState.ABORT_ASCEND, "blind_duration_exceeded"
                 elif drift_estimate > cfg.max_drift_estimate_m:

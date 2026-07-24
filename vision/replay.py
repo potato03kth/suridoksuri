@@ -128,8 +128,10 @@ def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] =
     `fine_locked`은 지금 구현된 두 fine 검증 중 하나라도 있으면 True다: ArUco ID 확정 검출
     또는 ② 조난자 fine 흰 박스 확정(§5.3). coarse 전용 프리셋은 둘 다 없어 항상 False로 degrade.
 
-    `center_error_px`는 착륙점 기준(§5.3 "박스 옆 빈 초록면" — 박스 중심이 아님)으로 계산하고,
-    흰 박스 lock이 없으면 기존처럼 confirmed/첫 detection bbox 중심으로 폴백한다.
+    `center_error_norm`은 착륙점 기준(§5.3 "박스 옆 빈 초록면" — 박스 중심이 아님)으로 계산하고,
+    흰 박스 lock이 없으면 기존처럼 confirmed/첫 detection bbox 중심으로 폴백한다. **이름 주의**:
+    `_norm`은 정규화(0~약1.41)라는 뜻이지 픽셀이 아니다 — 예전 이름 `center_error_px`는 단위를
+    거짓으로 암시해 정정했다(`core/state_machine.py` 참조).
 
     `scale_source`(§5.1 blob 스케일 융합 규칙)는 흰 박스 blob 확정 시에만 채운다 — AGL 유효
     시 "agl", 없으면 "known_size". ArUco는 solvePnP 자체 스케일이라 대상 아님."""
@@ -147,13 +149,13 @@ def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] =
         if det is not None:
             center_px = det.center
 
-    center_error_px = None
+    center_error_norm = None
     if center_px is not None:
         h, w = state.original.shape[:2]
         cx, cy = center_px
         dx = (cx - w / 2.0) / (w / 2.0)
         dy = (cy - h / 2.0) / (h / 2.0)
-        center_error_px = float((dx ** 2 + dy ** 2) ** 0.5)
+        center_error_norm = float((dx ** 2 + dy ** 2) ** 0.5)
 
     scale_source = None
     if white_box_det is not None:
@@ -163,7 +165,7 @@ def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] =
         ts=ts,
         frame_id=frame_id,
         n_candidates=len(state.detections),
-        center_error_px=center_error_px,
+        center_error_norm=center_error_norm,
         fine_locked=fine_locked,
         agl_m=agl_m,
         scale_source=scale_source,

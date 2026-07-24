@@ -381,7 +381,7 @@ def test_distress_fine_state_progresses_through_real_pipeline(tmp_path, monkeypa
     assert "PRECISION_SERVO" in states or "LOCK" in states
     assert all(r["command"] is not None for r in records)
 
-    # 착륙점(landing_point_px) 기준 center_error_px가 실제로 detections에 실렸는지도 확인
+    # 착륙점(landing_point_px) 기준 center_error_norm이 실제로 detections에 실렸는지도 확인
     # (박스 중심이 아니라 착륙점 기준이어야 한다는 §5.3 설계 포인트의 배선 증거).
     for r in records:
         assert r["detections"], "white_box_detector 확정 detection이 실려야 한다"
