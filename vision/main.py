@@ -23,12 +23,16 @@ basename 지정.
   python -m vision.main flight.mp4 --preset presets/video.yaml --output results/out.mp4
   # 정지 이미지
   python -m vision.main image.jpg --preset presets/low_light.yaml --output results/out.jpg
+  # 실카메라 라이브 모드 (RPi + picamera2 필요, opt-in — `input`에 특수값 `live`/`live:<camera_num>`)
+  python -m vision.main live --preset presets/vertiport_fine.yaml --display none
+  # 라이브 모드 + 카메라 번호 지정 + 해상도 override + 영상 기록
+  python -m vision.main live:1 --live-resolution 1920x1080 --output results/live.mp4
 """
 import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import cv2
 
@@ -36,6 +40,7 @@ from vision.core.runner import Pipeline
 from vision.core.target import solve_target_pose
 from vision.utils.blackbox import BlackBoxLogger
 from vision.utils.calibration_loader import CameraCalibration, load_camera_calibration
+from vision.utils.frame_source import LiveFrameSource
 from vision.utils.image_loader import load_image
 from vision.utils.logging import log_provenance_header, setup_dual_sink_logger
 from vision.utils.stream import MjpegStreamer
@@ -46,6 +51,12 @@ _VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv"}
 _WINDOW_NAME = "Landing Zone Detector"
 # ArUco Phase 4(docs/vision_aruco_branch.md) — 기본 카메라 캘리브레이션. --calib로 override 가능.
 _DEFAULT_CALIB_PATH = str(Path(__file__).parent / "calibration" / "cam109-imx708af75" / "nominal.yaml")
+# 라이브 모드(LiveFrameSource 배선) — `input` 위치인자 특수값 접두사. import 자체는 picamera2 없이도
+# 항상 성공한다(LiveFrameSource.open() 내부 지연 import 덕분, vision/CLAUDE.md "frame_source.py" 절).
+_LIVE_INPUT_SPEC = "live"
+# --output 지정 시 라이브 모드 VideoWriter가 쓸 fps. VideoReader처럼 소스가 fps를 알려주지 않으므로
+# (무한 실시간 스트림) 고정값을 쓴다 — 정밀한 재생속도가 목적이 아니라 결과 확인용 기록이라 충분.
+_LIVE_DEFAULT_OUTPUT_FPS = 20.0
 
 
 def _show_window(annotated, *, wait: int) -> bool:
@@ -126,6 +137,36 @@ def _solve_aruco_chosen(
         logger.warning("frame %d: ArUco solvePnP 실패 — TargetEstimate 생략: %s", frame_id, e)
         return None
     return {"target_estimate": _target_estimate_to_dict(estimate)}
+
+
+def _parse_live_camera_num(input_arg: str) -> Optional[int]:
+    """`input` 위치인자가 라이브 모드 스펙(`live` 또는 `live:<camera_num>`)이면 camera_num을
+    반환하고, 일반 파일 경로면 None을 반환한다(기존 이미지/영상 분기로 폴백, 옵션 A —
+    `input`을 여전히 필수 위치인자로 두어 argparse 구조를 최소로 건드린다)."""
+    if input_arg == _LIVE_INPUT_SPEC:
+        return 0
+    prefix = _LIVE_INPUT_SPEC + ":"
+    if input_arg.startswith(prefix):
+        suffix = input_arg[len(prefix):]
+        try:
+            return int(suffix)
+        except ValueError as e:
+            raise ValueError(
+                f"잘못된 라이브 모드 스펙 — {input_arg!r} (예: {_LIVE_INPUT_SPEC} 또는 "
+                f"{_LIVE_INPUT_SPEC}:0)"
+            ) from e
+    return None
+
+
+def _parse_resolution(value: str) -> Tuple[int, int]:
+    """`--live-resolution WxH` 파싱. 잘못된 형식은 argparse가 사용법과 함께 exit(2)하게 둔다."""
+    try:
+        w_str, h_str = value.lower().split("x")
+        return (int(w_str), int(h_str))
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(
+            f"해상도는 WxH 형식이어야 합니다 (예: 1920x1080): {value!r}"
+        ) from e
 
 
 def _run_image(
@@ -241,15 +282,110 @@ def _run_video(
         cv2.destroyAllWindows()
 
 
+def _run_live(
+    pipeline: Pipeline,
+    camera_num: int,
+    resolution: Optional[Tuple[int, int]],
+    retries: int,
+    retry_delay: float,
+    output: str | None,
+    display: str,
+    logger,
+    blackbox: BlackBoxLogger,
+    streamer: MjpegStreamer | None = None,
+    calib: Optional[CameraCalibration] = None,
+) -> None:
+    """실카메라 라이브 모드 — `_run_video`와 거의 동일한 프레임 루프(무한 이터레이터라는 점만
+    다름). 헤드리스(`--display none`)에서는 무한정 도는 게 정상 동작이라 Ctrl+C(KeyboardInterrupt)가
+    유일한 종료 수단이다 — `with LiveFrameSource(...)`가 예외 전파 중에도 카메라를 release하고,
+    바깥 try/except가 스택트레이스 없이 조용히 종료시킨다(로그만 남김)."""
+    live_kwargs: dict = {"camera_num": camera_num, "retries": retries, "retry_delay": retry_delay}
+    if resolution is not None:
+        live_kwargs["resolution"] = resolution
+
+    writer = None
+    frame_count = 0
+    try:
+        with LiveFrameSource(**live_kwargs) as source:
+            for record in source:
+                t0 = time.perf_counter()
+                state = pipeline.run(record.image)
+                latency = time.perf_counter() - t0
+                ts = record.ts
+                annotated = draw_detections(state.original, state.detections, state.confirmed)
+
+                chosen = _confirmed_to_dict(state.confirmed)
+                aruco_chosen = _solve_aruco_chosen(state, calib, frame_count, ts, logger)
+                if aruco_chosen is not None:
+                    chosen = {**(chosen or {}), **aruco_chosen}
+
+                blackbox.log_frame(
+                    frame_id=frame_count,
+                    ts=ts,
+                    detections=_detections_to_list(state.detections),
+                    chosen=chosen,
+                    latency=latency,
+                )
+                logger.debug(
+                    "live frame %d: %d detections, confirmed=%s, latency=%.4fs",
+                    frame_count, len(state.detections), state.confirmed is not None, latency,
+                )
+                frame_count += 1
+
+                if streamer is not None:
+                    streamer.push_frame(annotated)  # 비차단(§7.9 비침습 전제)
+
+                if output:
+                    if writer is None:
+                        h, w = annotated.shape[:2]
+                        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                        writer = cv2.VideoWriter(output, fourcc, _LIVE_DEFAULT_OUTPUT_FPS, (w, h))
+                    writer.write(annotated)
+
+                if display == "window" and not _show_window(annotated, wait=1):
+                    break
+    except KeyboardInterrupt:
+        logger.info(
+            "라이브 모드 Ctrl+C로 종료 요청 — %d 프레임 처리 후 정상 종료", frame_count,
+        )
+    finally:
+        if writer:
+            writer.release()
+            print(f"Saved: {output}  ({frame_count} frames)")
+        logger.info("live camera_num=%s 종료: %d 프레임 처리", camera_num, frame_count)
+        if display == "window":
+            cv2.destroyAllWindows()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Landing zone object detector")
-    parser.add_argument("input", help="Input image or video file path")
+    parser.add_argument(
+        "input",
+        help="Input image or video file path, or 'live'/'live:<camera_num>' for a real-time "
+             "camera stream (opt-in — requires picamera2, RPi only, see --live-* flags below)",
+    )
     parser.add_argument(
         "--preset",
         default=str(Path(__file__).parent / "presets" / "single_frame.yaml"),
         help="Pipeline preset yaml (default: presets/single_frame.yaml)",
     )
     parser.add_argument("--output", default=None, help="Output file path (optional)")
+    parser.add_argument(
+        "--live-resolution",
+        type=_parse_resolution,
+        default=None,
+        metavar="WxH",
+        help="라이브 모드(`input`이 live/live:N) 해상도. 기본: LiveFrameSource 기본값 "
+             "(4608x2592, nominal.yaml image_size와 일치 — solvePnP 캘리브레이션 정합 유지).",
+    )
+    parser.add_argument(
+        "--live-retries", type=int, default=3,
+        help="라이브 모드 카메라 연결 재시도 횟수 (기본 3)",
+    )
+    parser.add_argument(
+        "--live-retry-delay", type=float, default=1.0,
+        help="라이브 모드 카메라 연결 재시도 간격(초, 기본 1.0)",
+    )
     parser.add_argument(
         "--display",
         choices=["none", "window", "file", "stream"],
@@ -282,10 +418,18 @@ def main() -> None:
         print("Error: --display file 은 --output 경로가 필요합니다.", file=sys.stderr)
         sys.exit(2)
 
-    input_path = Path(args.input)
-    if not input_path.exists():
-        print(f"Error: input file not found — {input_path}", file=sys.stderr)
-        sys.exit(1)
+    try:
+        live_camera_num = _parse_live_camera_num(args.input)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(2)
+
+    input_path: Optional[Path] = None
+    if live_camera_num is None:
+        input_path = Path(args.input)
+        if not input_path.exists():
+            print(f"Error: input file not found — {input_path}", file=sys.stderr)
+            sys.exit(1)
 
     pipeline = Pipeline.from_config(args.preset)
 
@@ -314,7 +458,12 @@ def main() -> None:
             logger.info("라이브 스트림 시작: %s", streamer.url)
             print(f"라이브 스트림: {streamer.url}")
 
-        if input_path.suffix.lower() in _VIDEO_SUFFIXES:
+        if live_camera_num is not None:
+            _run_live(
+                pipeline, live_camera_num, args.live_resolution, args.live_retries,
+                args.live_retry_delay, args.output, args.display, logger, blackbox, streamer, calib,
+            )
+        elif input_path.suffix.lower() in _VIDEO_SUFFIXES:
             _run_video(pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib)
         else:
             _run_image(pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib)

@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 import vision.main as main_mod
+from vision.utils.frame_source import FrameRecord
 
 _DICTIONARY = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 _VERTIPORT_FINE_PRESET = str(Path(main_mod.__file__).parent / "presets" / "vertiport_fine.yaml")
@@ -269,3 +270,174 @@ def test_missing_calib_file_logs_warning_and_still_runs(tmp_path, monkeypatch):
 
     log_text = (log_dir / "nocalibrun.log").read_text()
     assert "캘리브레이션 로드 실패" in log_text
+
+
+# ===========================================================================
+# 라이브 모드(LiveFrameSource 배선) — 실카메라/picamera2 없이 `main_mod.LiveFrameSource`를
+# 몽키패치해 검증(vision.utils.frame_source의 LiveFrameSource 몽키패치 대신 이 방식을 택한
+# 이유: main.py가 top-level에서 `from vision.utils.frame_source import LiveFrameSource`로
+# 이름을 자기 네임스페이스에 들여왔으므로, main_mod.LiveFrameSource를 바꿔치는 쪽이 실제
+# picamera2 가짜 모듈 주입보다 더 직접적이고 다른 프레임소스 테스트(test_frame_source.py)와
+# 책임이 겹치지 않는다). 무한 이터레이터라는 라이브 소스의 특성 때문에 실제 카메라 대신
+# **유한하게 끝나는 가짜**(N개 프레임 후 종료 또는 KeyboardInterrupt)로 무한루프 없이 검증한다.
+# ===========================================================================
+
+
+def _live_frame(value: int = 180):
+    return np.full((120, 120, 3), value, dtype=np.uint8)
+
+
+class _FakeLiveSourceFiniteFrames:
+    """실카메라 대신 N개(3개) 프레임만 내고 정상 종료하는 가짜 — 무한루프에 테스트가 걸리지
+    않으면서 `_run_live()` 경로 자체(파이프라인 실행→블랙박스 기록)를 검증하기 위함."""
+
+    def __init__(self, camera_num=0, resolution=None, retries=3, retry_delay=1.0):
+        self.camera_num = camera_num
+        self.resolution = resolution
+        self.retries = retries
+        self.retry_delay = retry_delay
+        self.entered = False
+        self.exited = False
+
+    def __enter__(self):
+        self.entered = True
+        return self
+
+    def __exit__(self, *_exc):
+        self.exited = True
+        return False
+
+    def __iter__(self):
+        for i in range(3):
+            yield FrameRecord(frame_id=i, ts=float(i), image=_live_frame(), telemetry={})
+
+
+class _FakeLiveSourceInterruptsAfter2Frames:
+    """2프레임을 낸 뒤 KeyboardInterrupt를 던져 실기체 Ctrl+C를 시뮬레이션."""
+
+    def __init__(self, camera_num=0, resolution=None, retries=3, retry_delay=1.0):
+        self.camera_num = camera_num
+        self.entered = False
+        self.exited = False
+
+    def __enter__(self):
+        self.entered = True
+        return self
+
+    def __exit__(self, *_exc):
+        self.exited = True
+        return False  # 예외를 삼키지 않음 — 실제 컨텍스트매니저(LiveFrameSource)와 동일 계약
+
+    def __iter__(self):
+        yield FrameRecord(frame_id=0, ts=0.0, image=_live_frame(), telemetry={})
+        yield FrameRecord(frame_id=1, ts=1.0, image=_live_frame(), telemetry={})
+        raise KeyboardInterrupt()
+
+
+def test_live_input_spec_dispatches_to_run_live_and_writes_jsonl(tmp_path, monkeypatch):
+    """`input`에 특수값 `live`를 주면 실제로 `_run_live()` 경로를 타 파이프라인+블랙박스가
+    실제로 동작하는지 — 유한 가짜 소스로 무한루프 없이 검증."""
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(main_mod, "LiveFrameSource", _FakeLiveSourceFiniteFrames)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["vision.main", "live", "--log-dir", str(log_dir), "--log-name", "liverun"],
+    )
+    main_mod.main()
+
+    jsonl_path = log_dir / "liverun.jsonl"
+    assert jsonl_path.exists(), "라이브 모드에서도 블랙박스 JSONL이 실제로 생성돼야 함"
+    records = [json.loads(l) for l in jsonl_path.read_text().splitlines()]
+    assert [r["frame_id"] for r in records] == [0, 1, 2]
+    assert all(r["type"] == "frame" for r in records)
+    assert all(r["latency"] >= 0 for r in records)
+
+
+def test_live_input_spec_with_camera_num_parses_and_passes_through(tmp_path, monkeypatch):
+    """`live:N` 스펙에서 N이 실제로 LiveFrameSource(camera_num=N)에 전달되는지."""
+    captured: dict = {}
+
+    class _Capturing(_FakeLiveSourceFiniteFrames):
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(main_mod, "LiveFrameSource", _Capturing)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["vision.main", "live:2", "--log-dir", str(tmp_path / "logs")],
+    )
+    main_mod.main()
+
+    assert captured["camera_num"] == 2
+
+
+def test_live_resolution_flag_passed_through_to_live_frame_source(tmp_path, monkeypatch):
+    """--live-resolution WxH가 LiveFrameSource(resolution=(W, H))로 전달되는지."""
+    captured: dict = {}
+
+    class _Capturing(_FakeLiveSourceFiniteFrames):
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(main_mod, "LiveFrameSource", _Capturing)
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", "live", "--live-resolution", "640x480",
+            "--log-dir", str(tmp_path / "logs"),
+        ],
+    )
+    main_mod.main()
+
+    assert captured["resolution"] == (640, 480)
+
+
+def test_live_mode_keyboard_interrupt_closes_blackbox_cleanly_no_crash(tmp_path, monkeypatch):
+    """§확정 전제: Ctrl+C(KeyboardInterrupt)로 라이브 모드가 스택트레이스 없이 정상 종료돼야
+    하고, 그 전에 기록된 프레임은 JSONL에 남아야 하며, blackbox.close()가 반드시 불려야 한다."""
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(main_mod, "LiveFrameSource", _FakeLiveSourceInterruptsAfter2Frames)
+
+    closed = []
+    real_close = main_mod.BlackBoxLogger.close
+
+    def _spy_close(self, *a, **kw):
+        closed.append(True)
+        return real_close(self, *a, **kw)
+
+    monkeypatch.setattr(main_mod.BlackBoxLogger, "close", _spy_close)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["vision.main", "live", "--log-dir", str(log_dir), "--log-name", "interruptrun"],
+    )
+
+    main_mod.main()  # KeyboardInterrupt가 main() 밖으로 전파되면 안 됨(크래시 스택트레이스 금지)
+
+    assert closed == [True], "KeyboardInterrupt 발생해도 blackbox.close()가 호출돼야 함(리소스 leak 방지)"
+
+    records = [json.loads(l) for l in (log_dir / "interruptrun.jsonl").read_text().splitlines()]
+    assert [r["frame_id"] for r in records] == [0, 1], "interrupt 전에 낸 프레임은 기록돼야 함"
+
+    log_text = (log_dir / "interruptrun.log").read_text()
+    assert "Ctrl+C" in log_text, "정상 종료 로그가 남아야 함(스택트레이스로 죽으면 안 됨)"
+
+
+def test_live_invalid_camera_num_spec_exits_with_usage_error(monkeypatch):
+    """`live:notanumber`처럼 잘못된 라이브 스펙은 (실제 카메라 시도 없이) 사용법 에러로 종료."""
+    monkeypatch.setattr(sys, "argv", ["vision.main", "live:notanumber"])
+    with pytest.raises(SystemExit) as exc:
+        main_mod.main()
+    assert exc.value.code == 2
+
+
+def test_non_live_input_still_requires_existing_file(tmp_path, monkeypatch):
+    """회귀: 라이브 스펙이 아닌 일반 입력은 여전히 input_path.exists() 체크를 받는다(기존
+    이미지/영상 흐름을 절대 깨지 않는다는 확정 전제)."""
+    monkeypatch.setattr(
+        sys, "argv", ["vision.main", str(tmp_path / "does_not_exist.png")]
+    )
+    with pytest.raises(SystemExit) as exc:
+        main_mod.main()
+    assert exc.value.code == 1
