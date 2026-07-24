@@ -630,6 +630,13 @@ ARM_TAKEOFF → CLIMBING(50m) → 헤딩정렬(err -2.3°) → MC→FW 천이(vt
 
 ## 작업 H-2 — 이륙 목표 AMSL 보정 + CLIMBING 지면기준 AGL (2026-07-11, ⏳ SITL 재검증 대기)
 
+> **2026-07-24 교차참조:** `docs/mc_hw_next_session_brief.md`(STREAMING 오버슈트 조사) 세션에서
+> default gz_x500 world(`PX4_HOME_ALT` 미지정)로 애드혹 재현한 결과가 아래 "실패 시 시나리오 분기"
+> 표의 "과상승(예 +25~40m) → geoid/ellipsoid 혼동" 항목과 증상이 일치함(그 세션은 47.4m AMSL 홈에서
+> 요청 3m 대신 실측 ~50m 상승). 단 그 재현은 이 섹션이 요구하는 통제 조건(`PX4_HOME_LAT/LON/ALT`
+> 명시 지정)을 쓰지 않아 확정적 증거는 아니다 — **다음 세션은 이 섹션의 체크리스트를 그대로
+> 실행해 ②geoid 정합부터 확정할 것.** 상세는 `docs/session_log.md` 2026-07-24 항목.
+
 **배경:** 작업 H(CommandTOL)의 실기체 첫 검증(2026-07-07 광주, ulog `02_17_49`)에서 이륙 실패. 근본원인 = `CommandTOL.altitude`(→ `MAV_CMD_NAV_TAKEOFF` param7)는 **AMSL 절대고도**인데 `transition_alt`(지면 기준 상승분, 예 4.0)를 그대로 실어, 지면 AMSL(19.2m)보다 낮은 목표라 PX4 navigator가 "Already higher than takeoff altitude"로 이륙을 취소 → 모터 미가동 → `COM_DISARM_PRFLT`(10s) preflight auto-disarm. 상세 분석·ulog: `logs/2026-07-07_0217_last/notes.md`.
 
 **수정 (커밋됨):**
