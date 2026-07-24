@@ -1,12 +1,23 @@
 ---
 doc_type: orchestrator_brief
 scope: home_amsl 수렴판정 수정(PR #4, 병합완료) 검증 중 우연히 발견된 STREAMING 진입 직후 고도 오버슈트(3.0m 목표 → 5.5m대) 조사
-status: ▶ 시작 대기 (2026-07-24 준비, 아직 미착수)
+status: ✅ 조사·수정 완료 (2026-07-24) — 상세는 `docs/session_log.md` 2026-07-24 "STREAMING 오버슈트 조사" 항목
 created: 2026-07-24
 last_updated: 2026-07-24
 ---
 
-# 다음 세션 브리프 — STREAMING 오버슈트 조사
+> **⚠ 이 문서는 완료됨 — 아래 내용은 조사 시작 시점의 1차 가설이며 정정됨.**
+> 실제 근본원인은 이 문서의 §1 가설(`climbing_reached()` 속도무시)이 아니라
+> `offboard_node.py`의 `self._home_amsl`이 ARM 사이클마다 리셋되지 않고 세션
+> 내내 재사용되는 것 — 같은 세션의 이전 비행에서 확정된 값(약 47.5m AMSL)이
+> 이번 비행(실제 지면 0.25m AMSL)에 그대로 새어들어가 PX4가 3m가 아니라
+> ~50m를 향해 이륙을 시도했고, 그 도중(5.5m대에서) 우리 노드가 개입해
+> 멈춘 것으로 확인됨. `climbing_reached()` 속도조건 추가는 부차 개선으로
+> 함께 적용됨. 상세 물증·수정 내용·SITL 검증 결과는
+> `docs/session_log.md` 2026-07-24 "STREAMING 오버슈트 조사" 항목 참조.
+> 아래 원본 내용은 조사 과정의 기록으로만 유지한다.
+
+# 다음 세션 브리프 — STREAMING 오버슈트 조사 (완료, 아카이브용 원본)
 
 > **다음 세션 진입:** 이 문서 하나만 읽으면 된다. `docs/session_status.md`(트랙 보드)는
 > "🚁 mc-실기체" 블록만, `docs/mc_hw_open_hypotheses.md`는 필요하면 참고(단 이 문서의 현상은

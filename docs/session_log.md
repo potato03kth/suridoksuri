@@ -11,6 +11,71 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-24 — [mc-hw] STREAMING 오버슈트 조사 — 진짜 근본원인은 `climbing_reached()` 아니라 `_home_amsl` 세션 내 재사용(stale) → 2건 동시수정 + SITL 회귀검증
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 직전 세션이 준비해 둔 `docs/mc_hw_next_session_brief.md`를 이어받아 STREAMING 진입 직후 AGL 오버슈트(3.0m→5.54m) 조사. 사용자가 "MC 테스트기체에서도 오버슈트가 발생한 적이 있다"는 힌트를 줌 — 실제로 `docs/session_log.md` 2026-07-20 flight01 사고 항목(AUTO.TAKEOFF가 목표 4.0m를 지나 7.6m까지 오버슈트, 당시 "다음 세션" 항목 ②로 "고도 오버슈트 자체의 근본원인 규명(미해결)"이라 명시적으로 남겨진 채 그 이후 어느 세션도 다시 집지 않았던 이슈)와 동일 계열 현상임을 먼저 확인.
+
+### 완료
+
+- **원본 ulog(`logs/2026-07-24_sitl_streaming_overshoot/05_07_03.ulg`) pyulog 재디코드로 브리프 가설 교차검증** — `nav_state`: t=5.11s AUTO_TAKEOFF 진입, t=13.21s OFFBOARD 확정(brief 기록과 일치). 그런데 `vehicle_local_position_setpoint.z`(PX4 내부 위치제어기가 실제로 쫓던 목표고도)를 같이 뽑아보니 **목표 3.0m에서 전혀 감속·정체하지 않고 실측 AGL과 나란히 t=8.3~13.5s 내내 계속 상승해 5.53m까지 올라감** — 이건 "우리 노드가 너무 이르게 도달판정"한 결과가 아니라 **PX4가 애초에 3.0m가 아닌 다른(더 높은) 고도를 목표로 이륙 중이었다**는 뜻.
+- **결정적 물증:** `vehicle_command`(MAV_CMD_NAV_TAKEOFF, t=5.096s) `param7`(요청고도, AMSL) = **50.47023m**. 그런데 이 ulog 자체의 `home_position.alt`(t=0.000s) = **0.25093m**. 즉 PX4에 요청된 이륙목표는 AGL 3.0m가 아니라 **약 50.2m**였음. 50.47023−3.0=47.47023은 **바로 이전 session_log 항목(2026-07-24, home_amsl 회귀검증 비행)에 기록된 "지면 47.5+3.0=50.5m AMSL"과 사실상 동일값** — 그 앞선 비행에서 확정(convergence)된 `_home_amsl`(47.5m대)이 SITL 인스턴스가 바뀐(홈이 실제로는 0.25m인) **이번 비행에 그대로 재사용**된 것으로 결론.
+- **메커니즘 확인 (코드 대조):** `offboard_node.py`에서 `self._home_amsl`/`self._home_amsl_samples`는 `__init__`(232~233행)에서 딱 한 번만 초기화되고, ARM/이륙 사이클마다(또는 그 어떤 시점에도) 리셋되는 코드가 전혀 없음 — `_step_arm_takeoff`(435행)는 `self._home_amsl is None`일 때만 대기하므로, **한 번 수렴이 확정되면 그 프로세스 생애주기 내내 재검증 없이 신뢰**된다. `_cb_home`이 받는 `/mavros/home_position/home`이 (같은 세션 내 이전 PX4 인스턴스 등에서 온) 오래된/래치된 값이어도 `min_samples`(3)개가 우연히 서로 `tol`(0.5m) 이내면 그대로 확정돼버림 — 이건 2026-07-23 사고(이 세션 바로 위 항목, `home_amsl_confirmed()` 최초 도입 계기)가 지목한 원인("래치된 오래된 home_position")과 **동일 계열이지만, PR #4(`home_amsl_confirmed()` N회 연속수렴)가 막는 "최초 GPS 미수렴 시점 스냅샷" 시나리오와는 다른 하위 시나리오**(세션 내 재사용) — PR #4로는 못 막는 구멍이었음.
+- **부차 확인 (브리프 원 가설):** `climbing_reached()`(`fc_bridge/execution/state_logic.py`)는 실제로 속도조건 없이 위치만으로 판정하는 게 맞았음(코드로 확인) — 다만 이번 사고의 **주 원인은 아니고 부차적** 요인으로 재평가(위 PX4 자체 목표고도 오류가 압도적 1차 원인). 그래도 사용자 승인으로 이번 세션에 함께 수정.
+- **코드 수정 2건:**
+  1. `fc_bridge/execution/state_logic.py::climbing_reached()`에 `vz_down`/`vz_tol` 파라미터 추가 — 위치조건 + 수직속도가 `vz_tol`(기본 0.3m/s) 이내로 안정됐을 때만 "도달" 인정. 기본값(`vz_down=0.0`)은 기존 호출부와 완전히 동일한 동작 보존(회귀 없음), 호출부가 명시적으로 실제 속도를 넘겨야 조건이 활성화됨.
+  2. `fc_bridge/execution/state_logic.py`에 신규 순수함수 `home_amsl_sample_fresh(age_s, max_age_s=1.0)` 추가. `offboard_node.py::_cb_home`에서 메시지 수신 시각(`self.get_clock().now()`)과 `msg.header.stamp`의 차이(age)를 계산해, `home_amsl_max_age`(신규 파라미터, 기본 1.0s)를 넘는 오래된 표본은 `home_amsl_samples`에 아예 추가하지 않고 버림 — 세션 내 재사용/래치 경로를 원천 차단.
+  3. `_step_climbing()`이 `climbing_reached()`에 `state.vel_ned[2]`(NED, 하강=양수)를 `vz_down`으로 전달하도록 변경. 신규 파라미터 `home_amsl_max_age`(1.0)·`climb_vz_tol`(0.3) 노드 파라미터로 노출.
+- **pytest:** `fc_bridge/tests/test_state_logic.py` 신규 생성(이 모듈에 기존 테스트가 전무했음) — `climbing_reached()` 신·구 동작 5건, `home_amsl_confirmed()` 3건(기존 커버리지 보강), `home_amsl_sample_fresh()` 2건, 총 10건 추가. `fc_bridge/tests/` 전체 **65 전부 통과**(기존 55 + 신규 10, 회귀 없음).
+- **SITL 회귀검증:** 이 노트북의 기존 WSL(`Ubuntu-22.04`) SITL 환경 재사용(재구축 불필요, `wsl.exe -d Ubuntu-22.04`로 이 작업환경에서 직접 접근 가능함을 이번에 확인 — 브리프가 가정한 "다음 세션은 사람이 별도 WSL 창에서 진행" 대신 같은 세션 내에서 그대로 재현 가능했음). 상세는 아래 "다음 세션"/이 항목 하단 실측 결과 참조.
+
+### 결정
+
+- **원인 프레이밍을 정정한다** — 브리프가 넘겨준 1차 가설("`climbing_reached()` 속도무시로 조기 STREAMING 전환")은 이번 사고의 지배적 원인이 아니었다. 실측 증거(PX4 내부 setpoint 자체가 5.5m까지 계속 상승, CommandTOL 요청고도가 애초에 50.47m)는 **"PX4가 3m가 아니라 잘못된 절대고도(~50m)를 향해 이륙 중이었다"**는 것을 가리킨다. 이 프레이밍이 앞으로 이 로그를 다시 인용할 때 우선한다.
+- **`climbing_reached()` 속도조건은 부차 개선으로 유지한다** — 근본원인은 아니지만 "AGL이 목표를 스치는 순간 관성이 남아있어도 즉시 도달판정"하는 것 자체는 별개로 개선할 가치가 있다고 사용자가 판단(옵션 선택). 부작용 없이(기본값 보존) 추가.
+- **`home_amsl` 재사용 방지는 "메시지 신선도" 방식을 채택** — "ARM 시점에 샘플 리셋" 대안도 검토했으나, 이 프로세스는 실제로는 매 비행마다 새로 실행되는 것으로 보여(상태머신에 ARM_TAKEOFF 재진입 경로가 없음) 코드상 그 시나리오만으론 재현 설명이 안 됨 — 재현된 실제 값(같은 날 이전 비행의 47.5m대)은 오히려 MAVROS/DDS 쪽에서 온 오래된 메시지가 새 구독자에게 그대로 전달됐을 가능성을 가리켜, 메시지 자체의 나이(`header.stamp`)를 검사하는 쪽이 실제 메커니즘에 더 부합한다고 판단.
+
+### ⚠ SITL 회귀검증에서 훨씬 더 근본적인 별개 문제 발견 (미해결, 사용자 확인 대기)
+
+**이 세션의 2건 수정(위 참조)은 유효하지만 STREAMING 오버슈트 자체를 해결하지 못한다.** 방금 구축된
+완전히 신선한 PX4 SITL(같은 세션 재사용 아님, staleness 불가능한 최초 부팅)에서 재현한 결과:
+- `home_amsl` 수렴값 = 47.44m AMSL(정상), CommandTOL 계산도 정확 — launch.log에
+  `CommandTOL 이륙 요청 alt=50.4m AMSL (지면 47.4+3.0) -> CLIMBING` 정상 출력.
+- 그런데도 실측 텔레메트리(`pos_ned[2]`)가 3.0m 근방에서 멈추지 않고 **계속 상승해 t=45s
+  타임아웃 시점 h_up≈50.2m에서 수렴(더 이상 안 오름, 정상 정착).**
+- `/mavros/global_position/global`(현재 GPS AMSL) = 97.624m, `/mavros/home_position/home.geo.altitude`
+  = 47.440m → 실제 상승고도 = 97.624−47.440 = **50.184m**, `local_position/pose.position.z` = 50.233m —
+  두 값이 서로 정합적(EKF/좌표계 버그 아님). 즉 기체는 **정확히 "AGL 50.2m"에 정착**했다.
+- 이 50.2m는 목표 AGL(3.0m)과도, "AMSL 50.4m 절대고도 도달"(그러면 로컬고도는 2.96m가 됐어야 함)과도
+  안 맞고, **요청 AMSL 숫자값(50.4) 자체와 거의 정확히 일치**(오차 0.2m) — 즉 PX4(또는 MAVROS
+  CommandTOL 경로 어딘가)가 `takeoff_request_fields()`가 보낸 **AMSL 절대고도 50.4를 "그 자체로 로컬/상대
+  상승목표"로 그대로 써버리는 것으로 강하게 의심됨.** 2026-07-07에 확립된 기존 지식("transition_alt를
+  그대로 실으면 지면보다 낮아 이륙 취소된다" → AMSL 합산으로 해결)과 표면적으로 모순돼 보이지만, 그
+  검사(사전 취소 체크)와 실제 상승목표 산출 로직이 PX4 내부에서 서로 다른 기준을 쓰고 있을 가능성(예:
+  COMMAND_LONG에는 frame 필드가 없어 사전체크는 AMSL로, 실제 항법 목표는 상대고도로 처리하는 식의
+  불일치)이 유력 후보 — 미확정.
+- **이게 사실이라면 지금까지의 모든 오버슈트 관측(2026-07-20 flight01, 2026-07-24 오늘 이 항목의
+  0.25m-홈 재현, 방금 47.4m-홈 재현)이 전부 이 하나의 근본원인으로 설명된다** — `_home_amsl` 세션
+  재사용(오늘 이 항목 위쪽에서 고친 것)은 "얼마나 틀린 값을 요청하느냐"에만 영향을 줄 뿐, 애초에
+  PX4가 요청받은 AMSL 목표를 제대로 "목표 AMSL까지만 상승"으로 실행하지 않는다는 훨씬 큰 문제가
+  따로 있다는 뜻.
+- **사용자에게 보고 후 진행방향 확인 필요 — 이 세션에서 코드수정 보류.** 후보: ①MAVROS
+  `CommandTOL`/`MAV_CMD_NAV_TAKEOFF` 대신 다른 이륙 메커니즘(예: 이륙 자체는 최소고도로만 하고 나머지
+  상승은 OFFBOARD 위치 세트포인트로 우리가 직접 제어) ②PX4 소스/Navigator Takeoff 로직 직접 확인
+  (MAVLink frame 처리, `MPC_TKO_*`/`EKF2_HGT_REF` 상호작용) ③MAVROS CommandTOL 플러그인이 COMMAND_LONG을
+  보내는지 COMMAND_INT(+frame)를 보내는지 확인. 이번 세션의 2건 수정(freshness/속도조건)은 부작용 없는
+  안전한 개선이라 유지하되, "오버슈트를 고쳤다"고 보고하지 않는다.
+
+### 다음 세션
+
+1. **최우선 — 위 "SITL 회귀검증에서 발견" 항목.** AMSL 절대고도가 PX4에서 실제로 어떻게 소비되는지
+   (MAVROS CommandTOL 플러그인 소스, PX4 Navigator Takeoff.cpp) 직접 확인 필요 — 이 세션은 사용자 보고
+   후 범위를 다시 정하기로 하고 여기서 중단.
+2. `home_amsl_max_age`(1.0s) 기본값이 실비행(RPi5, 실제 MAVROS/네트워크 지연)에도 적절한지 재검증 필요 — SITL은 로컬 루프백이라 지연이 매우 작아, 이 상한이 실기체에서 너무 타이트하지 않은지 다음 실비행에서 확인.
+3. 여전히 남는 질문: 애초에 왜 MAVROS/DDS가 "새 PX4 인스턴스로 갈아탔는데도" 이전 home_position을 계속 흘려보내는지(진짜 DDS 래치인지, MAVROS 내부캐시인지)는 미규명 — 이번 수정은 증상(오래된 값이 표본에 섞이는 것) 차단에 집중했고, MAVROS 자체 동작 원인규명은 범위 밖으로 남김.
+
+---
+
 ## 2026-07-24 — [mc-hw] 2026-07-23 저녁 실비행 사고분석 — 오프보드 3m 상승명령이 30m로 실행 + 오프보드 미이행 원인 규명 → `_cb_home` 수렴판정 수정 → SITL 회귀검증 완료
 
 **브랜치:** `dev--vision-computing-module`

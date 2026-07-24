@@ -34,7 +34,7 @@ from fc_bridge.execution.state_logic import (
     trans_mc_trigger, vtol_is_mc, landing_done,
     override_mode, override_reached, override_fallback_due, wp1_land_ready,
     after_climb_state, after_following_state, takeoff_request_fields,
-    home_amsl_confirmed,
+    home_amsl_confirmed, home_amsl_sample_fresh,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 from fc_bridge.utils.rotation import yaw_ned_to_quat_enu
@@ -46,6 +46,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.time import Time
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State, ExtendedState, HomePosition
 from mavros_msgs.srv import CommandBool, CommandLong, CommandTOL, SetMode
@@ -144,6 +145,8 @@ class OffboardNode(Node):
         self.declare_parameter("gravity",    9.81)
         self.declare_parameter("home_amsl_tol",         0.5)
         self.declare_parameter("home_amsl_min_samples", 3)
+        self.declare_parameter("home_amsl_max_age",     1.0)
+        self.declare_parameter("climb_vz_tol",          0.3)
 
         control_hz = self.get_parameter("control_hz").value
         self._dt = 1.0 / max(control_hz, 2.0)
@@ -169,6 +172,10 @@ class OffboardNode(Node):
             self.get_parameter("home_amsl_tol").value)
         self._home_amsl_min_samples = int(
             self.get_parameter("home_amsl_min_samples").value)
+        self._home_amsl_max_age = float(
+            self.get_parameter("home_amsl_max_age").value)
+        self._climb_vz_tol = float(
+            self.get_parameter("climb_vz_tol").value)
 
         # ── 경로 계획 ─────────────────────────────────────────
         from fc_bridge.planning.planner_runner import run_planner, resolve_planner_name
@@ -317,6 +324,21 @@ class OffboardNode(Node):
     def _cb_home(self, msg: HomePosition) -> None:
         # geo.altitude = 이륙 지점 지면 AMSL. CommandTOL 목표고도(절대)의 기준값.
         # 단발 스냅샷 대신 최근 샘플이 tol 이내로 수렴할 때만 확정한다(2026-07-23 대응).
+        #
+        # (2026-07-24 SITL 재현 대응): 오래된(래치/캐시된) home_position은 수렴
+        # 표본에서 아예 제외한다 — 같은 세션 안에서 이전 PX4 인스턴스의 home이
+        # 그대로 섞여 들어와 우연히 min_samples개가 서로 tol 이내로 일치해버리면
+        # home_amsl_confirmed()가 그 stale 값을 그대로 확정하는 사고를 막기 위함
+        # (실측: 이번 비행 지면 0.25m AMSL인데 이전 비행 값 47.5m대가 새어들어가
+        # PX4에 이륙목표 50.47m AMSL 요청 — logs/2026-07-24_sitl_streaming_overshoot/).
+        age_s = (self.get_clock().now()
+                 - Time.from_msg(msg.header.stamp)).nanoseconds / 1e9
+        if not home_amsl_sample_fresh(age_s, self._home_amsl_max_age):
+            self.get_logger().warn(
+                f"home_position 메시지 지연 age={age_s:.1f}s > "
+                f"{self._home_amsl_max_age:.1f}s — 래치/캐시 의심, 수렴 표본에서 제외",
+                throttle_duration_sec=2.0)
+            return
         self._home_amsl_samples.append(float(msg.geo.altitude))
         del self._home_amsl_samples[:-20]  # 무한 성장 방지, 최근 20개만 유지
         self._home_amsl = home_amsl_confirmed(
@@ -471,7 +493,9 @@ class OffboardNode(Node):
         VTOL: TRANSITION_FW(MC→FW 천이). MC: STREAMING(천이 생략, OFFBOARD 진입).
         """
         if climbing_reached(state.pos_ned[2], self._transition_alt,
-                            self._takeoff_ground_h):
+                            self._takeoff_ground_h,
+                            vz_down=state.vel_ned[2],
+                            vz_tol=self._climb_vz_tol):
             nxt = _State(after_climb_state(self._is_mc))
             self.get_logger().info(
                 f"운용 고도 {self._transition_alt:.1f}m 도달 → {nxt.value}"
