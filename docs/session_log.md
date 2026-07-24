@@ -11,6 +11,34 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-24 — [vtol-hw] VTOL 오프보드 비행 전 코드 준비상태 점검 → eta3 플래너 `np.trapz` 크래시 버그 발견·수정
+
+**브랜치:** `dev--vision-computing-module`
+**목적:** 수리한 VTOL 테스트기체 오프보드 비행(MC모드+천이비행, CV 미사용)을 앞두고, 최근 MC 테스트기체 비행으로 있었던 코드수정이 VTOL 비행에 영향 없는지 점검
+
+### 완료
+
+- **경로계획 코드 직접 확인 (질문 답변):** MC용 코드수정(07-21 yaw setpoint 수정 등)은 `fc_bridge/planning/planner_runner.py`/`eta3clothoid_v3_1_planner.py`/`straight_line_planner.py`를 건드리지 않아 VTOL 경로생성과 무관함을 코드로 확인. `planner:="auto"`는 `resolve_planner_name()`에서 `vehicle_type=mc`→`straight`, `vtol`(기본)→`eta3`로 분기. **"짧은 경로면 거부하는가"에 대한 답: 거부 없음** — WP 2개면 NR 자체를 생략(N≤2 특수케이스), 3개 이상이면 NR 잔차가 커도 affine 보정으로 WP 통과를 강제하고 콘솔 WARNING만 출력. 실제 `ValueError`는 "병합 후 distinct WP 2개 미만"(사실상 한 점) 경우뿐. `planner:="straight"`를 VTOL 기체에 명시 지정하는 것도 가능(항상 auto보다 우선) — 단 곡률 불연속 노출로 FW/천이구간엔 부적합.
+- **점검 중 실제 크래시 버그 발견·수정:** eta3 NR 경로(WP 3개 이상)의 `_fresnel_endpoint()`가 `np.trapz`를 호출 — 이 개발머신 numpy(2.5.1, numpy 2.x에서 API 제거됨)에서 `AttributeError`로 즉시 크래시함을 재현 확인. 리포 자체 회귀테스트(`vtol_sim/tests/test_eta3_v3_degenerate_wp.py::test_normal_wps_unaffected`)도 이 크래시로 실패 상태였음 — `fc_bridge/tests/`만 pytest 대상이라 CI로 안 잡혀왔던 것. `_trapz()` 로컬 사다리꼴적분 함수로 교체해 수정. `fc_bridge/tests`(65)+`vtol_sim/tests/test_eta3_v3_degenerate_wp.py`(3) 전부 통과. 커밋 `0785777`, `dev--vision-computing-module`에 push 완료.
+- `docs/session_status.md` ✈ vtol-실기체 트랙 갱신(헤더를 "수리 중"→"오프보드 비행 예정"으로, 이번 점검·수정 내용 반영).
+
+### 결정
+
+- 다른 eta3 변형(`eta3clothoid_planner.py`, `eta3clothoid_stage2_planner.py`, `piecewise_clothoid_planner.py`)도 동일 `np.trapz` API를 쓰지만 `planner_runner.py`가 참조하지 않는 미사용 경로라 이번 수정 범위 밖으로 남김.
+- 이 수정은 관례상 SITL 회귀검증 없이 실비행 투입은 비권장.
+
+### 다음 세션
+
+1. **비행 전 필수 확인:** RPi5 companion computer의 fc_bridge venv numpy 버전 — 2.x 계열(trapz 제거 버전)이면 이번 커밋이 반영됐는지 확인 필요. WP를 2개로만 구성하면(예: 천이점→착륙점 단일 leg) N≤2 특수케이스로 이 NR 경로 자체를 우회 가능.
+2. SITL로 이번 수정 회귀검증 (관례).
+3. 여전히 미착수: 작업 F(임의 WP 경로 견고성 하니스, `fc_bridge/tests/test_arbitrary_wp.py`) — 이번에 발견된 종류의 크래시를 이 하니스가 있었다면 더 일찍 잡았을 것.
+
+### 주의
+
+> "경로가 너무 짧으면 planner가 거부한다"는 가정은 이번 점검으로 반증됨(코드는 거부 대신 항상 최선의 경로를 반환) — 대신 훨씬 안 좋은 실패모드(numpy 버전 비호환 크래시)가 실재했다. 앞으로 "논리적으로 안전한가"와 "환경에서 실제로 동작하는가"는 별개로 확인할 것.
+
+---
+
 ## 2026-07-24 — [mc-hw] STREAMING 오버슈트 조사 — 진짜 근본원인은 `climbing_reached()` 아니라 `_home_amsl` 세션 내 재사용(stale) → 2건 동시수정 + SITL 회귀검증
 
 **브랜치:** `dev--vision-computing-module`
