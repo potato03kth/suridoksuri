@@ -362,7 +362,7 @@ $PICAM_PYTHON your_script.py                # picamera2는 별도 venv
 libcamera 살면 picamera2 설치 후 각각 **직접 재현 검증**(pseudo 금지):
 ① 초점 목표값 1초내 반영 ② 진짜 연속 AF ③ AF↔MF 전환 ④ **AF 윈도우(영역) 지정** ⑤ AE 자동/수동 전환 ⑥ AWB 자동/수동 전환. 되면 지난 세션의 수동 스윕·gray-world·정착시간 조사가 전부 불필요해짐.
 
-### Phase 3 — ffmpeg 영상 (디버깅 + 다운링크 통합) — ▶ **다음 차례**
+### Phase 3 — ffmpeg 영상 (디버깅 + 다운링크 통합) — ▶ **다음 차례 (2026-07-24 재확인: 여전히 미착수, 다시 묻히지 말 것 — `docs/vision_status.md` 2026-07-24 "fps 튜닝 + ffmpeg Phase 3 혼동 재확인" 항목·메모리 `feedback_ffmpeg_phase3_not_deferred` 참조)**
 - `rpicam-vid`/`libcamera-vid` → **연속 H.264** → 랩탑 `ffplay`/`mpv`(브라우저 아님, 저지연 UDP/RTSP). 이게 디버깅 주경로.
 - **같은 H.264 인코드를 RTL8812AU 다운링크와 공유** — 계획서 §7.7 EncoderSink 스왑 어댑터가 원래 의도한 구조. 인코드 경로 하나로 디버깅+대회 다운링크 동시 충족.
 - MJPEG-over-HTTP(`utils/stream.py`)는 이 시점에 폐기 후보로 전환.
