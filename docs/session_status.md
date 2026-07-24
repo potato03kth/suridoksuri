@@ -135,7 +135,39 @@ colcon build --packages-select fc_ros
 source install/setup.bash   # 빌드 후 매번
 ```
 
-> `fc_bridge`는 colcon 패키지가 아니라 순수 Python 라이브러리 — `pip install -e .`로 설치 (1회).
+> `fc_bridge`는 colcon 패키지가 아니라 순수 Python 라이브러리 — **`cd fc_bridge && pip install -e .`로 설치하지 말 것(2026-07-24 노트북 SITL에서 실측, `ros2` CLI가 깨짐)**, `docs/wsl_dev_env_setup.md` 섹션 E의 `.pth` 방식 사용.
+
+### SITL (WSL, 이 노트북 — E드라이브, 2026-07-24 신설)
+
+개발컴과 별개 머신. 이 노트북 기본 WSL(24.04)엔 ROS2 Humble을 못 깔아 **별도 WSL 배포판을
+E드라이브에 설치**해뒀다(`wsl --import`, Canonical jammy rootfs — `wsl --install -d Ubuntu-22.04`는
+목록에 없어 실패함). 최초 구축 절차·트러블슈팅(3건) 전체는 `docs/wsl_dev_env_setup.md` 섹션 F.
+
+```bash
+# 진입 (기본 사용자 root, sudo 불필요)
+wsl -d Ubuntu-22.04 --cd ~
+
+# T1 — PX4 SITL (MC는 gz_x500, VTOL은 gz_standard_vtol)
+cd ~/PX4-Autopilot && HEADLESS=1 make px4_sitl gz_x500
+
+# T2 — MAVROS (포트가 개발컴 문서의 14557이 아니라 14580 — PX4 v1.18 기준, 버전별 확인 필요)
+ros2 launch mavros px4.launch fcu_url:=udp://:14540@localhost:14580
+
+# T3 — 벤치 arm 테스트에만 필요(SITL이 전원/GCS를 시뮬레이션 안 함, 실기체엔 미적용)
+ros2 param set /mavros/param CBRK_SUPPLY_CHK 894281
+ros2 param set /mavros/param NAV_DLL_ACT 0
+
+# T4 — fc_ros
+cd ~/drone_ws && source install/setup.bash
+ros2 launch fc_ros phase2.launch.py vehicle_type:=mc transition_alt:=3.0 waypoints:="[...]"
+```
+
+**설치 위치:** WSL 배포판 자체 `E:\wsl\Ubuntu-22.04\`, PX4-Autopilot 소스는 배포판 내부
+`/root/PX4-Autopilot`(E드라이브 통과 아님 — 훨씬 빠름). `fc_bridge`는 위와 동일하게 `.pth` 방식.
+**PX4 콘솔을 파일로 리다이렉트 금지**(또는 배포판 로컬 디스크로만) — `pxh>` 프롬프트가 비-TTY에서
+폭주해 로그가 분 단위로 GB급이 됨. 상태확인은 `ros2 topic/service`·`ss -uln`으로.
+**정리:** `wsl --unregister Ubuntu-22.04`(+`E:\wsl\Ubuntu-22.04` 수동삭제) — 재구축 비용 크므로
+디스크 여유 있는 한 유지 권장.
 
 ### QGC ↔ WSL 연결 (PX4 재기동마다)
 
