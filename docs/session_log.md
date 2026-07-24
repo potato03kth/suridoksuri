@@ -39,7 +39,7 @@ project: suridoksuri-1
 
 1. **RPi 전원계통(BEC/배터리 분배) 점검** — undervoltage 경고가 실비행 중 반복 재현됐으므로 다음 비행 전 전원 안정화(PD 트리거 or 별도 레귤레이터) 필요, `project_rpi5_usbc_power_psu_max_current` 메모리와 연계.
 2. `record_flight.sh`가 rosbag 비정상종료(`metadata.yaml` 없음)를 감지·경고하도록 개선 검토(미구현 아이디어).
-3. (낮은 우선순위) STREAMING 진입 직후 AGL 오버슈트(5m대, 목표 3m) 현상 — 이번 세션 SITL에서 관측만, 원인 미조사.
+3. **STREAMING 진입 직후 AGL 오버슈트(5m대, 목표 3m) — 자기완결 브리프 준비됨.** 사용자 지시("머지 후 계속하겠다, 새 세션에서")로 원본 SITL ulog(`logs/2026-07-24_sitl_streaming_overshoot/05_07_03.ulg`)를 회수·1차 분석(`nav_state` 타임라인상 오버슈트 대부분이 `offboard_node`가 아직 OFFBOARD 권한 없는 PX4 AUTO_TAKEOFF 구간에서 발생 — `climbing_reached()`가 속도 무시하고 위치만으로 "도달" 판정하는 게 유력 원인 후보)까지 마치고 `docs/mc_hw_next_session_brief.md` 신설. **다음 세션은 이 문서로 진입.**
 
 ---
 
