@@ -1,9 +1,9 @@
 ---
 doc_type: orchestrator_brief
 scope: ArUco 브랜치·LiveFrameSource 배선 완료 이후 다음 두 트랙 — MjpegStreamer 실네트워크 검증(자율 가능) + 골든셋 실촬영 교체(사용자 물리적 촬영 필요)
-status: ▶ 시작 대기 (2026-07-24 준비, 아직 미착수)
+status: Phase A 완료(2026-07-24 후속 세션), Phase B만 남음 — 진입 전 사용자 확인 필수
 created: 2026-07-24
-last_updated: 2026-07-24
+last_updated: 2026-07-24b
 ---
 
 # 다음 세션 오케스트레이터 브리프
@@ -44,7 +44,11 @@ vision/tests/` **330 passed**. 전부 push됨(`origin/dev--vision-computing-modu
 
 ---
 
-## 1. Phase A — MjpegStreamer 실네트워크 검증 (자율 가능, 먼저 진행)
+## 1. Phase A — MjpegStreamer 실네트워크 검증 (✅ 완료, 2026-07-24 후속 세션)
+
+**결과: RPi→랩탑 tailscale 경로로 실제 12/12 프레임 정상 디코드 확인, 그레이스풀 종료·카메라
+release 확인.** 상세는 `docs/vision_status.md` 2026-07-24 "Phase A 완료" 블록 참조. 아래는 이번에
+실행한 내용(참고용, 재실행 불필요).
 
 ### 왜
 `vision/utils/stream.py`의 `MjpegStreamer`는 로컬(WSL) HTTP 왕복만 검증됐다(`test_stream.py`,
