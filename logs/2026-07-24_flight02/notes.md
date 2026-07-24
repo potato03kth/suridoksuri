@@ -1,5 +1,5 @@
 # 2026-07-24_flight02
 
-- **비행 조건:** 08:47:32(단발 블립, 290KB) + 08:47:36(본비행, 1.77MB) KST, ulog만 수동회수(rosbag/launch.log 없음)
-- **관찰:** `nav_state`가 시작(POSCTL, ARMED)에서 그대로 유지 — AUTO_TAKEOFF/OFFBOARD 전환 없음. AGL 최대 4.01m. roll 최대 25.47°.
-- **결론:** 순수 수동(POSCTL) 비행, 오프보드 미관련.
+- **비행 조건:** (기체/모드/launch 인자: vehicle_type:=mc transition_alt:=4.0 waypoints:=[0.0,0.0,4.0, -4.24,-4.24,4.0, 0.0,0.0,4.0]). ARM 요청 09:25:02 UTC(18:25:02 KST).
+- **관찰:** flight01과 동일 — `ARM 요청` 후 `armed=False` 유지, ARM 실패. OFFBOARD/FOLLOWING 로그 없음.
+- **결론:** 오프보드·WP 질의와 무관(비행 자체가 시작 안 됨).

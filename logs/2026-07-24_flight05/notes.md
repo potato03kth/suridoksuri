@@ -1,18 +1,26 @@
 # 2026-07-24_flight05
 
-- **비행 조건:** 09:27:27(단발 블립, 200KB) + 09:28:05(본비행, 1.57MB) KST. ulog만 수동회수(rosbag/launch.log 없음).
+- **비행 조건:** vehicle_type:=mc transition_alt:=4.0 waypoints:=[0.0,0.0,4.0, **4.24,4.24**,4.0, 0.0,0.0,4.0] (flight03에서 2번째 WP 부호를 반대로 바꿈). ARM 09:28:04 UTC(18:28:04 KST) — 성공, 전체 미션 완주.
+- **원격 notes.md(비행 당시 기록):** 관찰="alter direction", 결론="alter direction" — 사용자가 flight03 대비 방향을 바꿔 재현 테스트한 것으로 확인.
 
-## 관찰 — 오프보드 발행 여부 (사용자 질의 1)
+## 질의 1 — 오프보드 발행 여부
 
-flight04와 동일 패턴: `vehicle_command` `DO_SET_MODE`(176, param2=6=OFFBOARD) **t=11.61s**에 명시적 기록 → `nav_state` **t=11.61s에 14:OFFBOARD 진입 확인**. **오프보드 발행됨, 실제 오프보드 모드 맞음.** t=15.51s `DO_SET_MODE`(param2=4=AUTO)로 18:AUTO_LAND 전환(OFFBOARD 유지시간 3.9초).
+`launch.log`에 `OFFBOARD 전환 요청 (폴백)` → `OFFBOARD 확인 → FOLLOWING` 명시 기록
+(t=1784885297.31~297.51, ARM 후 약 10.6초). **오프보드 발행·진입 확인.** `AUTO.LAND 요청`은
+1784885301.21(OFFBOARD 진입 후 **3.7초**)에 이어짐 — flight03과 같은 패턴.
 
-## 관찰 — WP 반대방향 명령인데 같은 방향으로 비행 (사용자 질의 2)
+## 질의 2 — WP 방향을 반대로 명령했는데 같은 방향으로 비행
 
-`trajectory_setpoint` 디코드 결과 flight04와 사실상 동일한 패턴:
-- STREAMING 단계: 현재 드리프트 위치(N=-4.6~-4.8m, E=-2.4~-2.7m) 미러링.
-- **OFFBOARD 진입 직후(t≈11.2s) 목표가 (N=0.0, E=0.0)으로 스냅** — flight04와 동일한 원점 목표.
-
-**해석:** flight04·flight05 두 비행 모두 FOLLOWING이 추종한 첫(유일) 목표가 동일하게 원점(0,0) — 두 비행 사이에 waypoint 순서를 반대로 명령했더라도 **관측된 결과(원점으로 향함)는 두 비행에서 구분되지 않음**. flight04 notes.md의 팰린드롬 리스트 가설과 정합적. 확정하려면 launch.log(`waypoints:=` 문자열) 필요 — 이번엔 미기록.
+```
+FOLLOWING 시작 pos=[-4.7,-2.6] tgt=[0.0,0.0] cte=1.5m mode=OFFBOARD
+경로 추종 완료 -> hold (MC, 역천이 생략)     ← 1ms 뒤
+```
+flight03과 **완전히 동일한 메커니즘으로 재현**: 2번째 waypoint를 (-4.24,-4.24)에서
+(+4.24,+4.24)로 부호를 반대로 바꿨음에도, `d_end_thresh=10.0m` 판정이 FOLLOWING 진입
+즉시(원점에서 5.4m 거리도 10m 이내) "경로 끝 도달"로 처리해 **두 번째 WP 방향으로 전혀
+이동하지 않고 곧장 착륙**. 상세 근본원인(코드 위치·수식)은 `logs/2026-07-24_flight03/notes.md`
+참조 — 두 비행이 사실상 같은 대조실험(A/B)이고 결과가 동일(둘 다 "즉시완료")했다는 것 자체가
+`d_end_thresh` 가설의 직접 증거.
 
 ## 그 외
-- roll 최대 25.24°(t=12.92s), 배터리 부하중 최저 11.99V/34.5A. 얼로케이터 포화 없음.
+- 착륙 완료(disarm) t=1784885314.51(ARM 후 약 29.6초).
