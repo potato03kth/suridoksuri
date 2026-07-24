@@ -628,14 +628,21 @@ ARM_TAKEOFF → CLIMBING(50m) → 헤딩정렬(err -2.3°) → MC→FW 천이(vt
 
 ---
 
-## 작업 H-2 — 이륙 목표 AMSL 보정 + CLIMBING 지면기준 AGL (2026-07-11, ⏳ SITL 재검증 대기)
+## 작업 H-2 — 이륙 목표 AMSL 보정 + CLIMBING 지면기준 AGL (2026-07-11, ✅ 재검증 완료 — 2026-07-24 근본원인 재확정+추가수정)
 
-> **2026-07-24 교차참조:** `docs/mc_hw_next_session_brief.md`(STREAMING 오버슈트 조사) 세션에서
-> default gz_x500 world(`PX4_HOME_ALT` 미지정)로 애드혹 재현한 결과가 아래 "실패 시 시나리오 분기"
-> 표의 "과상승(예 +25~40m) → geoid/ellipsoid 혼동" 항목과 증상이 일치함(그 세션은 47.4m AMSL 홈에서
-> 요청 3m 대신 실측 ~50m 상승). 단 그 재현은 이 섹션이 요구하는 통제 조건(`PX4_HOME_LAT/LON/ALT`
-> 명시 지정)을 쓰지 않아 확정적 증거는 아니다 — **다음 세션은 이 섹션의 체크리스트를 그대로
-> 실행해 ②geoid 정합부터 확정할 것.** 상세는 `docs/session_log.md` 2026-07-24 항목.
+> **2026-07-24 최종 결과:** 아래 체크리스트를 `PX4_HOME_LAT=35.1753 PX4_HOME_LON=126.8414
+> PX4_HOME_ALT=19.2`(실측 지면 AMSL)로 통제 재현. **②geoid 정합 = 최초 FAIL 확정:**
+> `/mavros/home_position/home.geo.altitude`가 19.2가 아니라 **43.98**로 수신됨(차이 24.78m,
+> 한국 geoid separation과 거의 정확히 일치) — 실제 원인은 `docs/mc_hw_next_session_brief.md`가
+> 애드혹으로 의심했던 "PX4 자체 버그"가 아니라 **MAVROS가 ROS REP-103 관례(NavSatFix.altitude=
+> WGS84 타원체고) 때문에 HomePosition.geo.altitude에도 EGM96 보정을 적용**하는 것이었음(원인
+> 위치가 PX4가 아니라 MAVROS 쪽으로 정정됨). `/mavros/altitude.amsl`(GLOBAL_POSITION_INT.alt를
+> 보정 없이 relay)은 19.2와 정확히 일치함을 실측 확인 — 이걸로 소스 교체(`offboard_node.py::
+> _cb_home`, 커밋 `568fbe5`). **재검증(같은 통제 조건)으로 PASS 확인:** home_amsl≈19.4 →
+> CommandTOL 4m 정상 요청 → CLIMBING→STREAMING→OFFBOARD→FOLLOWING→HOLD→LANDING→disarm
+> 전체 미션 정상 완주. 이 경로는 `_is_mc` 분기가 없어 MC/VTOL 동일 적용. 아래 체크리스트·시나리오
+> 표는 최초 발견 당시(2026-07-11) 기록을 보존하고, 이번 재검증 결과는 이 배너와 표의 ✅/결과
+> 갱신으로 반영한다.
 
 **배경:** 작업 H(CommandTOL)의 실기체 첫 검증(2026-07-07 광주, ulog `02_17_49`)에서 이륙 실패. 근본원인 = `CommandTOL.altitude`(→ `MAV_CMD_NAV_TAKEOFF` param7)는 **AMSL 절대고도**인데 `transition_alt`(지면 기준 상승분, 예 4.0)를 그대로 실어, 지면 AMSL(19.2m)보다 낮은 목표라 PX4 navigator가 "Already higher than takeoff altitude"로 이륙을 취소 → 모터 미가동 → `COM_DISARM_PRFLT`(10s) preflight auto-disarm. 상세 분석·ulog: `logs/2026-07-07_0217_last/notes.md`.
 
@@ -643,6 +650,11 @@ ARM_TAKEOFF → CLIMBING(50m) → 헤딩정렬(err -2.3°) → MC→FW 천이(vt
 - `state_logic.py::takeoff_request_fields(transition_alt, home_amsl)` → `altitude = home_amsl + transition_alt`. `offboard_node`가 `/mavros/home_position/home`의 `geo.altitude`를 지면 AMSL로 사용, **home 미수신 시 이륙 보류**(잘못된 고도 이륙 차단).
 - CLIMBING 게이트 `climbing_reached(pos_ned_up, transition_alt, ground_ref_up=0.0)` → 이륙 순간 지면높이(`pos_ned[2]`) 캡처 후 AGL로 판정(로컬 원점≠지면, 이 로그 2.11m 차 보정). 기본 0.0이라 원점≈지면인 SITL에선 기존 동작 불변.
 - 단위테스트: `fc_ros/test 60 passed`(신규 7: AMSL 합산·지면초과 회귀·CLIMBING 지면기준), `fc_bridge 44 passed`.
+
+**추가 수정 (2026-07-24, 커밋 `568fbe5`, 위 배너 참조):** `home_amsl` 샘플 소스를
+`/mavros/home_position/home`(`HomePosition`, `geo.altitude`)에서 `/mavros/altitude`
+(`Altitude`, `amsl` 필드)로 교체. 나머지(수렴판정 `home_amsl_confirmed`, 신선도 검사
+`home_amsl_sample_fresh`, `takeoff_request_fields`)는 미변경 — 순수 데이터 소스만 교체.
 
 ### ⚠ 재현 조건 (필수 — 이 세팅 아니면 버그가 안 잡힌다)
 
@@ -673,15 +685,15 @@ ros2 topic echo /mavros/statustext/recv     # "Already higher…" 안 떠야 정
 
 ### 합격 기준 체크리스트
 
-| 항목 | 확인 방법 | 결과 |
-|---|---|---|
-| ① home_amsl 수신 | 노드 로그 `CommandTOL 이륙 요청 alt=… (지면 100.0+4.0)` 출력 | ⏳ |
-| ② **geoid 정합** | 로그의 "지면" 값이 `PX4_HOME_ALT`(100.0)와 일치 → `geo.altitude`가 AMSL(정상). `100+geoid`(한국 ~25m)로 뜨면 ellipsoid 버그 → 과상승 | ⏳ |
-| ③ 이륙 목표 = 지면+transition_alt | 로그 `alt=104.0m AMSL` | ⏳ |
-| ④ "Already higher than takeoff altitude" **미출력** | `/mavros/statustext/recv` | ⏳ |
-| ⑤ 실제 상승 (preflight disarm 없음) | 고도가 지면 기준 ~4m AGL 도달 | ⏳ |
-| ⑥ CLIMBING 통과 | 로그 `운용 고도 4.0m 도달 → streaming` | ⏳ |
-| ⑦ 회귀: 이후 시퀀스 정상 | STREAMING/OFFBOARD 진입 (MC) | ⏳ |
+| 항목 | 확인 방법 | 결과 (최초 시도, `home_position.geo.altitude` 소스) | 결과 (재검증, `/mavros/altitude.amsl` 소스) |
+|---|---|---|---|
+| ① home_amsl 수신 | 노드 로그 `CommandTOL 이륙 요청 alt=…` 출력 | ✅ (44.0 수신) | ✅ (19.4 수신) |
+| ② **geoid 정합** | 로그의 "지면" 값이 `PX4_HOME_ALT`(19.2)와 일치해야 정상 | ❌ **FAIL** — 43.98 수신(24.78m 오차, ellipsoid) | ✅ 19.4 (실측 19.2와 일치) |
+| ③ 이륙 목표 = 지면+transition_alt | 로그 `alt=` 값 | 48.0m AMSL (오염된 44.0+4.0) | 23.4m AMSL (정상 19.4+4.0) |
+| ④ "Already higher than takeoff altitude" **미출력** | `/mavros/statustext/recv` | ✅ 미출력(목표가 지면보다는 높아서 이 실패모드는 안 걸림) | ✅ 미출력 |
+| ⑤ 실제 상승 (preflight disarm 없음) | 고도가 지면 기준 ~4m AGL 도달 | ❌ **~28.8m까지 과상승**(체크리스트 예견한 "+25~40m" 시나리오 그대로 재현) | ✅ 4.0m 정상 도달 |
+| ⑥ CLIMBING 통과 | 로그 `운용 고도 4.0m 도달 → streaming` | (과상승 후 결국 통과는 함 — 근본원인은 ②) | ✅ |
+| ⑦ 회귀: 이후 시퀀스 정상 | STREAMING/OFFBOARD 진입 (MC) | (미검증, ②에서 이미 FAIL 확정돼 중단) | ✅ FOLLOWING→HOLD→LANDING→disarm까지 전체 완주 |
 
 ### 실패 시 시나리오 분기 (증상 → 후보 원인 → 확인)
 
@@ -698,6 +710,9 @@ ros2 topic echo /mavros/statustext/recv     # "Already higher…" 안 떠야 정
 
 > CLIMBING 지면기준 AGL 보정(로컬 원점≠지면)은 SITL에선 원점≈지면이라 재현 불가 — 단위테스트 + 실비행으로 검증하고, SITL은 `ground_ref≈0` 회귀(기존 동작 유지)만 확인한다.
 > **PASS 시:** 🚁/✈ 트랙의 "transition_alt를 `MIS_TAKEOFF_ALT` 이하로" 임시조치를 완전 제거하고, 실기체 재검증(VTOL 결함 해소 후)으로 이월.
+> **✅ 2026-07-24: 위 배너대로 PASS 확정, 커밋 `568fbe5`.** 실기체(RPi5) 재검증은 아직 미실행 —
+> 다음 실비행(MC 또는 VTOL) 전 SITL 관례대로 필수. RPi5 fc_ros 배포본이 이 커밋을 반영했는지
+> 먼저 확인할 것(`git pull` + `colcon build --packages-select fc_ros` 재빌드 필요).
 
 ---
 
