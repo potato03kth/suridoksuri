@@ -17,6 +17,7 @@ from fc_bridge.execution.state_logic import (
     override_mode, override_reached, override_fallback_due,
     vel_aligned_with_path, wp1_land_ready,
     after_climb_state, after_following_state, takeoff_request_fields,
+    home_amsl_confirmed,
 )
 
 
@@ -181,6 +182,59 @@ def test_vtol_is_mc_fw():
 
 def test_vtol_is_mc_transition():
     assert vtol_is_mc(2) is False  # VTOL_STATE_TRANSITION_TO_MC
+
+
+# ── 2026-07-23 사고대응: home_position AMSL 수렴판정 (home_amsl_confirmed) ──
+# 막 재시작된 MAVROS가 첫 home_position 수신값을 단발로 신뢰했다가, PX4 부팅
+# 초기(GPS 수직정확도 미수렴 시점)에 래치된 오래된 값(393.6m)을 그대로 받아
+# 실제 지면(366.93m)과 26.7m 어긋난 채 이륙목표를 계산·실행한 사고. 최근
+# min_samples개가 tol 이내로 수렴해야 신뢰하도록 방지한다.
+
+def test_home_amsl_confirmed_insufficient_samples_returns_none():
+    assert home_amsl_confirmed([393.6], min_samples=3) is None
+    assert home_amsl_confirmed([393.6, 393.6], min_samples=3) is None
+
+
+def test_home_amsl_confirmed_empty_returns_none():
+    assert home_amsl_confirmed([], min_samples=3) is None
+
+
+def test_home_amsl_confirmed_stable_samples_returns_latest():
+    samples = [366.9, 366.8, 366.93]
+    assert home_amsl_confirmed(samples, tol=0.5, min_samples=3) == pytest.approx(366.93)
+
+
+def test_home_amsl_confirmed_regression_single_stale_snapshot_not_trusted():
+    # 2026-07-23 사고 재현: 단발 수신값(393.6)만으로는 절대 확정되지 않아야 한다.
+    assert home_amsl_confirmed([393.6], tol=0.5, min_samples=3) is None
+
+
+def test_home_amsl_confirmed_drifting_samples_returns_none():
+    # 26.7m 규모로 벌어지면(사고 당시 스케일) 수렴 실패로 판정돼야 한다.
+    samples = [366.9, 380.0, 393.6]
+    assert home_amsl_confirmed(samples, tol=0.5, min_samples=3) is None
+
+
+def test_home_amsl_confirmed_only_checks_trailing_window():
+    # 앞쪽의 잡음(오래된 샘플)은 최근 min_samples 윈도만 보므로 무시된다.
+    samples = [393.6, 100.0, 366.9, 366.8, 366.93]
+    assert home_amsl_confirmed(samples, tol=0.5, min_samples=3) == pytest.approx(366.93)
+
+
+def test_home_amsl_confirmed_boundary_equal_to_tol_confirms():
+    # max-min이 tol과 정확히 같으면(경계) 통과(> tol 만 거부).
+    samples = [366.0, 366.5, 366.0]
+    assert home_amsl_confirmed(samples, tol=0.5, min_samples=3) == pytest.approx(366.0)
+
+
+def test_home_amsl_confirmed_just_over_tol_rejects():
+    samples = [366.0, 366.51, 366.0]
+    assert home_amsl_confirmed(samples, tol=0.5, min_samples=3) is None
+
+
+def test_home_amsl_confirmed_custom_min_samples():
+    assert home_amsl_confirmed([366.9, 366.8], tol=0.5, min_samples=2) == pytest.approx(366.8)
+    assert home_amsl_confirmed([366.9], tol=0.5, min_samples=2) is None
 
 
 # ── 작업 H: CommandTOL 이륙 요청 필드 (takeoff_request_fields) ──
