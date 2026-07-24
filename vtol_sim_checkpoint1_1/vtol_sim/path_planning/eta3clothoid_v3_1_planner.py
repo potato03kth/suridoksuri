@@ -34,6 +34,11 @@ def _wrap_arr(a: np.ndarray) -> np.ndarray:
     return (a + np.pi) % (2 * np.pi) - np.pi
 
 
+def _trapz(y: np.ndarray, x: np.ndarray) -> float:
+    """np.trapz/np.trapezoid 대체 — numpy 버전에 무관하게 동작(2.0에서 trapz 제거됨)."""
+    return float(np.sum((y[1:] + y[:-1]) * np.diff(x)) / 2.0)
+
+
 def _fresnel_endpoint(theta_i: float, kappa_i: float,
                       kappa_j: float, L: float,
                       n_quad: int = 400) -> np.ndarray:
@@ -42,7 +47,7 @@ def _fresnel_endpoint(theta_i: float, kappa_i: float,
     s = np.linspace(0.0, L, n_quad + 1)
     dk = (kappa_j - kappa_i) / L
     th = theta_i + kappa_i * s + 0.5 * dk * s * s
-    return np.array([np.trapz(np.cos(th), s), np.trapz(np.sin(th), s)])
+    return np.array([_trapz(np.cos(th), s), _trapz(np.sin(th), s)])
 
 
 def _clothoid_sample(theta_i: float, kappa_i: float,
