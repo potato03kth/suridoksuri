@@ -7,8 +7,9 @@ import numpy as np
 
 
 def climbing_reached(pos_ned_up: float, transition_alt: float,
-                     ground_ref_up: float = 0.0, alt_tol: float = 0.5) -> bool:
-    """천이 고도 도달 여부 (이륙 지점 지면 기준 AGL, ±alt_tol 허용).
+                     ground_ref_up: float = 0.0, alt_tol: float = 0.5,
+                     vz_down: float = 0.0, vz_tol: float = 0.3) -> bool:
+    """천이 고도 도달 여부 (이륙 지점 지면 기준 AGL, ±alt_tol 허용 + 수직속도 안정).
 
     pos_ned_up = VehicleState.pos_ned[2] (h_up, 양수=위)는 EKF 로컬 원점 기준
     상대고도이며, 로컬 원점이 실제 지면과 일치하지 않을 수 있다
@@ -26,8 +27,20 @@ def climbing_reached(pos_ned_up: float, transition_alt: float,
     자체 관리하며 이 노드는 목표 N,E를 갖지 않는다. 표준 GPS(비-RTK) 수평 오차는
     통상 alt_tol(0.5m)보다 커, 수평 조건까지 추가하면 실비행에서 CLIMBING이
     영구 대기하는 더 심각한 회귀를 유발할 수 있어 의도적으로 제외했다.
+
+    vz_down(VehicleState.vel_ned[2], NED 부호=하강 양수)이 vz_tol 이내여야
+    "도달"로 인정한다 (2026-07-24 SITL 재현 대응). 위치조건만 있으면 아직
+    상승 관성이 큰 상태(예 vz≈-1.3m/s)에서도 AGL이 transition_alt를 스쳐
+    지나가는 순간 곧바로 STREAMING으로 넘어가버린다 — 이 시점엔 아직
+    OFFBOARD 권한이 없어 PX4 AUTO.TAKEOFF가 그대로 계속 상승하고, 우리
+    쪽 개입(OFFBOARD 요청)이 수 초 뒤에나 이뤄져 그사이 목표고도 대비
+    +84%(3.0m→5.54m) 오버슈트가 실측됐다(`logs/2026-07-24_sitl_streaming_overshoot/`).
+    vz_down 기본값 0.0·vz_tol 기본 0.3은 "속도조건 없음(항상 통과)"과 동일한
+    기존 동작을 보존한다 — 이 조건을 실제로 활성화하려면 호출부가 반드시
+    현재 수직속도를 vz_down에 넘겨야 한다.
     """
-    return abs((pos_ned_up - ground_ref_up) - transition_alt) <= alt_tol
+    pos_reached = abs((pos_ned_up - ground_ref_up) - transition_alt) <= alt_tol
+    return pos_reached and abs(vz_down) <= vz_tol
 
 
 def vtol_is_fw(vtol_state: int, FW: int = 4) -> bool:
@@ -38,6 +51,31 @@ def vtol_is_fw(vtol_state: int, FW: int = 4) -> bool:
 def trans_mc_trigger(dist_to_end: float, d_end_thresh: float) -> bool:
     """역천이 진입 조건: 경로 끝점까지 거리가 d_end_thresh 미만."""
     return dist_to_end < d_end_thresh
+
+
+def mc_wp_advance(idx: int, dist_to_wp: float, end_thresh: float,
+                   n_points: int) -> tuple[int, bool]:
+    """MC 이산 웨이포인트 순차추종: 현재 목표(idx)에 도달했으면 다음
+    점으로 전진(마지막 점이면 경로완료). 반환: (다음 tick에 쓸 idx, 완료여부).
+
+    MC는 L1Guidance(연속경로 투영+lookahead, FW 선회반경 회피용으로 설계된
+    알고리즘)가 애초에 필요 없다 — 직선 구간을 순서대로 지나가기만 하면
+    된다(2026-07-24, 사용자 지적). 이전엔 L1Guidance를 그대로 재사용하려다
+    두 가지가 드러남: ①FW lookahead(70m)가 MC 짧은 경로보다 커 목표점이
+    항상 경로 끝점으로 클램프됨 ②왕복(팰린드롬) 직선경로는 왕복 두 구간이
+    기하학적으로 완전히 겹쳐 `_find_segment()`의 최근접 탐색 자체가 통째로
+    무의미함(현재 위치와 무관하게 항상 첫 구간만 반환, 심지어 lookahead를
+    줄여도 두 구간 사이 전환 지점에서 고정점에 수렴해 경로를 완주 못 하고
+    영원히 멈춤 — SITL 시뮬레이션으로 실측). 이산 순차추종은 이 문제 자체가
+    발생할 수 없다: 목표는 항상 배열의 다음 점이고, 도달 판정은 그 점까지의
+    거리만 본다 — 경로가 왕복이든 직선이든 꺾여있든 상관없이 항상 배열
+    순서대로 끝까지 간다.
+    """
+    if dist_to_wp < end_thresh:
+        if idx >= n_points - 1:
+            return idx, True
+        return idx + 1, False
+    return idx, False
 
 
 def vtol_is_mc(vtol_state: int, MC: int = 3) -> bool:
@@ -142,6 +180,29 @@ def home_amsl_confirmed(samples, tol: float = 0.5, min_samples: int = 3):
     if max(recent) - min(recent) > tol:
         return None
     return float(recent[-1])
+
+
+def home_amsl_sample_fresh(age_s: float, max_age_s: float = 1.0) -> bool:
+    """home_position 메시지 수신 지연(age_s)이 max_age_s 이내인지 판정.
+
+    age_s = 처리 시각(rclpy 노드의 now()) - msg.header.stamp. `_cb_home`이
+    이 결과가 False인 표본을 `home_amsl_confirmed()`의 수렴 표본에서 아예
+    제외하는 데 쓴다.
+
+    (2026-07-24 SITL 재현: 같은 세션 안에서 이전 PX4 인스턴스로 비행했을 때의
+    home_position이 이번 비행에도 그대로 섞여 들어와, `min_samples`(3)개가
+    우연히 서로 tol 이내로 일치해 `home_amsl_confirmed()`가 그 stale 값(약
+    47.5m AMSL)을 그대로 확정 — 실제 이번 비행 지면은 0.25m AMSL이었는데도
+    PX4에 이륙목표 50.47m AMSL(AGL 약 50m)을 요청함. `nav_state`가
+    AUTO_TAKEOFF로 8초 넘게 머물며 계속 상승한 것도 이 때문으로 확인됨
+    (`logs/2026-07-24_sitl_streaming_overshoot/`). 2026-07-23 사고
+    (`home_amsl_confirmed()` 최초 도입 계기)도 동일하게 "래치된 오래된
+    home_position"을 원인으로 지목했었다 — `min_samples` 수렴조건만으로는
+    래치된 옛 값이 그 자체로 서로 tol 이내인 경우(정상적인 경우이므로 매우
+    흔함)를 걸러내지 못한다는 뜻. 오래된 메시지를 표본에서 원천 배제해
+    이 경로를 닫는다.
+    """
+    return age_s <= max_age_s
 
 
 def takeoff_request_fields(transition_alt: float, home_amsl: float) -> dict:
