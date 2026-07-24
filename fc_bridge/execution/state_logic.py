@@ -48,8 +48,24 @@ def vtol_is_fw(vtol_state: int, FW: int = 4) -> bool:
     return vtol_state == FW
 
 
-def trans_mc_trigger(dist_to_end: float, d_end_thresh: float) -> bool:
-    """역천이 진입 조건: 경로 끝점까지 거리가 d_end_thresh 미만."""
+def trans_mc_trigger(dist_to_end: float, d_end_thresh: float,
+                      current_segment: int | None = None,
+                      n_segments: int | None = None) -> bool:
+    """역천이 진입 조건: 경로 끝점까지 거리가 d_end_thresh 미만.
+
+    current_segment(L1Guidance가 현재 추종 중인 구간 인덱스)와 n_segments(경로
+    전체 구간 수)를 함께 주면, 유도기가 실제로 마지막 구간(n_segments-1)까지
+    진행했을 때만 완료로 인정한다. 왕복(팰린드롬) 경로처럼 시작점과 끝점이
+    같으면, `_find_segment()`가 위치 최근접으로만 구간을 고르기 때문에 이함
+    직후 위치가 우연히 끝점 근처라는 이유만으로 첫 구간도 못 가본 채 "완료"로
+    오판할 수 있다(2026-07-24 실비행 flight03/flight05, WP2 부호를 반대로
+    바꿔도 둘 다 FOLLOWING 진입 즉시 완료 판정되는 것으로 재현 —
+    `logs/2026-07-24_flight03/notes.md` 참조). 인자를 생략하면(호출부 미갱신)
+    기존 동작과 동일해 회귀 없음.
+    """
+    if current_segment is not None and n_segments is not None:
+        if current_segment < n_segments - 1:
+            return False
     return dist_to_end < d_end_thresh
 
 

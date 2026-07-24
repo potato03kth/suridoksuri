@@ -170,6 +170,24 @@ def test_trans_mc_exact_thresh():
     assert trans_mc_trigger(10.0, 10.0) is False
 
 
+def test_trans_mc_trigger_no_segment_args_unchanged():
+    # current_segment/n_segments 생략 시 기존 동작과 동일(회귀 없음)
+    assert trans_mc_trigger(1.0, 10.0) is True
+
+
+def test_trans_mc_trigger_blocked_on_early_segment():
+    # 2026-07-24 flight03/flight05 재현: 왕복(팰린드롬) 경로라 이함 직후
+    # 위치가 이미 끝점 근처(dist_to_end=2.5)라도, 아직 첫 구간(segment 0,
+    # n_segments=2 중 마지막은 1)만 추종 중이면 완료로 인정하면 안 된다.
+    assert trans_mc_trigger(2.5, 10.0, current_segment=0, n_segments=2) is False
+
+
+def test_trans_mc_trigger_allowed_on_last_segment():
+    # 마지막 구간까지 실제로 진행한 뒤에는 기존처럼 거리 기준으로 완료 판정.
+    assert trans_mc_trigger(2.5, 10.0, current_segment=1, n_segments=2) is True
+    assert trans_mc_trigger(15.0, 10.0, current_segment=1, n_segments=2) is False
+
+
 # ── 작업 D: vtol_state == MC 판정 (vtol_is_mc) ──────────────────
 
 def test_vtol_is_mc():

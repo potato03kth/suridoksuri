@@ -131,6 +131,12 @@ class OffboardNode(Node):
         self.declare_parameter("cmd_vel_frame_id",  "base_link")
         self.declare_parameter("transition_alt",    50.0)
         self.declare_parameter("d_end_thresh",      10.0)
+        # d_end_thresh(10.0m)는 FW/VTOL 대형 항로(300m급)의 "역천이 진입 거리"
+        # 기준이라 MC 테스트기체의 짧은 왕복경로(4~6m 스케일)엔 과대 — 경로
+        # 전체가 그 반경 안에 들어가 FOLLOWING이 실제로 움직이기도 전에
+        # "완료"로 오판한다(2026-07-24 flight03/flight05 실비행 재현). MC는
+        # 이 값을 대신 쓴다.
+        self.declare_parameter("mc_end_thresh",     2.0)
         self.declare_parameter("landing_timeout",   60.0)
         self.declare_parameter("v_terminal",        15.2)
         self.declare_parameter("decel_dist",        80.0)
@@ -161,6 +167,8 @@ class OffboardNode(Node):
         self._transition_alt = float(
             self.get_parameter("transition_alt").value)
         self._d_end_thresh = float(self.get_parameter("d_end_thresh").value)
+        self._mc_end_thresh = float(
+            self.get_parameter("mc_end_thresh").value)
         self._landing_timeout = float(
             self.get_parameter("landing_timeout").value)
         self._wp1_land_radius = float(
@@ -918,7 +926,10 @@ class OffboardNode(Node):
 
         last_pt = self._pts[-1]
         dist_to_end = float(np.linalg.norm(pos[:2] - last_pt))
-        return trans_mc_trigger(dist_to_end, self._d_end_thresh)
+        end_thresh = self._mc_end_thresh if self._is_mc else self._d_end_thresh
+        n_segments = max(len(self._pts) - 1, 1)
+        return trans_mc_trigger(dist_to_end, end_thresh,
+                                 self._guidance.current_segment, n_segments)
 
 
 
