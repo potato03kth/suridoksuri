@@ -25,10 +25,43 @@ last_updated: 2026-07-25
 
 ---
 
+## 🔴 미실시 항목 — 인간(사용자) 물리 개입이 필요해 의도적으로 건너뛴 것
+
+> **이 절은 지우지 말 것.** 2026-07-25 야간 오케스트레이터 세션에서 사용자 지시로 신설했다:
+> *"인간개입이 정말정말로 필요하면 중단하고, 아니면 후순위로 미루고 진행하라. 단 **미실시했다는
+> 사실은 기록에 잘 보이게** 남겨야 한다."* 아래 항목들은 **전부 미실시 상태이며, 소프트웨어로
+> 우회했거나 대체 검증으로 갈음했을 뿐 "완료"가 아니다.** 예선 이후 반드시 되돌아올 것.
+
+| # | 미실시 항목 | 왜 인간이 필요한가 | 지금은 뭘로 대신하고 있나 | 이걸 안 하면 나중에 뭐가 터지나 |
+|---|---|---|---|---|
+| 1 | **골든셋 실촬영 교체** (`vision/tests/golden/`) | 사람이 타겟 3종을 실제로 놓고 5·10·20·30·40m에서 촬영해야 함 (§9 빌드순서 2번) | **전부 합성(synthetic) 데이터.** `generate_synthetic.py`가 그린 도형으로 회귀만 지킴 | 실제 자갈/조명/그림자에서의 오탐·미탐을 전혀 모른다. 현장에서 처음 알게 됨 |
+| 2 | **체커보드 실측 카메라 캘리브레이션** | 촬영 1장에 ~8분급, 세팅 1시간, 85장 필요 (2026-07-24 사용자 보류 결정) | `nominal.yaml`(HFOV 75° 가정 근사, `accuracy: unverified` / `not_for_closed_loop_30cm: true`) | **폐루프 30cm 정밀착륙 미달.** §9 8번 진입 전엔 반드시 필요 — 단 2차예선엔 불필요 |
+| 3 | **H.264 스트림 `ffplay`/`mpv` 육안 확인** | 랩탑(WSL)에 디스플레이 없음 + `sudo` 비밀번호 필요해 ffmpeg CLI 설치 불가(사용자 취침 중) | `cv2.VideoCapture`(cv2 5.0.0 `FFMPEG:YES`)로 실제 디코드·fps·라이브니스 정량 검증 (2026-07-25 오케스트레이터 직접 재현) | 색/화질/체감 지연 같은 **정성 품질**은 아무도 눈으로 안 봤다. 사용자가 아침에 한 번 봐야 함 |
+| 4 | **AF 윈도우(6기능 중 ④) 분리 증명** | 서로 다른 거리에 두 물체를 물리적으로 배치해야 함 | 메커니즘 동작만 확인(`PARTIAL`) | AF 윈도우로 타겟에만 초점을 맞추는 전략이 실제로 되는지 미확인 |
+| 5 | **40cm급 근접 거리 초점 피크 정량 확인** | 사람이 체커보드를 40cm/210cm에 들고 있어야 함 | 배경(~1.5~2m)에서 피크 재현으로 **메커니즘만** 증명(2026-07-22e) | 근접 터미널 구간 초점값을 모른다 |
+| 6 | **실기체 데이터 기반 검출기 재검증** | 위 1번(실촬영)에 종속 | 합성 데이터 기준값 그대로 | `BlackVMatcher` V 템플릿·`vertiport_coarse.yaml`의 `kernel_size=5` 스케일 민감성·`vertiport` 골든셋 고도라벨(아직 스키마 자리표시자)이 전부 미검증 |
+
+**판단 근거(2026-07-25):** 현재 단기 목표는 **2차예선 통과**이고, 사용자가 *"그저 되는 것처럼
+보이면 될 뿐이다. 전체 프로세스가 유기적으로 돌아가는 것이 중요하지, 착륙의 정밀도가 지금 당장
+필요한 것은 아니다"* 라고 명시했다. 위 6개는 전부 **정밀도·실측 충실도** 축의 항목이라 예선
+통과 판정("매끄럽게 보이면" 정성 판정)에는 직접 걸리지 않는다고 보고 후순위로 미뤘다.
+**"나중가면 중요해진다"는 사용자 언급도 그대로 기록해둔다.**
+
+---
+
 ## 트랙 보드
 
 ### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. **2026-07-24: ArUco 브랜치(Phase 1~4) 완료 + `LiveFrameSource` picamera2 재구현 + `main.py` 라이브 배선까지 RPi 실기체 종단간 검증 완료(picam-venv opencv 업그레이드 포함). 2026-07-24 후속: MjpegStreamer 실네트워크 검증+fps 튜닝(2→17fps) 완료. 2026-07-25: ffmpeg Phase 3(camera_bringup.md) 착수 준비 — 사전조사 완료(picamera2 H264Encoder 확인) + 다음 세션 브리프 재작성 완료. 다음 자기완결 브리프 `docs/vision_next_session_brief.md` 준비됨 — 다음 오케스트레이터 세션은 그 문서로 진입**)
 
+- **✅ §9 빌드순서 6번 — 공통 상태머신 + 안전 폴백 완료(2026-07-25 야간, 오케스트레이터 세션, 커밋 `c82cba1`):** `docs/vision_plan.md` §5.1이 설계만 있고 완전 미구현이던 것을 구현·배선했다. **"전체 프로세스가 유기적으로 돌아가는 것"이라는 2차예선 목표에 가장 직결되는 조각**이라 ffmpeg 다음 순위로 잡았다. 상세:
+  - **`vision/core/state_machine.py`(신규)** — `LandingStateMachine`. 상태 enum 7개: `ACQUIRE`/`CENTER_DESCEND`/`LOCK`/`PRECISION_SERVO`/`TERMINAL` + 안전 폴백 `HOLD`/`ABORT_ASCEND`. `Observation`(ts/frame_id/n_candidates/center_error_px/fine_locked/agl_m/target_estimate/scale_source) → `Decision`(state/command/reason/blind_duration_s/scale_source). 모든 임계값은 `LandingSMConfig` dataclass 필드(매직넘버 금지, §7.3): `max_blind_duration_s`/`max_drift_estimate_m`/`lock_confirm_frames`/`loss_tolerance_frames`/`center_tolerance_px`/`max_candidates_for_lock`/`terminal_agl_m`.
+  - **위치 판단:** `modules/`(파이프라인 `VisionState→VisionState` 계약)가 아니라 `core/`. `core/target.py`와 같은 "순수 로직·파일 I/O 없음" 패턴이고 import 규칙(`core/ ← numpy, opencv만`)을 지킨다. `registry.py`/preset yaml에 등록하지 않음(파이프라인 스텝이 아님).
+  - **배선:** `main.py`/`replay.py`가 각자 `_build_observation()` 헬퍼(상호 import 금지 규칙에 따라 얇게 중복)로 관측을 만들어 실행당 인스턴스 1개에 먹인다. **`blackbox.log_frame()`에 이미 있었지만 아무도 안 채우던 `state=`/`command=` 파라미터를 실제로 채운다 — 시그니처 변경 없음**(ArUco Phase 4가 `chosen`을 재사용한 것과 같은 원칙).
+  - **안전 폴백(§5.1 "안 보이는데 계속 내려간다"를 금지하는 게 핵심 / §8 "추측 후 커밋 금지")이 실제로 코드에 있다:** 검출 상실 > `loss_tolerance_frames` → `HOLD` · TERMINAL 블라인드 지속시간 초과 → `ABORT_ASCEND` · 이탈추정(`|중심오차|×AGL` 근사) 초과 → 즉시 `ABORT_ASCEND` · 후보 모호(2개 이상) → 락 거절 `HOLD` · **`fine_locked=False`면 AGL이 아무리 낮아도 `LOCK` 이상에 도달하는 경로가 그래프상 존재하지 않음**(커밋 게이트가 방어코드가 아니라 전이 그래프의 성질).
+  - **오케스트레이터 직접 재현 검증(세션 자기보고 수용 아님):** `pytest vision/tests/` **348 passed** 재실행 확인. **테스트가 진짜 버그를 잡는지 일부러 깨뜨려 확인** — ① 블라인드 초과 게이트를 `if False:`로 무력화 → `test_terminal_blind_duration_exceeded_triggers_abort_ascend` **실패**, 원복 후 14 passed. ② 커밋 게이트를 `elif True:`로 무력화 → `test_never_reaches_lock_states_without_fine_locked_even_with_low_agl` 등 **2건 실패**, 원복 후 348 passed. `git checkout --`로만 원복(워킹트리 청결 사전확인).
+  - **관측성 확인(이번 작업의 진짜 성공 기준):** `vision/tools/jsonl_view.py`의 state 서브플롯이 지금까지 항상 "no state data"만 띄웠는데, 실제 replay 산출 JSONL로 돌려 **`CENTER_DESCEND→LOCK→PRECISION_SERVO→TERMINAL` 4단 계단이 실제로 그려진 PNG**를 오케스트레이터가 직접 열어 확인(`vision/results/state_machine_demo/demo_state.png`, 커밋에 포함). `jsonl_view.py` 코드 변경 없음 — 이미 대응돼 있었다는 기존 기록이 사실로 확인됨.
+  - **알려진 제약(버그 아님):** `fine_locked` 계산이 현재 ArUco 검출 유무만 반영 → 버티포트/조난자 **coarse 전용 프리셋으로는 `CENTER_DESCEND`를 넘어가지 못한다**(§9 5번 coarse 색 브랜치에 fine 검증이 아직 없어서). 상태머신은 이를 모른 채 안전하게 초기 상태에 머문다(불변식과 자연 일치, 타겟별 특수분기 안 만듦 — §9 6번의 "타겟 종류 무관 공통 골격" 요구 준수). · `Decision.reason`은 JSONL에 안 실림(로그 스키마 변경 금지 지시 준수, in-process 값) · 이탈추정은 안전 게이트용 **근사치**이며 폐루프 게인 등에 재사용 금지 · `main.py` 경로는 telemetry가 없어 `agl_m`이 항상 None(FC 미연동, 설계상 당연) — AGL 배선 실검증은 `replay.py` 경로에서만.
+  - **`fc_ros`/`fc_bridge` 미접촉** — 상태머신은 `command` 문자열 힌트를 뱉는 데까지가 범위이고, 그걸 소비해 실제 기체를 움직이는 §9 7번은 FC 세션 몫이다(루트 `CLAUDE.md` 도메인 격리).
 - **✅ ArUco 브랜치 Phase 1~4 완료(2026-07-24, 노트북/WSL 로컬 세션 — 오케스트레이터, 합성 이미지로 전부 검증, RPi 실기체 불필요):** `docs/vision_aruco_branch.md`가 지시한 4개 Phase를 순서대로 완료해 브랜치 종료. `vision_plan.md` §9 4번(ArUco 브랜치 → `TargetEstimate` 출력 계약 확정)이 완결됨. 상세:
   - **Phase 1 — nominal intrinsics:** `vision/tools/compute_nominal_intrinsics.py` 신설 → `vision/calibration/cam109-imx708af75/nominal.yaml`(HFOV=75°/수평 가정, `accuracy: unverified`/`not_for_closed_loop_30cm: true` 명시).
   - **Phase 2 — ArUco 디코드:** `vision/modules/aruco.py`의 `ArucoDetector` — `DICT_4X4_50` ID=23 화이트리스트, 다른 ID는 거절 카운트로 로깅.
