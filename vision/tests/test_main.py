@@ -7,6 +7,8 @@
 --log-dir 을 tmp_path 하위로 명시한다.
 """
 import json
+import os
+import signal
 import sys
 from pathlib import Path
 
@@ -537,6 +539,72 @@ def test_live_mode_keyboard_interrupt_closes_blackbox_cleanly_no_crash(tmp_path,
 
     log_text = (log_dir / "interruptrun.log").read_text()
     assert "Ctrl+C" in log_text, "정상 종료 로그가 남아야 함(스택트레이스로 죽으면 안 됨)"
+
+
+class _FakeLiveSourceSigtermAfter2Frames:
+    """2프레임을 낸 뒤 자기 프로세스에 SIGTERM을 보내 비대화형 배포 환경(systemd stop 등)의
+    표준 종료 신호를 시뮬레이션한다. SIGINT(KeyboardInterrupt)와 별개 경로 검증 —
+    비대화형 SSH 백그라운드 자식은 SIGINT가 SIG_IGN일 수 있어 못 믿는다(§h264_stream.py 실측과
+    동일 근거, `vision/main.py::_install_sigterm_handler`)."""
+
+    def __init__(self, camera_num=0, resolution=None, retries=3, retry_delay=1.0):
+        self.entered = False
+        self.exited = False
+
+    def __enter__(self):
+        self.entered = True
+        return self
+
+    def __exit__(self, *_exc):
+        self.exited = True
+        return False  # 예외를 삼키지 않음 — 실제 컨텍스트매니저(LiveFrameSource)와 동일 계약
+
+    def __iter__(self):
+        yield FrameRecord(frame_id=0, ts=0.0, image=_live_frame(), telemetry={})
+        yield FrameRecord(frame_id=1, ts=1.0, image=_live_frame(), telemetry={})
+        os.kill(os.getpid(), signal.SIGTERM)
+        # 핸들러가 stop_event를 세팅한 뒤에도 제너레이터는 (실카메라처럼) 다음 프레임을 계속
+        # 낼 수 있다 — `_run_live`가 이 프레임을 실제로 처리하지 않고 다음 프레임 경계에서
+        # 즉시 버려야 한다(아래 테스트가 frame_id=2 부재로 검증).
+        yield FrameRecord(frame_id=2, ts=2.0, image=_live_frame(), telemetry={})
+
+
+def test_live_mode_sigterm_closes_blackbox_cleanly_no_crash(tmp_path, monkeypatch):
+    """SIGTERM(비대화형 배포 환경 표준 종료 신호)도 KeyboardInterrupt와 동일하게 스택트레이스
+    없이 정상 종료 + blackbox.close() 보장돼야 한다. 전역 SIGTERM 핸들러는 테스트 종료 후
+    반드시 원복한다(§test_h264_stream.py::test_install_sigterm_handler_sets_stop_event_on_sigterm
+    과 동일한 이유 — pytest 프로세스 전체에 영향 주지 않기 위함)."""
+    original_term = signal.getsignal(signal.SIGTERM)
+    try:
+        log_dir = tmp_path / "logs"
+        monkeypatch.setattr(main_mod, "LiveFrameSource", _FakeLiveSourceSigtermAfter2Frames)
+
+        closed = []
+        real_close = main_mod.BlackBoxLogger.close
+
+        def _spy_close(self, *a, **kw):
+            closed.append(True)
+            return real_close(self, *a, **kw)
+
+        monkeypatch.setattr(main_mod.BlackBoxLogger, "close", _spy_close)
+        monkeypatch.setattr(
+            sys, "argv",
+            ["vision.main", "live", "--log-dir", str(log_dir), "--log-name", "sigtermrun"],
+        )
+
+        main_mod.main()  # SIGTERM이 main() 밖으로 전파되면 안 됨(크래시 없이 정상 종료)
+
+        assert closed == [True], "SIGTERM 수신해도 blackbox.close()가 호출돼야 함(리소스 leak 방지)"
+
+        records = [json.loads(l) for l in (log_dir / "sigtermrun.jsonl").read_text().splitlines()]
+        assert [r["frame_id"] for r in records] == [0, 1], (
+            "SIGTERM 이후 낸 프레임(frame_id=2)은 처리되면 안 됨 — 다음 프레임 경계에서 즉시 종료"
+        )
+
+        log_text = (log_dir / "sigtermrun.log").read_text()
+        assert "SIGTERM" in log_text, "SIGTERM으로 인한 정상 종료임이 로그에 남아야 함"
+    finally:
+        signal.signal(signal.SIGTERM, original_term)
 
 
 def test_live_invalid_camera_num_spec_exits_with_usage_error(monkeypatch):

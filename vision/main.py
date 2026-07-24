@@ -29,7 +29,9 @@ basename 지정.
   python -m vision.main live:1 --live-resolution 1920x1080 --output results/live.mp4
 """
 import argparse
+import signal
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional, Tuple
@@ -365,6 +367,19 @@ def _run_video(
         cv2.destroyAllWindows()
 
 
+def _install_sigterm_handler(stop_event: threading.Event) -> None:
+    """SIGTERM 수신 시 stop_event를 세팅한다(`tools/h264_stream.py::_install_sigterm_handler`와
+    동일 패턴 재사용). 비대화형 SSH 백그라운드 자식/systemd 등에서는 SIGINT가 SIG_IGN으로 막혀
+    있을 수 있어(1A 실측, `docs/vision_camera_bringup.md`) graceful shutdown을 보장하는 유일한
+    신호가 SIGTERM이다. **기존 Ctrl+C(KeyboardInterrupt/SIGINT) 경로는 건드리지 않는다** — 여기서는
+    SIGTERM만 새로 등록해 추가한다(둘 다 등록돼도 서로 배타적이지 않음)."""
+
+    def _handler(signum, frame):  # noqa: ARG001 - signal handler 표준 시그니처
+        stop_event.set()
+
+    signal.signal(signal.SIGTERM, _handler)
+
+
 def _run_live(
     pipeline: Pipeline,
     camera_num: int,
@@ -380,18 +395,29 @@ def _run_live(
     state_machine: Optional[LandingStateMachine] = None,
 ) -> None:
     """실카메라 라이브 모드 — `_run_video`와 거의 동일한 프레임 루프(무한 이터레이터라는 점만
-    다름). 헤드리스(`--display none`)에서는 무한정 도는 게 정상 동작이라 Ctrl+C(KeyboardInterrupt)가
-    유일한 종료 수단이다 — `with LiveFrameSource(...)`가 예외 전파 중에도 카메라를 release하고,
-    바깥 try/except가 스택트레이스 없이 조용히 종료시킨다(로그만 남김)."""
+    다름). 헤드리스(`--display none`)에서는 무한정 도는 게 정상 동작이라 Ctrl+C(KeyboardInterrupt)와
+    SIGTERM 둘 다 종료 수단이다 — `with LiveFrameSource(...)`가 예외 전파 중에도 카메라를
+    release하고, 바깥 try/except가 스택트레이스 없이 조용히 종료시킨다(로그만 남김). SIGTERM은
+    비대화형 배포(systemd 등) 표준 종료 신호라 별도로 `stop_event`를 두고 다음 프레임 경계에서
+    루프를 빠져나간다(§h264_stream.py와 동일 근거 — SIGINT는 비대화형 자식에서 못 믿음)."""
     live_kwargs: dict = {"camera_num": camera_num, "retries": retries, "retry_delay": retry_delay}
     if resolution is not None:
         live_kwargs["resolution"] = resolution
+
+    stop_event = threading.Event()
+    _install_sigterm_handler(stop_event)
 
     writer = None
     frame_count = 0
     try:
         with LiveFrameSource(**live_kwargs) as source:
             for record in source:
+                if stop_event.is_set():
+                    logger.info(
+                        "라이브 모드 SIGTERM으로 종료 요청 — %d 프레임 처리 후 정상 종료",
+                        frame_count,
+                    )
+                    break
                 t0 = time.perf_counter()
                 state = pipeline.run(record.image)
                 latency = time.perf_counter() - t0
