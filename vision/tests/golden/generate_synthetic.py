@@ -68,20 +68,27 @@ def _synthetic_vertiport(diameter_px: int, canvas: int) -> np.ndarray:
     return img
 
 
-def _synthetic_distress(mat_size: int, canvas: int, box_ratio: float = 0.22) -> np.ndarray:
-    """초록 사각 매트 + 중앙 흰 박스 (vision_plan.md §5.3). 배경은 자갈을 흉내 낸 무채색 회색."""
+def _synthetic_distress(
+    mat_size: int, canvas: int, box_ratio: float = 0.22, center: tuple[int, int] | None = None
+) -> np.ndarray:
+    """초록 사각 매트 + 중앙 흰 박스 (vision_plan.md §5.3). 배경은 자갈을 흉내 낸 무채색 회색.
+
+    `center`: 매트 중심 좌표(cx, cy). 기본값(None)은 캔버스 정중앙 — **기존 골든셋 프레임은 전부
+    이 기본값으로 생성되므로 동작이 그대로 보존된다.** §9 부작업3("정상 경로 데모")가 매트를
+    프레임 내에서 프레임마다 이동시켜 착륙점이 화면 중앙으로 수렴하는 합성 시퀀스를 만들 때
+    재사용하려고 추가한 선택적 파라미터 — 매트 그리기 로직을 중복 구현하지 않기 위함."""
     img = np.full((canvas, canvas, 3), (60, 60, 60), dtype=np.uint8)
 
     hsv_green = np.array([[[60, 200, 180]]], dtype=np.uint8)
     bgr_green = tuple(int(v) for v in cv2.cvtColor(hsv_green, cv2.COLOR_HSV2BGR)[0, 0])
 
-    c = canvas // 2
+    cx, cy = center if center is not None else (canvas // 2, canvas // 2)
     half = mat_size // 2
-    cv2.rectangle(img, (c - half, c - half), (c + half, c + half), bgr_green, -1)
+    cv2.rectangle(img, (cx - half, cy - half), (cx + half, cy + half), bgr_green, -1)
 
     box_half = int(mat_size * box_ratio / 2)
     if box_half > 0:
-        cv2.rectangle(img, (c - box_half, c - box_half), (c + box_half, c + box_half), (255, 255, 255), -1)
+        cv2.rectangle(img, (cx - box_half, cy - box_half), (cx + box_half, cy + box_half), (255, 255, 255), -1)
     return img
 
 
