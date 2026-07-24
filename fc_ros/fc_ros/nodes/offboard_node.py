@@ -31,7 +31,7 @@ from fc_ros.adapters.vehicle_state_bridge import (
 from fc_bridge.guidance.l1_guidance import L1Guidance
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
-    trans_mc_trigger, vtol_is_mc, landing_done,
+    trans_mc_trigger, mc_wp_advance, vtol_is_mc, landing_done,
     override_mode, override_reached, override_fallback_due, wp1_land_ready,
     after_climb_state, after_following_state, takeoff_request_fields,
     home_amsl_confirmed, home_amsl_sample_fresh,
@@ -136,6 +136,11 @@ class OffboardNode(Node):
         # 전체가 그 반경 안에 들어가 FOLLOWING이 실제로 움직이기도 전에
         # "완료"로 오판한다(2026-07-24 flight03/flight05 실비행 재현). MC는
         # 이 값을 대신 쓴다.
+        # MC 웨이포인트(경로점) 도달 판정 반경 (m) — 중간점 통과·경로완료 둘
+        # 다에 씀. MC는 L1Guidance(FW 선회반경 회피용 lookahead 알고리즘)가
+        # 필요 없어(직선 구간을 순서대로 지나가기만 하면 됨, 2026-07-24 사용자
+        # 지적) 이산 웨이포인트 순차추종으로 전환 — d_end_thresh(FW/VTOL
+        # 300m급 항로 기준 10.0m)는 MC 4~6m급 경로엔 애초에 무의미해 별도 값.
         self.declare_parameter("mc_end_thresh",     2.0)
         self.declare_parameter("landing_timeout",   60.0)
         self.declare_parameter("v_terminal",        15.2)
@@ -169,6 +174,7 @@ class OffboardNode(Node):
         self._d_end_thresh = float(self.get_parameter("d_end_thresh").value)
         self._mc_end_thresh = float(
             self.get_parameter("mc_end_thresh").value)
+        self._mc_wp_idx = 0
         self._landing_timeout = float(
             self.get_parameter("landing_timeout").value)
         self._wp1_land_radius = float(
@@ -211,6 +217,16 @@ class OffboardNode(Node):
         # ── 경로 데이터 ──────────────────────────────────────
         self._pts = np.asarray(path_pts, dtype=float)
         self._v = np.asarray(v_profile, dtype=float)
+        # MC 이산 웨이포인트 순차추종용 — run_planner()가 만든 ~1m 간격 촘촘한
+        # 보간점(self._pts) 전부가 아니라, 실제 waypoints:= 원본점(wp_index가
+        # 있는 점)만 뽑아 순서대로 찾아간다. 보간점 전부를 대상으로 하면
+        # 간격(~1m)이 mc_end_thresh(기본 2.0m)보다 좁아, 실제로 그 위치까지
+        # 가지도 않았는데 "도달"로 판정되며 인덱스가 실제 이동보다 훨씬 빨리
+        # 앞서가는 문제가 있었다(2026-07-24 시뮬레이션으로 확인 — 13점 중 하나도
+        # 제대로 안 가보고 12틱 만에 "완료" 처리됨).
+        self._mc_wps = np.array(
+            [pt.pos[:2] for pt in path.points if pt.wp_index is not None],
+            dtype=float)
         # FW 위치 setpoint 순항 고도 (h_up, 양수=위). WP 고도 사용.
         self._cruise_alt = float(raw_wps[-1, 2])
         # 역천이 직진용 최종 진행방향 (마지막 WP 레그, NED 단위벡터).
@@ -409,6 +425,7 @@ class OffboardNode(Node):
                 self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
                             else _State.FOLLOWING)
                 self._follow_ticks = 0
+                self._mc_wp_idx = 0
                 return
 
             # 폴백: OFFBOARD 미활성 상태에서 20 tick 후 재요청
@@ -874,20 +891,35 @@ class OffboardNode(Node):
         """경로 추종. 경로 끝 도달 시 True.
 
         FW·MC 둘 다 위치 setpoint를 발행한다(MC도 최종 VTOL 기체의 제어로직을
-        그대로 검증해야 하므로 속도 setpoint로 전환하지 않음). FW는 lookahead
-        위치를 그대로 발행 — 경로가 충분히 길어(선회반경보다 큼) 전방 목표가
-        현재 위치와 크게 어긋나지 않는다. MC는 짧은 경로(선회반경 개념이
-        없음)에서 같은 lookahead(70m)를 그대로 쓰면 목표점이 경로 끝점으로
-        고정돼 현재 위치와 무관한 절대좌표가 될 수 있다(2026-07-20 실비행
-        제어상실 원인). STREAMING에서 이어지는 `self._mc_pos_ramp`를 그 lookahead
-        목표로 슬루레이트(≤`v_approach` m/s) 제한 하에 점진 접근시켜 순간점프를 막는다.
-        cte는 진단용으로만 계산(조향엔 미사용).
+        그대로 검증해야 하므로 속도 setpoint로 전환하지 않음).
+
+        FW는 L1Guidance의 연속경로 투영+lookahead(`_FW_LOOKAHEAD`, 선회반경보다
+        충분히 큼)를 그대로 쓴다 — FW는 실제로 선회하며 경로를 따라가야 하므로
+        이 알고리즘이 필요하다.
+
+        MC는 L1Guidance를 쓰지 않는다 — 선회반경 개념이 없는 저속 이산 이동뿐이라
+        애초에 이 알고리즘이 불필요하고(2026-07-24, 사용자 지적), 실제로 두 가지
+        문제가 있었다: ①FW lookahead(70m)가 MC 짧은 경로 전체보다 커
+        `L1Guidance._lookahead_point()`가 중간 waypoint와 무관하게 항상 경로의
+        마지막 점으로 클램프됨(2026-07-20 실비행 제어상실 원인이자, 2026-07-24
+        flight03/flight05: WP2 부호를 반대로 바꿔도 결과가 똑같았던 근본원인)
+        ②왕복(팰린드롬) 직선경로는 왕복 두 구간이 기하학적으로 완전히 겹쳐
+        `_find_segment()`의 최근접 탐색 자체가 통째로 무의미(SITL 시뮬레이션
+        검증: lookahead를 줄여도 두 구간 전환 지점에서 고정점에 수렴해 경로를
+        완주 못 하고 영원히 멈춤). 대신 실제 waypoints:= 원본점만 뽑은
+        `self._mc_wps`(`run_planner()`가 만든 ~1m 간격 촘촘한 보간점 `self._pts`
+        전부가 아니라 `wp_index`가 있는 점만 — 보간점 전부를 쓰면 간격이
+        `mc_end_thresh`보다 좁아 실제로 가지도 않고 인덱스가 앞서가는 문제가
+        있었음)을 순서대로 하나씩 찾아간다(`mc_wp_advance`,
+        `fc_bridge/execution/state_logic.py`) — 경로 모양(왕복/직선/꺾임)과
+        무관하게 항상 배열 순서대로 끝까지 간다. `self._mc_pos_ramp`로
+        슬루레이트(≤`v_approach` m/s) 제한 하에 각 목표점에 점진 접근시켜
+        순간점프를 막는다.
         """
         pos = state.pos_ned
 
         if self._is_mc:
-            tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)
-            _, _, cte = self._guidance.compute(pos, state.vel_ned)
+            tgt = self._mc_wps[self._mc_wp_idx]
             raw_target = np.array([tgt[0], tgt[1], self._cruise_alt])
             if self._mc_pos_ramp is None:
                 self._mc_pos_ramp = np.array(pos, dtype=float)
@@ -899,6 +931,7 @@ class OffboardNode(Node):
             else:
                 self._mc_pos_ramp = raw_target
             self._publish_pos_setpoint(self._mc_pos_ramp, state.yaw)
+            cte = float(np.linalg.norm(pos[:2] - tgt))  # 진단용: 현재 목표점까지 남은 거리
         else:
             tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)
             chi_cmd, _, cte = self._guidance.compute(pos, state.vel_ned)
@@ -924,12 +957,20 @@ class OffboardNode(Node):
                 f"FOLLOWING 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})")
             self._request_offboard()
 
-        last_pt = self._pts[-1]
-        dist_to_end = float(np.linalg.norm(pos[:2] - last_pt))
-        end_thresh = self._mc_end_thresh if self._is_mc else self._d_end_thresh
-        n_segments = max(len(self._pts) - 1, 1)
-        return trans_mc_trigger(dist_to_end, end_thresh,
-                                 self._guidance.current_segment, n_segments)
+        if not self._is_mc:
+            last_pt = self._pts[-1]
+            dist_to_end = float(np.linalg.norm(pos[:2] - last_pt))
+            return trans_mc_trigger(dist_to_end, self._d_end_thresh)
+
+        dist_to_wp = float(np.linalg.norm(pos[:2] - tgt))
+        next_idx, done = mc_wp_advance(
+            self._mc_wp_idx, dist_to_wp, self._mc_end_thresh, len(self._mc_wps))
+        if next_idx != self._mc_wp_idx:
+            self.get_logger().info(
+                f"WP{self._mc_wp_idx} 통과 → WP{next_idx} 이동 "
+                f"(dist={dist_to_wp:.1f}m)")
+        self._mc_wp_idx = next_idx
+        return done
 
 
 

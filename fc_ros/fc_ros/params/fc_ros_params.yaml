@@ -37,10 +37,13 @@ offboard_node:
     # 자율 비행 시퀀스 파라미터 (작업 A)
     transition_alt:  50.0     # 천이 고도 (m, pos_ned[2] h_up 양수)
     d_end_thresh:    10.0     # 역천이 진입 거리 기준 (m, FW/VTOL 대형 항로용)
-    mc_end_thresh:   2.0      # MC 경로완료 판정 거리 기준 (m) — d_end_thresh는
-                              # FW 300m급 항로 기준이라 MC 4~6m급 짧은 경로엔
-                              # 과대(2026-07-24 flight03/05 실비행: FOLLOWING
-                              # 진입 즉시 완료로 오판, 두 번째 WP 방향 미도달)
+    mc_end_thresh:   2.0      # MC 웨이포인트(경로점) 도달 판정 반경 (m) — MC는
+                              # L1Guidance 대신 self._pts를 이산 순차추종(WP0→
+                              # WP1→...)한다(2026-07-24, 사용자 지적: MC는 직선
+                              # 구간이라 FW용 연속경로 guidance가 불필요, 왕복
+                              # 경로에서 L1Guidance가 고정점에 수렴해 완주 못
+                              # 하고 멈추는 문제도 실측됨). d_end_thresh(FW/VTOL
+                              # 300m급 항로 기준 10.0m)와 별개 값.
     landing_timeout: 60.0     # AUTO.LAND 타임아웃 (s)
     v_terminal:      15.2     # 경로 끝점 도달 속도 (m/s, 스톨 13.8×1.1)
     decel_dist:      80.0     # 종단 감속 시작 거리 (m)

@@ -48,25 +48,34 @@ def vtol_is_fw(vtol_state: int, FW: int = 4) -> bool:
     return vtol_state == FW
 
 
-def trans_mc_trigger(dist_to_end: float, d_end_thresh: float,
-                      current_segment: int | None = None,
-                      n_segments: int | None = None) -> bool:
-    """역천이 진입 조건: 경로 끝점까지 거리가 d_end_thresh 미만.
-
-    current_segment(L1Guidance가 현재 추종 중인 구간 인덱스)와 n_segments(경로
-    전체 구간 수)를 함께 주면, 유도기가 실제로 마지막 구간(n_segments-1)까지
-    진행했을 때만 완료로 인정한다. 왕복(팰린드롬) 경로처럼 시작점과 끝점이
-    같으면, `_find_segment()`가 위치 최근접으로만 구간을 고르기 때문에 이함
-    직후 위치가 우연히 끝점 근처라는 이유만으로 첫 구간도 못 가본 채 "완료"로
-    오판할 수 있다(2026-07-24 실비행 flight03/flight05, WP2 부호를 반대로
-    바꿔도 둘 다 FOLLOWING 진입 즉시 완료 판정되는 것으로 재현 —
-    `logs/2026-07-24_flight03/notes.md` 참조). 인자를 생략하면(호출부 미갱신)
-    기존 동작과 동일해 회귀 없음.
-    """
-    if current_segment is not None and n_segments is not None:
-        if current_segment < n_segments - 1:
-            return False
+def trans_mc_trigger(dist_to_end: float, d_end_thresh: float) -> bool:
+    """역천이 진입 조건: 경로 끝점까지 거리가 d_end_thresh 미만."""
     return dist_to_end < d_end_thresh
+
+
+def mc_wp_advance(idx: int, dist_to_wp: float, end_thresh: float,
+                   n_points: int) -> tuple[int, bool]:
+    """MC 이산 웨이포인트 순차추종: 현재 목표(idx)에 도달했으면 다음
+    점으로 전진(마지막 점이면 경로완료). 반환: (다음 tick에 쓸 idx, 완료여부).
+
+    MC는 L1Guidance(연속경로 투영+lookahead, FW 선회반경 회피용으로 설계된
+    알고리즘)가 애초에 필요 없다 — 직선 구간을 순서대로 지나가기만 하면
+    된다(2026-07-24, 사용자 지적). 이전엔 L1Guidance를 그대로 재사용하려다
+    두 가지가 드러남: ①FW lookahead(70m)가 MC 짧은 경로보다 커 목표점이
+    항상 경로 끝점으로 클램프됨 ②왕복(팰린드롬) 직선경로는 왕복 두 구간이
+    기하학적으로 완전히 겹쳐 `_find_segment()`의 최근접 탐색 자체가 통째로
+    무의미함(현재 위치와 무관하게 항상 첫 구간만 반환, 심지어 lookahead를
+    줄여도 두 구간 사이 전환 지점에서 고정점에 수렴해 경로를 완주 못 하고
+    영원히 멈춤 — SITL 시뮬레이션으로 실측). 이산 순차추종은 이 문제 자체가
+    발생할 수 없다: 목표는 항상 배열의 다음 점이고, 도달 판정은 그 점까지의
+    거리만 본다 — 경로가 왕복이든 직선이든 꺾여있든 상관없이 항상 배열
+    순서대로 끝까지 간다.
+    """
+    if dist_to_wp < end_thresh:
+        if idx >= n_points - 1:
+            return idx, True
+        return idx + 1, False
+    return idx, False
 
 
 def vtol_is_mc(vtol_state: int, MC: int = 3) -> bool:

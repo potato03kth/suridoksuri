@@ -13,7 +13,7 @@ import pytest
 
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
-    trans_mc_trigger, vtol_is_mc, landing_done,
+    trans_mc_trigger, mc_wp_advance, vtol_is_mc, landing_done,
     override_mode, override_reached, override_fallback_due,
     vel_aligned_with_path, wp1_land_ready,
     after_climb_state, after_following_state, takeoff_request_fields,
@@ -170,22 +170,45 @@ def test_trans_mc_exact_thresh():
     assert trans_mc_trigger(10.0, 10.0) is False
 
 
-def test_trans_mc_trigger_no_segment_args_unchanged():
-    # current_segment/n_segments 생략 시 기존 동작과 동일(회귀 없음)
-    assert trans_mc_trigger(1.0, 10.0) is True
+# ── MC 이산 웨이포인트 순차추종 (mc_wp_advance) ──────────────────
+# 2026-07-24: MC는 L1Guidance(FW 선회반경 회피용 lookahead 알고리즘)가
+# 불필요하다는 지적(직선 구간을 순서대로 지나가기만 하면 됨) — 왕복
+# 경로에서 L1Guidance가 고정점에 수렴해 완주 못 하고 멈추는 문제도 실측돼
+# 이산 순차추종으로 교체.
+
+def test_mc_wp_advance_not_yet_arrived():
+    # 아직 목표점에서 멀면 인덱스 유지, 미완료.
+    idx, done = mc_wp_advance(0, dist_to_wp=5.0, end_thresh=2.0, n_points=3)
+    assert (idx, done) == (0, False)
 
 
-def test_trans_mc_trigger_blocked_on_early_segment():
-    # 2026-07-24 flight03/flight05 재현: 왕복(팰린드롬) 경로라 이함 직후
-    # 위치가 이미 끝점 근처(dist_to_end=2.5)라도, 아직 첫 구간(segment 0,
-    # n_segments=2 중 마지막은 1)만 추종 중이면 완료로 인정하면 안 된다.
-    assert trans_mc_trigger(2.5, 10.0, current_segment=0, n_segments=2) is False
+def test_mc_wp_advance_to_next_point():
+    # 목표점 도달(마지막 점 아님) → 다음 인덱스로 전진, 아직 미완료.
+    idx, done = mc_wp_advance(0, dist_to_wp=1.0, end_thresh=2.0, n_points=3)
+    assert (idx, done) == (1, False)
 
 
-def test_trans_mc_trigger_allowed_on_last_segment():
-    # 마지막 구간까지 실제로 진행한 뒤에는 기존처럼 거리 기준으로 완료 판정.
-    assert trans_mc_trigger(2.5, 10.0, current_segment=1, n_segments=2) is True
-    assert trans_mc_trigger(15.0, 10.0, current_segment=1, n_segments=2) is False
+def test_mc_wp_advance_completes_at_last_point():
+    # 마지막 점(n_points-1)에 도달하면 완료.
+    idx, done = mc_wp_advance(2, dist_to_wp=1.0, end_thresh=2.0, n_points=3)
+    assert (idx, done) == (2, True)
+
+
+def test_mc_wp_advance_exact_thresh_not_arrived():
+    # 경계값: dist_to_wp == end_thresh 는 미도달 (strict <), 기존 trans_mc_trigger와 동일 규약.
+    idx, done = mc_wp_advance(0, dist_to_wp=2.0, end_thresh=2.0, n_points=3)
+    assert (idx, done) == (0, False)
+
+
+def test_mc_wp_advance_reversed_middle_waypoint_visits_correct_side():
+    # 2026-07-24 flight03(WP2=-4.24,-4.24)/flight05(WP2=+4.24,+4.24) 재현:
+    # 이산 순차추종은 배열에 실제로 들어있는 좌표를 그대로 목표로 삼으므로,
+    # 부호를 반대로 바꾸면 실제로 다른 위치(반대편 모서리)를 향해 간다 —
+    # 예전 L1Guidance 기반 target_point_ned()는 둘 다 (0,0)으로 클램프돼
+    # 부호가 결과에 전혀 반영되지 않았던 것과 대조적.
+    pts_neg = np.array([[0.0, 0.0], [-4.24, -4.24], [0.0, 0.0]])
+    pts_pos = np.array([[0.0, 0.0], [4.24, 4.24], [0.0, 0.0]])
+    assert pts_neg[1][0] < 0 < pts_pos[1][0]
 
 
 # ── 작업 D: vtol_state == MC 판정 (vtol_is_mc) ──────────────────
