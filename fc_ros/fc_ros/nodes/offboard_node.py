@@ -34,6 +34,7 @@ from fc_bridge.execution.state_logic import (
     trans_mc_trigger, vtol_is_mc, landing_done,
     override_mode, override_reached, override_fallback_due, wp1_land_ready,
     after_climb_state, after_following_state, takeoff_request_fields,
+    home_amsl_confirmed,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 from fc_bridge.utils.rotation import yaw_ned_to_quat_enu
@@ -110,6 +111,8 @@ class OffboardNode(Node):
       v_cruise           (float, 15.0)  — 순항 속도 (m/s)
       a_max_g            (float, 0.3)   — 횡방향 가속도 상한 (g)
       gravity            (float, 9.81)  — 중력 가속도 (m/s²)
+      home_amsl_tol         (float, 0.5) — home_position AMSL 수렴 판정 허용오차 (m)
+      home_amsl_min_samples (int,   3)   — 이 개수만큼 연속 tol 이내로 수렴해야 신뢰(2026-07-23 대응)
     """
 
     def __init__(self):
@@ -139,6 +142,8 @@ class OffboardNode(Node):
         self.declare_parameter("v_cruise",   15.0)
         self.declare_parameter("a_max_g",    0.3)
         self.declare_parameter("gravity",    9.81)
+        self.declare_parameter("home_amsl_tol",         0.5)
+        self.declare_parameter("home_amsl_min_samples", 3)
 
         control_hz = self.get_parameter("control_hz").value
         self._dt = 1.0 / max(control_hz, 2.0)
@@ -160,6 +165,10 @@ class OffboardNode(Node):
         self._wp1_land_speed = float(
             self.get_parameter("wp1_land_speed").value)
         self._hold_timeout = float(self.get_parameter("hold_timeout").value)
+        self._home_amsl_tol = float(
+            self.get_parameter("home_amsl_tol").value)
+        self._home_amsl_min_samples = int(
+            self.get_parameter("home_amsl_min_samples").value)
 
         # ── 경로 계획 ─────────────────────────────────────────
         from fc_bridge.planning.planner_runner import run_planner, resolve_planner_name
@@ -216,6 +225,11 @@ class OffboardNode(Node):
         self._arm_sent = False
         self._takeoff_sent = False
         # 이륙 지점 지면 AMSL (/mavros/home_position). CommandTOL 목표고도(절대) 기준.
+        # 수신 즉시 단발 신뢰하지 않고 최근 N개가 tol 이내로 수렴해야 확정한다
+        # (2026-07-23 실비행 사고: 막 재시작된 MAVROS가 첫 수신값을 그대로 썼다가
+        # 26.7m 스테일 오차로 3m 상승명령이 29.7m 상승으로 실행됨 — state_logic.py
+        # home_amsl_confirmed() 참조).
+        self._home_amsl_samples: list[float] = []
         self._home_amsl = None
         # 이륙 순간 로컬 지면 높이 (h_up). CLIMBING AGL 판정의 지면 기준(2026-07-07).
         self._takeoff_ground_h = 0.0
@@ -302,7 +316,13 @@ class OffboardNode(Node):
 
     def _cb_home(self, msg: HomePosition) -> None:
         # geo.altitude = 이륙 지점 지면 AMSL. CommandTOL 목표고도(절대)의 기준값.
-        self._home_amsl = float(msg.geo.altitude)
+        # 단발 스냅샷 대신 최근 샘플이 tol 이내로 수렴할 때만 확정한다(2026-07-23 대응).
+        self._home_amsl_samples.append(float(msg.geo.altitude))
+        del self._home_amsl_samples[:-20]  # 무한 성장 방지, 최근 20개만 유지
+        self._home_amsl = home_amsl_confirmed(
+            self._home_amsl_samples,
+            tol=self._home_amsl_tol,
+            min_samples=self._home_amsl_min_samples)
 
     def _get_state(self) -> VehicleState:
         with self._vs_lock:
@@ -391,6 +411,12 @@ class OffboardNode(Node):
         이륙 목표고도는 지면 AMSL(home_amsl)+transition_alt 절대고도로 보낸다
         (작업 H 수정, 2026-07-07): CommandTOL.altitude 는 AMSL 절대고도라
         transition_alt 를 그대로 실으면 지면보다 낮아 PX4가 이륙을 취소한다.
+
+        home_amsl은 첫 수신값을 바로 쓰지 않고 최근 home_amsl_min_samples개가
+        home_amsl_tol 이내로 수렴해야 확정된다(state_logic.home_amsl_confirmed).
+        2026-07-23 실비행에서 막 재시작된 MAVROS가 PX4 부팅 초기(GPS 수직정확도
+        미수렴 시점)에 래치된 오래된 값을 단발로 받아 26.7m 오차로 이륙목표가
+        3m 대신 29.7m로 계산·실행된 사고 대응.
         """
         if not self._arm_sent:
             if not self._arm_cli.service_is_ready():
@@ -407,10 +433,17 @@ class OffboardNode(Node):
             return  # ARM 완료 대기
 
         if self._home_amsl is None:
-            # home_position 미수신이면 이륙 목표 AMSL을 계산할 수 없다 → 수신 대기.
-            self.get_logger().warn(
-                "home_position 미수신 — 이륙 목표 AMSL 계산 불가, 대기",
-                throttle_duration_sec=2.0)
+            if not self._home_amsl_samples:
+                self.get_logger().warn(
+                    "home_position 미수신 — 이륙 목표 AMSL 계산 불가, 대기",
+                    throttle_duration_sec=2.0)
+            else:
+                self.get_logger().warn(
+                    "home_position AMSL 미수렴"
+                    f"(최근 {len(self._home_amsl_samples[-self._home_amsl_min_samples:])}개: "
+                    f"{['%.1f' % v for v in self._home_amsl_samples[-self._home_amsl_min_samples:]]}, "
+                    f"tol={self._home_amsl_tol:.1f}) — 이륙 보류, 수렴 대기",
+                    throttle_duration_sec=2.0)
             return
 
         if not self._takeoff_sent:

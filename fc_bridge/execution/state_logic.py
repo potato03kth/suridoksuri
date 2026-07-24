@@ -122,6 +122,28 @@ def vel_aligned_with_path(
     return float(np.dot(vel2 / speed, seg / seg_norm)) > cos_thresh
 
 
+def home_amsl_confirmed(samples, tol: float = 0.5, min_samples: int = 3):
+    """최근 home_position AMSL 샘플들이 안정됐는지 확인, 안정 시 최신값 반환.
+
+    samples는 수신 순서대로 쌓인 리스트(오래된 것이 앞). 마지막 min_samples개가
+    서로 tol 이내로 수렴해야 신뢰할 수 있는 값으로 인정한다 — 미달이면 None.
+
+    (2026-07-23 실비행 사고: `_cb_home`이 `/mavros/home_position/home`의 첫
+    수신값을 그대로 단발 스냅샷해 `takeoff_request_fields()`에 넘기던 기존 방식이,
+    막 재시작된 MAVROS가 PX4 부팅 초기(GPS 수직정확도 미수렴 시점)에 래치된
+    오래된 home_position을 그대로 받아 26.7m 오차(실제 지면 366.93m AMSL vs
+    수신값 393.6m AMSL)로 재현됨 — 이륙목표가 AGL 3.0m 대신 AGL 29.7m로 계산돼
+    그대로 이륙. `docs/session_status.md` mc-실기체 트랙 "잔여 리스크" ③에서
+    이미 권고됐던 대책 (a)를 구현한 것. 근거: `logs/2026-07-23_flight01/notes.md`.)
+    """
+    if len(samples) < min_samples:
+        return None
+    recent = samples[-min_samples:]
+    if max(recent) - min(recent) > tol:
+        return None
+    return float(recent[-1])
+
+
 def takeoff_request_fields(transition_alt: float, home_amsl: float) -> dict:
     """CommandTOL(/mavros/cmd/takeoff) 요청 필드.
 
