@@ -40,7 +40,9 @@ from fc_bridge.execution.state_logic import (
 from fc_bridge.comm.vehicle_state import VehicleState
 from fc_bridge.utils.rotation import yaw_ned_to_quat_enu
 import enum
+import math
 import threading
+import time
 
 import numpy as np
 
@@ -265,6 +267,13 @@ class OffboardNode(Node):
         self._follow_ticks = 0
         self._current_mode = ""
         self._offboard_engaged_once = False
+        # 위치 토픽을 한 번이라도 받았는지 (_cb_pose 참조)
+        self._pose_received = False
+        # OFFBOARD 재요청 최소 간격 (s). /mavros/state 는 PX4 HEARTBEAT 주기라
+        # 1Hz인데 제어 루프는 10Hz — 같은 1초 묵은 mode 값으로 10번 재요청해도
+        # 의미가 없고, 2026-07-25 사고 때 0.9초에 10회가 나간 원인이 이것이다.
+        self._offboard_req_min_interval = 1.0
+        self._last_offboard_req_t = None
         # MC STREAMING/FOLLOWING 위치 setpoint 슬루레이트 제한용 (2026-07-20 사고 대응).
         self._mc_pos_ramp = None
         # ARM_TAKEOFF 시퀀스 플래그
@@ -348,6 +357,14 @@ class OffboardNode(Node):
     def _cb_pose(self, msg: PoseStamped) -> None:
         with self._vs_lock:
             update_from_pose(self._vehicle_state, msg)
+            # 위치를 한 번이라도 실제로 받았는지 (2026-07-25 감사).
+            # /mavros/state 는 transient_local(래치)이라 노드 기동 즉시 armed=True 를
+            # 알 수 있는 반면 /mavros/local_position/pose 는 volatile(래치 없음)이라
+            # 다음 실시간 샘플까지 아무것도 안 온다. 그 창에서 이륙 시퀀스가 진행되면
+            # pos_ned 가 기본값 zeros(3) 인 채로 캡처돼 _takeoff_ground_h=0 이 되고
+            # _apply_path_origin 이 원점 0 을 적용(=무보정)하며, np.any(origin)==False
+            # 라 로그조차 남지 않는다 → 2026-07-25 flight01 사고 동작으로 조용히 회귀.
+            self._pose_received = True
 
     def _cb_twist(self, msg: TwistStamped) -> None:
         with self._vs_lock:
@@ -377,9 +394,22 @@ class OffboardNode(Node):
         # AMSL이라, 그 보정치(한국 기준 약 24.8m, geoid separation)만큼 목표고도가
         # 부풀려져 3~4m 상승명령이 실제로 ~28m까지 과상승했다(PX4_HOME_LAT/LON/ALT를
         # 실측값으로 지정한 통제 SITL 재현으로 확정, docs/sitl_verification_log.md
-        # "작업 H-2" 참조). /mavros/altitude.amsl은 GLOBAL_POSITION_INT.alt(이미
-        # AMSL)를 그대로 relay해 이 보정을 거치지 않으므로 CommandTOL과 프레임이
-        # 일치한다.
+        # "작업 H-2" 참조). /mavros/altitude.amsl은 이 EGM96 보정을 거치지 않아
+        # CommandTOL과 프레임이 일치한다.
+        #
+        # ⚠️ 근거 정정(2026-07-25 감사): 종전 주석은 "GLOBAL_POSITION_INT.alt를
+        # relay"라고 적었으나 사실이 아니다. MAVROS altitude 플러그인이 relay하는
+        # 것은 MAVLink **ALTITUDE(#141)** 의 altitude_amsl이다. 이 구분이 중요한
+        # 이유는 PX4 ALTITUDE.hpp가 다음 폴백을 갖기 때문이다:
+        #   z_global 유효 → -local_pos.z + ref_alt (진짜 AMSL)
+        #   z_global 무효 → altitude_monotonic (= **기압고도**) 로 조용히 대체
+        #   air_data도 무효 → NaN (아래 isfinite 가드로 배제)
+        # 기압고도는 표준대기 기준이라 당일 기압에 따라 실제 AMSL과 수십 m 차이가
+        # 날 수 있고, **몇 초간 매우 안정적이라 아래 수렴판정을 그대로 통과한다** —
+        # 선례(ellipsoid고)와 동일한 실패 패턴이다. ARM/AUTO.TAKEOFF가 GPS 락을
+        # 요구해 실제 발생 확률은 낮지만, 이륙 전 점검으로
+        # `ros2 topic echo /mavros/altitude` 의 amsl과 monotonic이 **같으면**
+        # 폴백 상태이므로 이륙을 보류할 것.
         #
         # (2026-07-24 이전 SITL 재현 대응, 여전히 유효): 오래된(래치/캐시된) 표본은
         # 수렴 표본에서 아예 제외한다 — 같은 세션 안에서 이전 PX4 인스턴스의 값이
@@ -393,6 +423,15 @@ class OffboardNode(Node):
             self.get_logger().warn(
                 f"altitude 메시지 지연 age={age_s:.1f}s > "
                 f"{self._home_amsl_max_age:.1f}s — 래치/캐시 의심, 수렴 표본에서 제외",
+                throttle_duration_sec=2.0)
+            return
+        # NaN/inf 표본은 아예 수집하지 않는다 (2026-07-25 감사).
+        # PX4 ALTITUDE(#141)의 altitude_amsl은 EKF 글로벌 기준(z_global)과 air_data가
+        # 둘 다 무효이면 NaN이다. NaN은 모든 비교가 False라 home_amsl_confirmed()의
+        # 수렴검사를 그냥 통과해 CommandTOL.altitude=NaN이 나간다.
+        if not math.isfinite(msg.amsl):
+            self.get_logger().warn(
+                "altitude.amsl 이 유한하지 않음(NaN/inf) — 수렴 표본에서 제외",
                 throttle_duration_sec=2.0)
             return
         self._home_amsl_samples.append(float(msg.amsl))
@@ -546,6 +585,14 @@ class OffboardNode(Node):
         if not self._takeoff_sent:
             if not self._takeoff_cli.service_is_ready():
                 self.get_logger().warn("/mavros/cmd/takeoff 서비스 없음")
+                return
+            # 위치 미수신 상태로 이륙하면 _takeoff_ground_h 와 경로 원점이 둘 다
+            # zeros 로 캡처돼 보정이 조용히 무효화된다 (_cb_pose 주석 참조).
+            if not self._pose_received:
+                self.get_logger().warn(
+                    "local_position/pose 미수신 — 이륙 지점/지면 기준을 잡을 수 없어 "
+                    "이륙 보류, 수신 대기",
+                    throttle_duration_sec=2.0)
                 return
             # 이륙 순간 로컬 지면 높이 캡처 (로컬 원점≠지면 보정, CLIMBING AGL 판정용).
             self._takeoff_ground_h = float(state.pos_ned[2])
@@ -711,7 +758,13 @@ class OffboardNode(Node):
             else:
                 self._fw_stable_ticks = 0  # 이탈 시 카운터 초기화
                 # heading_err 양수(NED CW 필요) → ENU angular.z 음수
-                # 부호 검증: 잘못 돌면 -0.3을 +0.3으로 바꿀 것
+                # 부호 확정(2026-07-25 감사, 두 경로 교차검증 — 바꾸지 말 것):
+                #  ① MAVROS setpoint_velocity 는 각속도에 transform_frame_enu_ned
+                #     를 적용 → NED yaw_rate = -angular.z
+                #  ② yaw_enu = π/2 - yaw_ned → d(yaw_enu)/dt = -d(yaw_ned)/dt
+                # 시뮬(북 0°→동 90°, 우선회): err=+90° → angular.z=-0.47 →
+                # NED yaw_rate=+0.47 → yaw 증가 → 오차 단조 감소(수렴).
+                # +0.3 으로 바꾸면 발산한다.
                 yaw_rate = float(np.clip(-heading_err * 0.3, -0.5, 0.5))
                 self._setpoint.publish(np.zeros(3), yaw_rate=yaw_rate)
                 self.get_logger().debug(
@@ -782,6 +835,14 @@ class OffboardNode(Node):
         if is_pilot_takeover(self._current_mode):
             self._enter_pilot_takeover()
             return
+        # 판정 근거인 _current_mode 가 1Hz 소스라 10Hz로 재요청해봐야 같은 값을
+        # 열 번 보고 열 번 쏘는 것뿐이다. PX4 페일세이프(AUTO.LOITER/AUTO.RTL)를
+        # 되받아치는 강도도 이 간격으로 제한된다.
+        now = time.monotonic()
+        if (self._last_offboard_req_t is not None
+                and now - self._last_offboard_req_t < self._offboard_req_min_interval):
+            return
+        self._last_offboard_req_t = now
         if not self._set_mode_cli.service_is_ready():
             self.get_logger().warn("/mavros/set_mode 서비스 없음")
             return

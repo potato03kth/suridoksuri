@@ -2,6 +2,8 @@
 test_state_logic.py — offboard_node 상태 전환 판정 순수 함수 단위 테스트.
 rclpy 불필요, Windows/WSL pytest로 실행 가능.
 """
+import math
+
 import pytest
 
 import numpy as np
@@ -189,3 +191,40 @@ def test_translate_path_2026_07_25_flight04_altitude():
                                [-3.36, 0.087, -2.09])
     assert alt == pytest.approx(0.91)
     assert alt - (-2.09) == pytest.approx(3.0)   # 지면 기준 정확히 3m
+
+
+# ── home_amsl_confirmed() NaN 방어 (2026-07-25 감사) ────────────
+
+def test_home_amsl_confirmed_rejects_all_nan():
+    """PX4 ALTITUDE(#141)는 z_global·air_data 둘 다 무효면 amsl=NaN을 보낸다."""
+    nan = float("nan")
+    assert home_amsl_confirmed([nan, nan, nan]) is None
+
+
+def test_home_amsl_confirmed_rejects_single_nan():
+    """NaN은 모든 비교가 False라 수렴검사를 통째로 무력화했다 —
+    종전 코드는 [19.2, nan, 19.3]에 대해 19.3을 '수렴했다'며 반환했다."""
+    nan = float("nan")
+    assert home_amsl_confirmed([19.2, nan, 19.3], tol=0.5, min_samples=3) is None
+
+
+def test_home_amsl_confirmed_rejects_inf():
+    assert home_amsl_confirmed([19.2, float("inf"), 19.3]) is None
+
+
+def test_home_amsl_confirmed_nan_would_have_made_takeoff_altitude_nan():
+    """NaN이 확정되면 CommandTOL.altitude=NaN이 나가고, PX4는 param7이 유한하지
+    않으면 MIS_TAKEOFF_ALT로 폴백한다 → 지령한 고도와 다른 고도로 이륙."""
+    from fc_bridge.execution.state_logic import takeoff_request_fields
+    assert home_amsl_confirmed([float("nan")] * 3) is None
+    # 방어가 없다면 이렇게 됐다는 것을 명시적으로 고정
+    assert math.isnan(takeoff_request_fields(3.0, float("nan"))["altitude"])
+
+
+def test_translate_path_empty_mc_wps_does_not_crash():
+    """_mc_wps가 빈 리스트면 np.asarray가 shape (0,)를 만들어 (2,)와 broadcast
+    실패한다. 이 함수는 이륙 순간에 호출되므로 여기서 죽으면 최악이다."""
+    pts, mc_wps, alt = translate_path(
+        np.zeros((3, 2)), [], 3.0, [1.0, 2.0, 3.0])
+    assert mc_wps.shape == (0, 2)
+    assert alt == pytest.approx(6.0)

@@ -28,6 +28,10 @@ _MAV_CMD_NAV_WAYPOINT = 16
 _R_EARTH = 6_371_000.0  # m
 
 
+_SITL_HOME_LAT = 47.397742   # PX4 SITL gz_x500 기본 홈 (취리히)
+_SITL_HOME_LON = 8.545594
+
+
 class MissionNode(Node):
 
     def __init__(self):
@@ -35,14 +39,26 @@ class MissionNode(Node):
 
         self.declare_parameter("waypoints",
                                [0.0, 0.0, 50.0, 100.0, 0.0, 50.0])
-        self.declare_parameter("home_lat", 47.397742)   # PX4 SITL gz_x500 기본 홈
-        self.declare_parameter("home_lon", 8.545594)
+        self.declare_parameter("home_lat", _SITL_HOME_LAT)   # PX4 SITL gz_x500 기본 홈
+        self.declare_parameter("home_lon", _SITL_HOME_LON)
 
         raw = self.get_parameter("waypoints").value
         # ROS2 파라미터는 중첩 리스트 불가 → 1D로 받아 (N, 3)으로 변환
         self._waypoints = np.array(raw, dtype=float).reshape(-1, 3)
         self._home_lat = float(self.get_parameter("home_lat").value)
         self._home_lon = float(self.get_parameter("home_lon").value)
+
+        # PX4 SITL(gz_x500) 기본 홈 = 스위스 취리히. 실기체에서 이 값 그대로
+        # 미션을 올리면 스위스 좌표 웨이포인트가 FC에 업로드되고, AUTO.MISSION
+        # 으로 전환되는 순간 기체가 그쪽으로 출발한다. yaml·launch 어디에도
+        # 오버라이드 경로가 없어(2026-07-25 감사) 조용히 기본값이 쓰이기 쉽다.
+        if (abs(self._home_lat - _SITL_HOME_LAT) < 1e-6
+                and abs(self._home_lon - _SITL_HOME_LON) < 1e-6):
+            self.get_logger().warn(
+                f"home_lat/home_lon 이 PX4 SITL 기본값(취리히 "
+                f"{_SITL_HOME_LAT}, {_SITL_HOME_LON}) 그대로다 — "
+                f"실기체라면 반드시 -p home_lat:=<위도> -p home_lon:=<경도> 로 덮을 것. "
+                f"이대로 미션을 올리면 스위스 좌표가 업로드된다.")
 
         self._push_cli = self.create_client(
             WaypointPush, "/mavros/mission/push")

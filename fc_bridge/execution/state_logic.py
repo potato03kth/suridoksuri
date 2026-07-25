@@ -3,6 +3,8 @@
 rclpy 의존 없이 단독 import·테스트 가능.
 offboard_node.py 와 fc_ros/test/test_offboard_node.py 양쪽이 이 함수를 참조한다.
 """
+import math
+
 import numpy as np
 
 
@@ -177,6 +179,17 @@ def home_amsl_confirmed(samples, tol: float = 0.5, min_samples: int = 3):
     if len(samples) < min_samples:
         return None
     recent = samples[-min_samples:]
+    # NaN 방어 (2026-07-25 감사): NaN은 모든 비교가 False라 아래 수렴검사를 그냥
+    # 통과한다 — 실측 `home_amsl_confirmed([19.2, nan, 19.3]) -> 19.3`으로,
+    # 표본 하나만 NaN이어도 수렴판정이 통째로 무력화됐다. NaN이 확정되면
+    # `_home_amsl is None`이 False라 이륙 시퀀스가 그대로 진행돼
+    # `CommandTOL.altitude = NaN`이 나가고, PX4는 param7이 유한하지 않으면
+    # `MIS_TAKEOFF_ALT`로 폴백한다 → 노드는 transition_alt를 지령했다고 믿는데
+    # 기체는 전혀 다른 고도로 이륙하고 CLIMBING은 오지 않는 고도를 기다린다.
+    # `/mavros/altitude`의 amsl은 PX4가 NaN을 보낼 수 있는 필드다(ALTITUDE #141,
+    # z_global·air_data 둘 다 무효일 때) — 이론적 값이 아니다.
+    if not all(math.isfinite(v) for v in recent):
+        return None
     if max(recent) - min(recent) > tol:
         return None
     return float(recent[-1])
@@ -209,8 +222,16 @@ def takeoff_request_fields(transition_alt: float, home_amsl: float) -> dict:
     """CommandTOL(/mavros/cmd/takeoff) 요청 필드.
 
     CommandTOL.altitude(→ MAVLink MAV_CMD_NAV_TAKEOFF param7)는 **AMSL 절대고도**다.
-    transition_alt(지면 기준 상승분)에 이륙 지점 지면 AMSL(home_amsl,
-    /mavros/home_position/home 의 geo.altitude)을 더해 절대고도로 변환한다.
+    transition_alt(지면 기준 상승분)에 이륙 지점 지면 AMSL(home_amsl)을 더해
+    절대고도로 변환한다.
+
+    ⚠️ **home_amsl의 소스는 `/mavros/altitude` 의 `.amsl` 이다.**
+    예전에 쓰던 `/mavros/home_position/home` 의 `geo.altitude`로 되돌리지 말 것 —
+    그 값은 MAVROS가 ROS REP-103 관례(NavSatFix.altitude = WGS84 **타원체고**)를
+    따라 EGM96 보정을 적용한 값이라 AMSL이 아니다(한국 기준 약 +24.8m 오차).
+    2026-07-24에 이것 때문에 3m 상승명령이 실제 ~28.8m 상승으로 실행됐다(커밋 568fbe5).
+    호출부는 `offboard_node._cb_home` — 함수명에 `home`이 남아 있으나 구독 토픽은
+    `/mavros/altitude`다.
 
     (2026-07-07 실측 확정: transition_alt(예 4.0)를 그대로 altitude에 실으면
     지면 AMSL(예 19.2m)보다 낮은 값이라 PX4 navigator가
@@ -314,8 +335,17 @@ def translate_path(pts, mc_wps, cruise_alt: float, origin_ned):
     origin = np.asarray(origin_ned, dtype=float)
     if origin.shape[0] < 3:
         raise ValueError(f"origin_ned는 [N, E, h_up] 3원소 — 받은 shape: {origin.shape}")
+
+    def _shift(arr):
+        # 빈 리스트는 np.asarray가 shape (0,)로 만들어 (2,)와 broadcast 실패한다.
+        # 이 함수는 이륙 순간에 호출되므로 여기서 죽으면 최악의 타이밍이다.
+        a = np.asarray(arr, dtype=float)
+        if a.size == 0:
+            return a.reshape(0, 2)
+        return a + origin[:2]
+
     return (
-        np.asarray(pts, dtype=float) + origin[:2],
-        np.asarray(mc_wps, dtype=float) + origin[:2],
+        _shift(pts),
+        _shift(mc_wps),
         float(cruise_alt) + float(origin[2]),
     )

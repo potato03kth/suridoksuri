@@ -62,7 +62,7 @@ class L1Guidance:
         (chi_cmd, v_cmd, cross_track_err)
             chi_cmd       : 목표 헤딩 (rad)
             v_cmd         : 목표 속도 (m/s)
-            cross_track_err : 횡방향 경로 오차 (m, 좌측 + / 우측 -)
+            cross_track_err : 횡방향 경로 오차 (m, **우측 + / 좌측 −**)
         """
         p2 = np.asarray(pos_ned[:2], dtype=float)
         v2 = np.asarray(vel_ned[:2], dtype=float)
@@ -245,7 +245,15 @@ class L1Guidance:
         return self._pts[-1].copy(), N - 2
 
     def _cross_track_error(self, p2: np.ndarray, seg: int) -> float:
-        """횡방향 경로 오차 (m). 좌측 + / 우측 -."""
+        """횡방향 경로 오차 (m). **우측 + / 좌측 −** (2026-07-25 실측 정정).
+
+        normal = [-ab[1], ab[0]] 는 NED에서 진행방향의 **오른쪽** 법선이다
+        (북진 ab=[1,0] → normal=[0,1]=동=오른쪽). 실측:
+            동쪽 +5m(오른쪽) → cte=+5.000 / 서쪽 -5m(왼쪽) → cte=-5.000
+        종전 docstring은 "좌측 +"라고 반대로 적혀 있었다. 현재 cte는 로그와
+        abs() 비교에만 쓰여 거동 영향은 없었으나, 횡방향 보정에 쓰는 순간
+        부호가 반대로 들어간다.
+        """
         N = len(self._pts)
         a = self._pts[seg]
         b = self._pts[min(seg + 1, N - 1)]

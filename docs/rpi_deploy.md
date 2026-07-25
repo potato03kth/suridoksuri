@@ -108,11 +108,31 @@ docker exec fc bash -lc '
 `site-packages/fc_bridge/execution/state_logic.py`가 아니다. 그래서
 `import fc_bridge`는 colcon install 경로로는 **절대 안 된다**.
 
-실제로는 **launch를 저장소 루트에서 실행하기 때문에** cwd가 sys.path에 들어가
-`/drone_ws/src/suridoksuri/fc_bridge`가 잡힌다. `record_flight.sh`는 `cd`를 하지 않는다
-— 반드시 저장소 루트에서 실행할 것.
+실제 메커니즘은 **운용자가 컨테이너 셸에서 손으로 넣는 `PYTHONPATH`** 다 —
+`docs/mc_flight_procedure.md:50, 83`에 절차로 적혀 있다:
 
-> 같은 함정을 노트북 SITL 환경에서도 겪었다(`.pth` 파일로 해결) —
+```bash
+export PYTHONPATH=/drone_ws/src/suridoksuri:$PYTHONPATH
+```
+
+`docs/session_status.md:109`도 같은 사실을 기록한다: "fc_ros는 colcon 빌드,
+fc_bridge+vtol_sim은 `PYTHONPATH=/drone_ws/src/suridoksuri`".
+
+**cwd로는 해결되지 않는다** (2026-07-25 실측). console_scripts 엔트리 스크립트는
+`sys.path[0]`이 **스크립트 디렉터리**이지 cwd가 아니므로, 저장소 루트에서 실행해도
+`import fc_bridge`는 실패한다. 컨테이너에 `.pth` 파일도 없다:
+
+```
+$ cd /drone_ws/src/suridoksuri && python3 -c "import sys;
+  sys.path=[p for p in sys.path if p not in ('','.', '/drone_ws/src/suridoksuri')];
+  import fc_bridge"
+ModuleNotFoundError: No module named 'fc_bridge'
+```
+
+> ⚠️ **이 export를 빠뜨리면 `offboard_node`가 import 단계에서 죽는다.** 강제하는
+> 장치가 없고 운용자 기억에만 의존한다 — launch 래퍼나 `.pth`로 고정하는 게 맞다(미조치).
+
+> 같은 함정을 노트북 SITL 환경에서도 겪었고 거기선 `.pth` 파일로 해결했다 —
 > `docs/wsl_dev_env_setup.md` 섹션 F, 메모리 `project_fc_sitl_laptop_env`.
 
 ---

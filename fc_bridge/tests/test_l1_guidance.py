@@ -49,7 +49,10 @@ def test_lateral_offset_corrects_heading():
 
 
 def test_cross_track_error_sign():
-    """횡방향 오차 부호: 경로 왼쪽 = 양수, 오른쪽 = 음수."""
+    """횡방향 오차 부호: 경로 **오른쪽 = 양수, 왼쪽 = 음수** (2026-07-25 정정).
+
+    종전 docstring은 반대로 적혀 있었으나 assert 자체는 코드와 맞았다 —
+    틀린 규약을 "검증된 것"으로 고착시키고 있었다."""
     pts, v = _straight_path(direction="north")
     guide = L1Guidance(l1_dist=20.0, path_pts=pts, v_profile=v)
 
@@ -58,7 +61,7 @@ def test_cross_track_error_sign():
     _, _, cte_left  = guide.compute(np.array([50.0, -5.0, 0.0]), vel)  # 서쪽(좌)
     _, _, cte_right = guide.compute(np.array([50.0,  5.0, 0.0]), vel)  # 동쪽(우)
 
-    assert cte_left  < 0   # 북쪽 방향 경로에서 서쪽은 오른쪽
+    assert cte_left  < 0   # 북진 경로에서 서쪽은 왼쪽 → 음수
     assert cte_right > 0
 
 
