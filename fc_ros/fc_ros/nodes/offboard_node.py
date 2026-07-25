@@ -35,6 +35,7 @@ from fc_bridge.execution.state_logic import (
     override_mode, override_reached, override_fallback_due, wp1_land_ready,
     after_climb_state, after_following_state, takeoff_request_fields,
     home_amsl_confirmed, home_amsl_sample_fresh,
+    is_pilot_takeover, path_origin_ned, translate_path,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 from fc_bridge.utils.rotation import yaw_ned_to_quat_enu
@@ -94,6 +95,7 @@ class _State(enum.Enum):
     HOLD = "hold"
     LANDING = "landing"
     OVERRIDE = "override"
+    PILOT_TAKEOVER = "pilot_takeover"
     DONE = "done"
 
 
@@ -114,6 +116,9 @@ class OffboardNode(Node):
       gravity            (float, 9.81)  — 중력 가속도 (m/s²)
       home_amsl_tol         (float, 0.5) — home_position AMSL 수렴 판정 허용오차 (m)
       home_amsl_min_samples (int,   3)   — 이 개수만큼 연속 tol 이내로 수렴해야 신뢰(2026-07-23 대응)
+      waypoint_frame     (str,  "takeoff") — waypoints 해석 기준계.
+                         "takeoff": 이륙지점 기준 상대좌표(기본, 2026-07-25 사고 대응)
+                         "local":   EKF 로컬 프레임 절대좌표(종전 동작)
     """
 
     def __init__(self):
@@ -158,6 +163,7 @@ class OffboardNode(Node):
         self.declare_parameter("home_amsl_min_samples", 3)
         self.declare_parameter("home_amsl_max_age",     1.0)
         self.declare_parameter("climb_vz_tol",          0.3)
+        self.declare_parameter("waypoint_frame",   "takeoff")
 
         control_hz = self.get_parameter("control_hz").value
         self._dt = 1.0 / max(control_hz, 2.0)
@@ -190,6 +196,10 @@ class OffboardNode(Node):
             self.get_parameter("home_amsl_max_age").value)
         self._climb_vz_tol = float(
             self.get_parameter("climb_vz_tol").value)
+        self._waypoint_frame = str(
+            self.get_parameter("waypoint_frame").value).lower()
+        # 파라미터 오타를 비행 중이 아니라 노드 기동 시점에 잡는다.
+        path_origin_ned(np.zeros(3), self._waypoint_frame)
 
         # ── 경로 계획 ─────────────────────────────────────────
         from fc_bridge.planning.planner_runner import run_planner, resolve_planner_name
@@ -243,13 +253,18 @@ class OffboardNode(Node):
         # ── 내부 상태 ────────────────────────────────────────
         self._vehicle_state = VehicleState()
         self._vs_lock = threading.Lock()
-        self._guidance = L1Guidance(
-            self.get_parameter("l1_dist").value, self._pts, self._v)
+        self._l1_dist = float(self.get_parameter("l1_dist").value)
+        self._guidance = L1Guidance(self._l1_dist, self._pts, self._v)
+        # 경로 원점 (NED [N, E, h_up]). 이륙 순간 `_apply_path_origin()`이 채운다.
+        # 그 전까지는 0 — 즉 종전 동작(로컬 절대좌표)과 동일하다.
+        self._path_origin = np.zeros(3)
+        self._path_origin_applied = False
         self._sm = _State.ARM_TAKEOFF
         self._offboard_requested = False
         self._stream_ticks = 0
         self._follow_ticks = 0
         self._current_mode = ""
+        self._offboard_engaged_once = False
         # MC STREAMING/FOLLOWING 위치 setpoint 슬루레이트 제한용 (2026-07-20 사고 대응).
         self._mc_pos_ramp = None
         # ARM_TAKEOFF 시퀀스 플래그
@@ -342,6 +357,10 @@ class OffboardNode(Node):
         with self._vs_lock:
             update_from_mavros_state(self._vehicle_state, msg)
             self._current_mode = msg.mode
+            if msg.mode == "OFFBOARD":
+                # 한 번이라도 OFFBOARD를 잡은 뒤부터는 수동모드 = 조종사 인계로 본다.
+                # (그 전에는 POSCTL이 그냥 시동 전 대기 모드라 인계와 구분되지 않는다)
+                self._offboard_engaged_once = True
 
     def _cb_extended(self, msg: ExtendedState) -> None:
         with self._vs_lock:
@@ -391,6 +410,17 @@ class OffboardNode(Node):
 
     def _control_callback(self) -> None:
         state = self._get_state()
+
+        # 조종사 인계 감시 — 어떤 상태에 있든 최우선.
+        # OFFBOARD를 한 번이라도 잡은 뒤 수동모드(POSCTL/MANUAL/…)로 빠졌다면
+        # 사람이 기체를 가져간 것이다. 절대 되찾아오지 않는다.
+        # (2026-07-25 flight01: FOLLOWING이 조종사의 POSCTL 인계를 0.9초 만에
+        #  10회 재요청으로 뒤집어 조종사가 KILL 스위치를 써야 했다.)
+        if (self._offboard_engaged_once
+                and self._sm not in (_State.PILOT_TAKEOVER, _State.DONE)
+                and is_pilot_takeover(self._current_mode)):
+            self._enter_pilot_takeover()
+            return
 
         if self._sm == _State.ARM_TAKEOFF:
             self._step_arm_takeoff(state)
@@ -460,8 +490,15 @@ class OffboardNode(Node):
         elif self._sm == _State.OVERRIDE:
             self._step_override(state)
 
+        elif self._sm == _State.PILOT_TAKEOVER:
+            pass   # 세트포인트 발행 중단 — 아래 _enter_pilot_takeover() 참조
+
         elif self._sm == _State.DONE:
-            self._setpoint.publish(np.zeros(3))
+            # setpoint를 계속 발행하면 PX4가 OFFBOARD를 언제든 다시 받아줄 수 있는
+            # 상태로 남는다. 임무가 끝난 뒤엔 스트림을 끊는 게 맞다
+            # (`_request_override()` 주석의 "velocity-0 발행이 OFFBOARD를 살려둬
+            #  FW가 직진 폭주" 사례와 같은 위험).
+            pass
 
     # ── ARM_TAKEOFF ──────────────────────────────────────────
 
@@ -512,6 +549,10 @@ class OffboardNode(Node):
                 return
             # 이륙 순간 로컬 지면 높이 캡처 (로컬 원점≠지면 보정, CLIMBING AGL 판정용).
             self._takeoff_ground_h = float(state.pos_ned[2])
+            # 같은 보정을 경로(수평 waypoints + 순항고도)에도 적용한다.
+            # 2026-07-25 이전엔 CLIMBING 판정에만 적용돼 있어, 이륙은 정확했지만
+            # OFFBOARD 진입 순간 변환 없이 EKF 로컬 프레임으로 갈아탔다.
+            self._apply_path_origin(state.pos_ned)
             req = CommandTOL.Request()
             fields = takeoff_request_fields(self._transition_alt, self._home_amsl)
             for field, value in fields.items():
@@ -522,6 +563,42 @@ class OffboardNode(Node):
                 f"CommandTOL 이륙 요청 alt={fields['altitude']:.1f}m AMSL "
                 f"(지면 {self._home_amsl:.1f}+{self._transition_alt:.1f}) -> CLIMBING")
             self._sm = _State.CLIMBING
+
+    def _apply_path_origin(self, takeoff_pos_ned) -> None:
+        """`waypoints:=` 를 이륙지점 기준으로 평행이동한다 (2026-07-25 사고 대응).
+
+        경로 데이터(`_pts`/`_mc_wps`/`_cruise_alt`)는 `__init__`에서 waypoints 값
+        그대로 만들어져 있다. 이륙 순간 기체 위치를 알게 된 시점에 딱 한 번
+        전체를 평행이동해, 이후 모든 하위 코드(L1Guidance·거리판정·setpoint
+        발행)는 종전과 똑같이 EKF 로컬 절대좌표로 동작하게 한다 —
+        비교/발행 지점마다 오프셋을 더하는 방식보다 누락 위험이 없다.
+
+        `waypoint_frame:="local"`이면 원점이 0이라 아무것도 바뀌지 않는다.
+
+        배경: EKF 로컬 원점은 이륙지점이 아니다. 2026-07-25 flight01에서 원점이
+        이륙지점으로부터 수평 10.94m·수직 10.55m 어긋나 `[0,0,3]`이 실제로는
+        "10.9m 옆 + 13.55m AGL"을 지령했다. `state_logic.path_origin_ned()` 참조.
+        """
+        if self._path_origin_applied:
+            return
+        origin = path_origin_ned(takeoff_pos_ned, self._waypoint_frame)
+        self._path_origin = origin
+        self._path_origin_applied = True
+        if not np.any(origin):
+            return   # "local" 프레임이거나 원점이 정확히 0 — 이동 불필요
+
+        self._pts, self._mc_wps, self._cruise_alt = translate_path(
+            self._pts, self._mc_wps, self._cruise_alt, origin)
+        # 경로점이 바뀌었으므로 L1Guidance를 새 경로로 다시 만든다
+        # (내부에 경로 배열을 들고 있어 재생성하지 않으면 옛 좌표를 계속 쓴다).
+        self._guidance = L1Guidance(self._l1_dist, self._pts, self._v)
+        wp0 = (f"[{self._mc_wps[0][0]:.2f},{self._mc_wps[0][1]:.2f}]"
+               if len(self._mc_wps) else "(없음)")
+        self.get_logger().info(
+            f"경로 원점 = 이륙지점 [N={origin[0]:.2f}, E={origin[1]:.2f}, "
+            f"h_up={origin[2]:.2f}] 적용 "
+            f"(frame={self._waypoint_frame}) → "
+            f"WP0={wp0} 순항고도 h_up={self._cruise_alt:.2f}")
 
     # ── CLIMBING ─────────────────────────────────────────────
 
@@ -585,6 +662,11 @@ class OffboardNode(Node):
             self._setpoint.publish(np.zeros(3))  # hover — 방향 무관
             self._fw_prime_ticks += 1
             if self._fw_prime_ticks >= 20:
+                # 아직 OFFBOARD를 한 번도 안 잡은 구간이라 상단 감시가 안 걸린다.
+                # 여기서도 조종사가 이미 기체를 쥐고 있으면 뺏지 않는다.
+                if is_pilot_takeover(self._current_mode):
+                    self._enter_pilot_takeover()
+                    return
                 if not self._set_mode_cli.service_is_ready():
                     self.get_logger().warn("/mavros/set_mode 서비스 없음")
                     return
@@ -680,7 +762,26 @@ class OffboardNode(Node):
         msg.pose.orientation.z = z
         self._pos_pub.publish(msg)
 
+    def _enter_pilot_takeover(self) -> None:
+        """조종사 RC 인계 확정 — 세트포인트 스트림을 끊고 영구 정지한다.
+
+        OFFBOARD 재요청은 물론이고 세트포인트 발행 자체를 멈춘다. PX4는
+        `COM_OF_LOSS_T`(현 기체 1.0s) 동안 setpoint가 없으면 OFFBOARD를
+        더 이상 허용하지 않으므로, 이 노드가 기체를 다시 가져갈 방법이 없어진다.
+        복귀하려면 launch를 다시 띄워야 한다 — 의도된 동작이다.
+        """
+        if self._sm == _State.PILOT_TAKEOVER:
+            return
+        self._sm = _State.PILOT_TAKEOVER
+        self.get_logger().warn(
+            f"조종사 인계 감지 (mode={self._current_mode}) — "
+            f"세트포인트 발행 중단, OFFBOARD 재요청 안 함. 기체는 조종사 것.")
+
     def _request_offboard(self) -> None:
+        # 최후 방어선: 호출부가 무엇이든 수동모드에선 OFFBOARD를 뺏지 않는다.
+        if is_pilot_takeover(self._current_mode):
+            self._enter_pilot_takeover()
+            return
         if not self._set_mode_cli.service_is_ready():
             self.get_logger().warn("/mavros/set_mode 서비스 없음")
             return

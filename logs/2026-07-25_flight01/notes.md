@@ -153,7 +153,37 @@
 - **다음 세션 확인:** FC 콘솔에서 `logger status`, `ls /fs/microsd/log/2026-07-25/`,
   SD 카드 상태. 이게 재발하면 사고 비행마다 ulog를 잃는다.
 
-## 6. 조치 (우선순위)
+## 6. 수정 현황 (2026-07-25)
+
+| # | 항목 | 상태 |
+|---|---|---|
+| 1 | waypoints를 이륙지점 기준 상대좌표로 | ✅ 구현 — `waypoint_frame` 파라미터(기본 `"takeoff"`) |
+| 2 | 순항고도를 지면 기준 AGL로 | ✅ 구현 — 같은 평행이동에 h_up 포함 |
+| 3 | 조종사 인계를 노드가 되돌리지 못하게 | ✅ 구현 — `_State.PILOT_TAKEOVER` |
+| 4 | 로컬 z 대신 AMSL 기준 통일 | ❌ 미구현 |
+| 5 | 추력 여유 확보 | ❌ 하드웨어 과제 (H13/H14/H15) |
+| 6 | FC 로거 신뢰성 확인 | ❌ 미확인 (§5) |
+| — | **실기체 배포(git pull + colcon build)** | ❌ **아직 안 함** |
+
+구현 요지:
+- `fc_bridge/execution/state_logic.py`: `is_pilot_takeover()`, `path_origin_ned()`,
+  `translate_path()` 순수함수 신설 (rclpy 없이 테스트 가능하도록 노드 밖에 둠)
+- `offboard_node._apply_path_origin()`: 이륙 순간(`_takeoff_ground_h` 캡처와 같은 지점)
+  `_pts`/`_mc_wps`/`_cruise_alt`를 이륙지점만큼 한 번에 평행이동하고 L1Guidance를 재생성.
+  발행·비교 지점마다 오프셋을 더하는 방식보다 누락 위험이 없다.
+- `_State.PILOT_TAKEOVER`: OFFBOARD를 한 번이라도 잡은 뒤 수동모드로 빠지면 진입.
+  OFFBOARD 재요청은 물론 **세트포인트 발행 자체를 중단**해 `COM_OF_LOSS_T`(1.0s) 경과 후
+  노드가 기체를 다시 가져갈 방법이 없게 만든다. 복귀하려면 launch 재기동.
+- `DONE`도 velocity-0 발행을 멈춘다(스트림이 살아 있으면 OFFBOARD가 언제든 다시 걸린다).
+
+검증: pytest 286 통과. flight01 실측값으로 재현 —
+`WP0` 오차 **10.93 m → 0.00 m**, 순항고도 **지면+13.55 m → 지면+3.00 m**,
+`WP1` 상대 오프셋 `[+4.24, −4.24]` 정확.
+
+> ⚠️ **실기체에는 아직 안 올라갔다.** 다음 비행 전에 SITL 회귀검증 → RPi에서
+> `git pull && colcon build` 필요. 안 하면 오늘과 똑같이 동작한다.
+
+## 7. 조치 (우선순위)
 
 1. **[치명] 웨이포인트를 이륙지점 상대좌표로 바꿀 것.** OFFBOARD 진입 시점의
    `state.pos_ned`를 원점으로 잡고 `waypoints:=`를 그 오프셋으로 해석. 고도도

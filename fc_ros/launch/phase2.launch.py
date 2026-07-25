@@ -46,6 +46,10 @@ def _make_nodes(context):
     if transition_alt:
         overrides["transition_alt"] = float(transition_alt)
 
+    waypoint_frame = LaunchConfiguration("waypoint_frame").perform(context)
+    if waypoint_frame:
+        overrides["waypoint_frame"] = waypoint_frame
+
     return [
         Node(
             package="fc_ros",
@@ -77,5 +81,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "transition_alt", default_value="",
             description="테스트용 천이/이륙 고도 오버라이드 (m). 빈 값(기본)이면 YAML 값 사용 — MC 저고도 벤치테스트 필수"),
+        DeclareLaunchArgument(
+            "waypoint_frame", default_value="",
+            description='waypoints 기준계: "takeoff"(기본, 이륙지점 상대) | "local"(EKF 로컬 절대, 종전 동작). '
+                        '빈 값이면 YAML 값 사용'),
         OpaqueFunction(function=_make_nodes),
     ])

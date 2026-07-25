@@ -244,3 +244,78 @@ def wp1_land_ready(
     (경계값은 strict < 이므로 미트리거)
     """
     return dist < radius and speed < speed_thresh
+
+
+# ── 경로 기준계 (2026-07-25 사고 대응) ─────────────────────────
+
+# PX4에서 조종사가 RC로 직접 조종하는 모드들. 이 모드로 빠졌다는 건
+# "사람이 기체를 가져갔다"는 뜻이므로 소프트웨어가 OFFBOARD를 되찾으면 안 된다.
+PILOT_MODES = frozenset({
+    "MANUAL", "POSCTL", "ALTCTL", "STABILIZED", "ACRO",
+    "RATTITUDE", "POSITION_SLOW",
+})
+
+
+def is_pilot_takeover(mode: str) -> bool:
+    """현재 모드가 조종사 수동 인계 모드인지 판정.
+
+    (2026-07-25 실비행 사고: FOLLOWING 중 `mode != "OFFBOARD"`이면 무조건
+    OFFBOARD를 재요청하도록 돼 있어, 조종사가 POSCTL로 기체를 가져간 것을
+    0.9초 만에 10회 재요청해 도로 뺏어왔다 — 조종사는 결국 KILL 스위치를
+    써야 했다. 근거: `logs/2026-07-25_flight01/notes.md` §2.
+    AUTO.LOITER/AUTO.RTL 등 자율 모드는 여기 포함하지 않는다 — 그건 PX4
+    페일세이프가 잠깐 가져간 것일 수 있어 재요청이 정당하다.)
+    """
+    return str(mode).upper() in PILOT_MODES
+
+
+def path_origin_ned(takeoff_pos_ned, waypoint_frame: str = "takeoff"):
+    """`waypoints:=` 를 해석할 경로 원점(NED [N, E, h_up])을 결정한다.
+
+    "takeoff" (기본) — 이륙 순간 기체 위치를 원점으로 삼는다. 즉 waypoints의
+        [0,0,3]은 "이륙지점 상공 3m"를 뜻하게 된다.
+    "local"          — 종전 동작. waypoints를 EKF 로컬 프레임 절대좌표로 본다.
+
+    (2026-07-25 실비행 사고: EKF 로컬 원점은 이륙지점과 무관하다. flight01에서
+    원점이 이륙지점으로부터 수평 10.94m·수직 10.55m 어긋나 있어 `[0,0,3]`이
+    실제로는 "10.9m 옆 + 13.55m AGL"을 지령했고, 기체가 그리로 끌려가다
+    조종사 KILL로 끝났다. "로컬 원점 ≠ 지면"은 2026-07-07에 이미 발견돼
+    `climbing_reached()`의 `ground_ref_up`으로 보정됐으나, 같은 보정이
+    경로추종 고도(`_cruise_alt`)와 수평 waypoints에는 적용되지 않았다.
+    근거: `logs/2026-07-25_flight01/notes.md` §3.)
+
+    주의: EKF가 비행 중 로컬 원점을 리셋하면(2026-07-25 실측 xy_reset 23회)
+    여기서 캡처한 원점도 함께 어긋난다. 이 함수는 "이륙지점과 EKF 원점이
+    처음부터 다르다"는 문제만 해결한다.
+    """
+    frame = str(waypoint_frame).lower()
+    if frame == "local":
+        return np.zeros(3)
+    if frame != "takeoff":
+        raise ValueError(
+            f"waypoint_frame은 'takeoff' 또는 'local' — 받은 값: {waypoint_frame!r}")
+    return np.asarray(takeoff_pos_ned, dtype=float)[:3].copy()
+
+
+def translate_path(pts, mc_wps, cruise_alt: float, origin_ned):
+    """경로 데이터 전체를 `origin_ned` 만큼 평행이동한다.
+
+    pts       : (N, 2) 보간 경로점 [N, E]
+    mc_wps    : (M, 2) MC 순차추종용 원본 waypoint [N, E]
+    cruise_alt: 순항고도 (h_up)
+    origin_ned: (3,) 경로 원점 [N, E, h_up] — `path_origin_ned()` 반환값
+
+    반환: (pts, mc_wps, cruise_alt) 새 배열/값. 입력은 변경하지 않는다.
+
+    평행이동만 하므로 경로의 모양·길이·속도 프로파일·진행방향은 모두 보존된다
+    (회전·스케일 없음). 호출부는 이 결과로 L1Guidance를 다시 만들어야 한다 —
+    L1Guidance가 생성 시점의 경로 배열을 내부에 들고 있기 때문이다.
+    """
+    origin = np.asarray(origin_ned, dtype=float)
+    if origin.shape[0] < 3:
+        raise ValueError(f"origin_ned는 [N, E, h_up] 3원소 — 받은 shape: {origin.shape}")
+    return (
+        np.asarray(pts, dtype=float) + origin[:2],
+        np.asarray(mc_wps, dtype=float) + origin[:2],
+        float(cruise_alt) + float(origin[2]),
+    )

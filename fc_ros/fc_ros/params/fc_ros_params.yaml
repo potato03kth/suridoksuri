@@ -29,6 +29,15 @@ offboard_node:
     # ROS2 파라미터는 중첩 리스트 불가 → flat 1D, 코드에서 reshape(-1, 3)
     waypoints: [0.0, 0.0, 50.0, 300.0, 0.0, 50.0]
 
+    # waypoints 해석 기준계 (2026-07-25 사고 대응)
+    #   "takeoff"(기본) — 이륙 순간 기체 위치가 원점. [0,0,3] = 이륙지점 상공 3m
+    #   "local"         — EKF 로컬 프레임 절대좌표 (종전 동작)
+    # EKF 로컬 원점은 이륙지점과 무관하다. 2026-07-25 flight01에서 원점이
+    # 이륙지점으로부터 수평 10.94m·수직 10.55m 어긋나 [0,0,3]이 실제로는
+    # "10.9m 옆 + 13.55m AGL"을 지령했고 조종사 KILL로 끝났다.
+    # 근거: logs/2026-07-25_flight01/notes.md
+    waypoint_frame: "takeoff"
+
     # 기체 파라미터
     v_cruise: 20.0            # m/s  (임시: terminal 속도 반영 확인용)
     a_max_g: 0.3              # g 단위 횡방향 가속도 상한
