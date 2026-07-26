@@ -1,0 +1,19 @@
+[INFO] [1785091071.996619693] [fw_offboard_probe]: param CBRK_SUPPLY_CHK=894281 -> ok
+[INFO] [1785091078.315805923] [fw_offboard_probe]: param NAV_DLL_ACT=0 -> ok
+[INFO] [1785091078.318814779] [fw_offboard_probe]: MAVROS 연결: 도달 (0.0s)
+[INFO] [1785091078.322162698] [fw_offboard_probe]: local_position: 도달 (0.0s)
+[INFO] [1785091078.333681432] [fw_offboard_probe]: ARM -> mavros_msgs.srv.CommandBool_Response(success=True, result=0)
+[INFO] [1785091082.383538753] [fw_offboard_probe]: armed: 도달 (4.0s)
+[INFO] [1785091082.403760447] [fw_offboard_probe]: CommandTOL -> mavros_msgs.srv.CommandTOL_Response(success=True, result=0)
+[INFO] [1785091104.764696990] [fw_offboard_probe]: 고도 50.0m: 도달 (22.4s)
+[INFO] [1785091106.777249939] [fw_offboard_probe]: set_mode(OFFBOARD) -> mavros_msgs.srv.SetMode_Response(mode_sent=True)
+[INFO] [1785091107.548656912] [fw_offboard_probe]: OFFBOARD: 도달 (0.8s)
+[INFO] [1785091112.573252699] [fw_offboard_probe]: DO_VTOL_TRANSITION(FW) -> mavros_msgs.srv.CommandLong_Response(success=True, result=0)
+[INFO] [1785091118.151600196] [fw_offboard_probe]: FW 천이: 도달 (5.6s)
+[INFO] [1785091121.157613646] [fw_offboard_probe]: === PHASE pos_vel: 시작지점 E=44.4 N=29.1 목표 E=844.4 N=29.1 (정동 800.0m) ===
+[INFO] [1785091181.162151648] [fw_offboard_probe]: === PHASE pos_vel 결과: dE=+794.6m dN=+0.0m 평균지상코스=90.0° (정동=90°, 정북=0°) mode=OFFBOARD vtol=4 ===
+[INFO] [1785091181.162928684] [fw_offboard_probe]: === PHASE vel_only: 시작지점 E=839.0 N=29.2 목표 E=1639.0 N=29.2 (정동 800.0m) ===
+[INFO] [1785091241.176705678] [fw_offboard_probe]: === PHASE vel_only 결과: dE=+41.6m dN=+775.4m 평균지상코스=3.1° (정동=90°, 정북=0°) mode=OFFBOARD vtol=4 ===
+[INFO] [1785091241.178692806] [fw_offboard_probe]: === PHASE pos_only: 시작지점 E=880.6 N=804.6 목표 E=1680.6 N=804.6 (정동 800.0m) ===
+[INFO] [1785091301.188777389] [fw_offboard_probe]: === PHASE pos_only 결과: dE=-1.7m dN=+814.7m 평균지상코스=359.9° (정동=90°, 정북=0°) mode=OFFBOARD vtol=4 ===
+[INFO] [1785091301.216692585] [fw_offboard_probe]: 기록: /tmp/fw_probe.csv (1011 행)

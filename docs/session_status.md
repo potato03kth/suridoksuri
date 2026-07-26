@@ -79,11 +79,12 @@ last_updated: 2026-07-27
 - **주의:** 최신 코드(작업 H 포함, `000f478`까지 커밋·푸시 완료)가 RPi에 **미전파** — RPi에서 `git pull` 필요(RPi 정본=호스트 `~/drone_ws/src/suridoksuri`, potato03kth). WSL(`~/suridoksuri-1`)은 이미 pull·재빌드 완료. `waypoints` 300 m·`v_cruise 20.0` 유지 결정(2026-06-30). V2/V5는 MAVROS 중지 필요(단독 링크). **작업 H가 실기체로 검증되기 전까지** 🚁 트랙의 "transition_alt를 낮게" 임시조치를 유지할 것 — SITL은 PASS했으나 실기체 미확인. **작업 H-2(AMSL 이륙고도 수정, `9451861`)는 단위테스트만 통과 — SITL 재검증 전이라 실비행 반영 금지.** geoid 리스크(MAVROS `geo.altitude`가 ellipsoid면 이륙 과상승) SITL 로그로 판별.
 - **참조:** `fc_ros/fc_ros/nodes/offboard_node.py`(`_step_arm_takeoff`) · `fc_bridge/execution/state_logic.py`(`takeoff_request_fields`) · `fc_bridge/planning/planner_runner.py`(resolve_planner_name) · `vtol_sim/…/straight_line_planner.py`·`eta3clothoid_v3_1_planner.py`(v3.3) · `tools/flight_logs/VERIFY.md`(V1~V5) · `flight_plan.md`·`sitl_verification_log.md`(작업 H) · `docs/flight_plan.md`(작업 G)
 
-### 🛩 sitl-vtol — ✅ 완료 (회귀검증 시에만 재개)
+### 🛩 sitl-vtol — ▶ 활성 (SITL-7 캠페인 진행 중. **2026-07-27 S3: FW 오프보드 폭주 근본원인 확정 — PX4 상류 버그**)
 
-- **내용:** WSL SITL VTOL 검증. SITL-1~4 전부 PASS (2026-06-30)
-- **재개 조건:** 비행 로직 코드 변경 후 회귀검증 필요 시 — `gz_standard_vtol`로 SITL-4 절차 재실행
-- **참조:** `sitl_verification_log.md` · `sitl3_tuning_notes.md` · `archive/flight_plan_completed.md`(절차)
+- **내용:** WSL SITL VTOL 검증. SITL-1~4 전부 PASS (2026-06-30) → SITL-7 전면 회귀 캠페인(`docs/sitl_vtol_campaign.md`)
+- **마지막:** **(2026-07-27, S3 — A3 6.5km 폭주 근본원인 규명 완료)** **결론: 우리 코드는 정상, PX4 상류 회귀 버그다.** `FixedWingModeManager.cpp:2107` 이 오프보드 `trajectory_setpoint`→`_pos_sp_triplet` 변환 시 구조체를 제로초기화하면서 `course` 필드에 NaN 을 넣지 않아 `course=0.0f` 가 남는다. `PositionSetpoint.msg:36` 규약은 "NaN=미사용"이므로 0.0 은 **"코스 0 rad(정북) 유지" 유효명령**으로 해석되고, `:577`/`:781` 코스 분기가 발화해 `navigateBearing` 이 **기체 현재위치를 지나는 무한직선**을 만든다(`:2782`) → lat/lon 은 한 번도 안 읽히고, 횡오차가 구조적으로 항상 0 이라 **경보·페일세이프가 안 걸린다.** A3 ulog 실측: OFFBOARD 431초 4310샘플 전부 `course_setpoint=4.371138829e-08 rad`(정북)·`signed_track_error=0.000000`, OFFBOARD 이탈 직후 t=567.3 에 진짜 오차 −6442.7m 출현. **회귀 계보 확정:** `8b3ef1cf9e`(2026-05-27 병합, 삽입) → `2e59c98b7c`(05-28, GUIDED_COURSE 가드로 차단) → **실기체 `c890d9db0a`(07-06, 가드 포함 = 안전)** → `1499238f1c`(07-17 병합, 가드 revert = 재삽입) → **SITL `9bb0d365c4`(07-23, 취약)**. 실기체가 178커밋 뒤라 우연히 무사한 것 — **PX4 업그레이드 금지.** **⚠ Phase 1 "성공" 5건 전건 무효:** A1/A2/A4/B1/B6 waypoint 가 **전부 정북 직선**이라 "정북으로만 나는" 버그가 그대로 통과했다. FW 경로추종은 한 번도 검증된 적 없다. **⚠ 실기체 FW+OFFBOARD 비행 실적 0건**(ulog 78건 전수 스캔, FW 구간 자체가 2.4초 수동 테스트 1건뿐) — "실기체에선 된다"는 소스 추론일 뿐 미검증. **✅ 우회로 실측 확보:** `setpoint_raw/local` 로 **위치+속도 동시 발행** → `FW_POSCTRL_MODE_AUTO_PATH`(`:392`) 진입해 코스 분기를 원천 회피, SITL 실측 **횡오차 0.2m·정동 90.0° 정확 추종**. 속도-only 는 기각(`FW_POSCTRL_MODE_OTHER` 로 빠져 **setpoint 발행 자체가 52.96초 정지** — 실측). 프로브 `tools/sitl/fw_offboard_probe.py`(비행코드 무수정), 궤적 `logs/2026-07-27_s3_fw_offboard_probe/`.
+- **다음:** ①A안(위치+속도 발행) 채택 여부 오케스트레이터 판단 → 채택 시 `offboard_node.py` 수정 + Phase 1 전건 재실행 ②Phase 2(B1~B8)는 그때까지 **보류**(지금 돌리면 같은 폭주 반복) ③회귀 시나리오에 **비-정북 레그 필수화**
+- **참조:** **`sitl_vtol_fw_offboard_rootcause.md`(근본원인 전문)** · `sitl_vtol_campaign.md` · `sitl_vtol_static_audit.md` · `sitl_verification_log.md` · `archive/flight_plan_completed.md`(절차)
 
 ### ✈ vtol-실기체 — ▶ 활성 (수리한 VTOL 테스트기체로 오프보드 비행 예정, 2026-07-24 사용자 확인)
 

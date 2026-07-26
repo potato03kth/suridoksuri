@@ -8,6 +8,22 @@ created: 2026-07-27
 
 # SITL-7 — VTOL 오프보드 전면 회귀 캠페인
 
+> ## ⛔ 2026-07-27 (S3) — Phase 1 결과 전건 무효, Phase 2 이후 실행 보류
+>
+> **A3 폭주의 근본원인은 PX4 상류 회귀 버그로 확정됐다.** 우리 SITL 빌드
+> (`v1.18.0-beta1-155-g9bb0d365c4`)의 `FixedWingModeManager` 가 오프보드 위치 setpoint 를
+> **"코스 0 rad(정북) 유지"** 로 오해석해, **목표점이 어디든 정북으로만 난다.**
+>
+> - **Phase 1 "성공" 5건(A1/A2/A4/B1/B6)은 전부 정북 직선 경로라 우연히 통과한 것이다 — 무효.**
+>   FW 경로추종은 이 캠페인에서 **한 번도 검증되지 않았다.**
+> - **현행 발행 방식(위치 setpoint only)으로는 이 SITL 에서 어떤 시나리오도 유효하지 않다.**
+>   B1~B8 을 지금 돌리면 같은 폭주를 반복할 뿐이다 → **실행 보류.**
+> - **우회로 확보:** `setpoint_raw/local` 로 위치+속도 동시 발행 시 정상 추종(실측 횡오차 0.2 m).
+> - **회귀 시나리오는 앞으로 반드시 비-정북 레그를 포함시킬 것.** 정북 직선만으로는
+>   이 급의 버그가 그대로 통과한다는 게 실증됐다.
+>
+> 소스 줄번호·실측 궤적·ulog 버전 문자열 전문 → **`docs/sitl_vtol_fw_offboard_rootcause.md`**
+
 ## 0. 왜 지금 하는가
 
 `sitl-vtol` 트랙의 마지막 VTOL 전체 사이클 검증은 **SITL-4(2026-06-30)** 이다.
@@ -156,7 +172,7 @@ logs/2026-07-27_sitl_vtol_campaign/
 |---|---|---|
 | **S1** | 환경 브링업 + `tools/sitl/` 하니스 제작 + launch 인자 확장 + **A1 1건 완주** | 오케스트레이터가 하니스를 직접 재실행해 산출물(ulog·metrics.json) 재현 |
 | **S2** | Phase 1 (A1~A4) | 각 verdict의 근거 수치를 로그에서 직접 교차확인 |
-| **S3** | Phase 2 (B1~B8) | 〃 |
+| **S3** | ~~Phase 2 (B1~B8)~~ → **A3 폭주 근본원인 규명으로 대체(2026-07-27, 완료)**. Phase 2 는 우회로 반영 후로 보류 | `docs/sitl_vtol_fw_offboard_rootcause.md` |
 | **S4** | Phase 3 (C1~C10) | 〃 |
 | **S5** | 종합 분석 + `campaign_report.md` + `sitl_verification_log.md` SITL-7 기록 | 보고서 수치 ↔ metrics.json 대조 |
 
