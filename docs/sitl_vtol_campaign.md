@@ -137,7 +137,7 @@ logs/2026-07-27_sitl_vtol_campaign/
 | setpoint 점프 | 연속 두 틱 `setpoint_position` 거리 / dt | 상태 전이 경계에서 급점프(> `v_approach`×dt×3) 없음 |
 | 수직 가속 | `vehicle_local_position.az` 피크 | 천이 구간 제외 \|az\| ≤ 0.5g |
 | 수평 감속 | 역천이 구간 `d(|v|)/dt` | ≤ 0.3g (2.94 m/s², SITL-4 실측 ~1.5) |
-| 헤딩 요동 | TRANSITION_FW 정렬구간 yaw 오차 시계열 | 오버슈트 없이 단조수렴, 정렬완료 err ≤ `wp0_htol`(0.2rad) |
+| 헤딩 요동 | TRANSITION_FW 정렬구간 yaw 오차 시계열 | 오버슈트 없이 단조수렴, 정렬완료 err ≤ `wp0_htol` = **0.05 rad(2.9°)** — yaml 실값 기준. 코드 docstring의 0.2는 선언 기본값일 뿐 실제 적용값이 아니다(정적 감사 E-5·E-20). **정렬 소요시간과 최종 err을 반드시 수치로 기록할 것** — SITL-4 실측 −2.3°는 허용치에 마진 0.6°뿐이다 |
 | 고도 유지 | 천이·순항 구간 고도 편차 | 정천이 중 고도 손실 ≤ 5m, 순항 ±3m |
 | cte | FW FOLLOWING cross-track error | 직선 ≤ 2m, 코너 오버슈트는 별도 기록 |
 | CLIMBING 오버슈트 | `transition_alt` 대비 최대 AGL | ≤ +10% (C9 핵심 지표) |
@@ -170,3 +170,34 @@ logs/2026-07-27_sitl_vtol_campaign/
   (예외: 하니스 자체 / launch 인자 확장 / 명백한 테스트 인프라 버그)
 - **"측정 창이 짧아 기능 없다고 오판"** 금지 — null 결과는 기능부재를 결론내기 전에 측정방법부터 의심할 것.
 - **경고를 "not a blocker"로 스스로 판단해 통과시키지 말 것** — 경고는 전부 보고, 무해성 판단은 오케스트레이터가 한다.
+
+---
+
+## 6. 정적 감사 반영 사항 (2026-07-27, `docs/sitl_vtol_static_audit.md`)
+
+SITL 실행 전 코드 정적 감사에서 나온 것 중 **캠페인 실행 방식을 바꾸는 항목**만 여기 옮긴다.
+전체 결함 목록(E-1~E-21)과 22개 시나리오 예측표는 감사 문서를 볼 것.
+
+### 실행 순서 변경
+직선 회귀부터 확보한다: **A1 → A2 → B6 → B1** 이 4개가 통과해야 "3주치 변경의 직선 회귀"가 확보된다.
+그 다음 다중 WP(A3/A4/B2/B3) → 위험 경로(B4/B5/B7/B8) → Phase 3.
+
+### 하니스에 반드시 반영할 것
+1. **플래너가 `__init__`을 블로킹한다**(감사 E-11) — 노드 기동이 경로 복잡도에 따라 수십 초~수 분 지연될 수 있다.
+   **`timeout_s`와 별도로 "노드 기동 대기" 타임아웃을 넉넉히(≥300s) 잡아라.** 안 그러면 하니스가
+   플래너 계산 중을 "기동 실패"로 오판한다. 실측치는 `sitl_vtol_static_audit.md` E-11 참조.
+2. **`d_end_thresh`·`entry_mode` 등은 launch 인자 확장(S1)으로 노출된다** — 확장 후 인자명을 확인하고 쓸 것.
+
+### 판정 시 오판 금지 (null 결과를 기능부재로 결론내지 말 것)
+- **C7(조종사 인계)**: `SITL-1`이 "headless SITL에서 POSCTL/MANUAL 진입 자체가 재현 불가"를 이미 실측 기록했다.
+  `set_mode POSCTL`이 거부되면 이건 **주입 실패**이지 PILOT_TAKEOVER 기능 부재가 아니다.
+  주입이 실제로 먹혔는지(`/mavros/state.mode`가 POSCTL로 바뀌었는지)를 **먼저 확인**하고 판정해라.
+- **C10(`entry_mode=mid_flight`)**: ENTRY 무한대기는 **예측된 결과**다(감사 E-3: 속도 setpoint를 FW가 무시 +
+  yaw 제어항 없음 + 타임아웃 없음). "측정 실패"로 처리하지 말고 예측 적중으로 기록해라.
+- **B5/B7**: "즉시 경로완료"·"orbit"이 **예측된 결과**다. 완주했다고 PASS로 적지 말고 **실제로 경로를 날았는지**
+  (WP별 최근접 거리)를 지표로 확인해라.
+
+### 실측으로 반드시 확정할 것 (코드만으론 불가)
+① PX4가 `MAV_CMD_DO_VTOL_TRANSITION`을 거부하는 조건 ② FW OFFBOARD가 위치 setpoint의 yaw 필드를 쓰는지
+③ 300m/113m setpoint 계단을 받았을 때 실제 가속 프로파일 ④ B7/B4의 flower-pattern 실재 여부
+⑤ OFFBOARD 재요청 vs PX4 페일세이프의 1Hz mode flapping ⑥ `cmd_vel_frame_id` 실효성
