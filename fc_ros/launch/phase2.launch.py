@@ -9,6 +9,7 @@ Phase 2 launch: TelemetryNode + OffboardNode — Offboard 경로 추종.
   ros2 launch fc_ros phase2.launch.py v_cruise:=18.0
   ros2 launch fc_ros phase2.launch.py waypoints:="[0.0,0.0,50.0, 300.0,0.0,50.0]"
   ros2 launch fc_ros phase2.launch.py vehicle_type:=mc transition_alt:=4.0 waypoints:="[0.0,0.0,4.0, 8.0,0.0,4.0]"
+  ros2 launch fc_ros phase2.launch.py vehicle_type:=mc mc_wp_settle_time:=3.0   # WP마다 3초씩 정착
 
 TelemetryNode: 진단·모니터링 용도 (VehicleState 로깅).
 OffboardNode:  실제 제어 루프 (MAVROS 토픽 직접 구독, 자체 VehicleState 유지).
@@ -30,9 +31,11 @@ def _make_nodes(context):
     # 빈 값(기본)이면 dict에 넣지 않아 YAML 값이 그대로 쓰인다 — 기본값 이중 관리 없음.
     overrides = {"vehicle_type": LaunchConfiguration("vehicle_type").perform(context)}
 
-    v_cruise = LaunchConfiguration("v_cruise").perform(context)
-    if v_cruise:
-        overrides["v_cruise"] = float(v_cruise)
+    for name in ("v_cruise", "transition_alt",
+                 "mc_end_thresh", "mc_wp_settle_time"):
+        val = LaunchConfiguration(name).perform(context)
+        if val:
+            overrides[name] = float(val)
 
     waypoints = LaunchConfiguration("waypoints").perform(context)
     if waypoints:
@@ -41,10 +44,6 @@ def _make_nodes(context):
             raise ValueError(
                 f"waypoints must be a flat [x,y,z, ...] list (len % 3 == 0), got len={len(wps)}")
         overrides["waypoints"] = wps
-
-    transition_alt = LaunchConfiguration("transition_alt").perform(context)
-    if transition_alt:
-        overrides["transition_alt"] = float(transition_alt)
 
     waypoint_frame = LaunchConfiguration("waypoint_frame").perform(context)
     if waypoint_frame:
@@ -81,6 +80,13 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "transition_alt", default_value="",
             description="테스트용 천이/이륙 고도 오버라이드 (m). 빈 값(기본)이면 YAML 값 사용 — MC 저고도 벤치테스트 필수"),
+        DeclareLaunchArgument(
+            "mc_end_thresh", default_value="",
+            description="MC WP 도달 판정 반경 오버라이드 (m). 빈 값(기본)이면 YAML 값 사용"),
+        DeclareLaunchArgument(
+            "mc_wp_settle_time", default_value="",
+            description="MC WP 정착 유지 시간 오버라이드 (s). 0.0이면 정착 없이 통과(종전 fly-by). "
+                        "빈 값(기본)이면 YAML 값 사용"),
         DeclareLaunchArgument(
             "waypoint_frame", default_value="",
             description='waypoints 기준계: "takeoff"(기본, 이륙지점 상대) | "local"(EKF 로컬 절대, 종전 동작). '

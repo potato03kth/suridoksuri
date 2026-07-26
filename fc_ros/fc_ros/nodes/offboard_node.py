@@ -121,6 +121,10 @@ class OffboardNode(Node):
       waypoint_frame     (str,  "takeoff") — waypoints 해석 기준계.
                          "takeoff": 이륙지점 기준 상대좌표(기본, 2026-07-25 사고 대응)
                          "local":   EKF 로컬 프레임 절대좌표(종전 동작)
+      mc_end_thresh      (float, 1.0)  — MC WP 도달 판정 반경 (m)
+      mc_wp_settle_speed (float, 0.3)  — MC WP 정착 판정 수평속도 임계 (m/s)
+      mc_wp_settle_time  (float, 1.0)  — MC WP 정착 유지 시간 (s). 0.0이면 종전 fly-by
+      mc_wp_timeout      (float, 20.0) — MC WP당 정착 타임아웃 (s), 초과 시 강제 진행
     """
 
     def __init__(self):
@@ -148,7 +152,15 @@ class OffboardNode(Node):
         # 필요 없어(직선 구간을 순서대로 지나가기만 하면 됨, 2026-07-24 사용자
         # 지적) 이산 웨이포인트 순차추종으로 전환 — d_end_thresh(FW/VTOL
         # 300m급 항로 기준 10.0m)는 MC 4~6m급 경로엔 애초에 무의미해 별도 값.
-        self.declare_parameter("mc_end_thresh",     2.0)
+        self.declare_parameter("mc_end_thresh",     1.0)
+        # MC 웨이포인트 "정착" 판정 (2026-07-27) — 반경 안에 들어오는 순간
+        # 다음 WP로 넘어가던 fly-by를 폐기하고, 그 자리에 멈춰 선 것을 확인한
+        # 뒤 출발한다. MC는 호버가 되므로 이쪽이 자연스럽고 WP 통과 정확도도
+        # 올라간다(종전: 반경 경계 1.8~1.9m에서 통과 판정, 실제로 WP 위에
+        # 가보지 않음). settle_time=0.0 이면 종전 fly-by 동작.
+        self.declare_parameter("mc_wp_settle_speed", 0.3)   # m/s, 수평속도 임계
+        self.declare_parameter("mc_wp_settle_time",  1.0)   # s, 정착 유지 시간
+        self.declare_parameter("mc_wp_timeout",     20.0)   # s, WP당 정착 타임아웃
         self.declare_parameter("landing_timeout",   60.0)
         self.declare_parameter("v_terminal",        15.2)
         self.declare_parameter("decel_dist",        80.0)
@@ -182,7 +194,16 @@ class OffboardNode(Node):
         self._d_end_thresh = float(self.get_parameter("d_end_thresh").value)
         self._mc_end_thresh = float(
             self.get_parameter("mc_end_thresh").value)
+        self._mc_settle_speed = float(
+            self.get_parameter("mc_wp_settle_speed").value)
+        # 정착 유지 시간(s) → 제어 틱 수. 0.0이면 0틱 = 종전 fly-by 동작.
+        self._mc_settle_req = int(round(
+            float(self.get_parameter("mc_wp_settle_time").value) / self._dt))
+        self._mc_wp_timeout = float(
+            self.get_parameter("mc_wp_timeout").value)
         self._mc_wp_idx = 0
+        self._mc_settled_ticks = 0
+        self._mc_wp_elapsed = 0.0
         self._landing_timeout = float(
             self.get_parameter("landing_timeout").value)
         self._wp1_land_radius = float(
@@ -1077,6 +1098,17 @@ class OffboardNode(Node):
         무관하게 항상 배열 순서대로 끝까지 간다. `self._mc_pos_ramp`로
         슬루레이트(≤`v_approach` m/s) 제한 하에 각 목표점에 점진 접근시켜
         순간점프를 막는다.
+
+        MC는 각 WP에 **정착한 뒤** 다음 WP로 출발한다(2026-07-27, 사용자
+        지적: "MC는 호버가 되는데 WP에 정착하지 않을 이유가 없다"). 종전엔
+        거리 조건만 봐서 반경(`mc_end_thresh`) 경계를 스치는 순간 목표가
+        바뀌어, WP 위에 실제로 가보지 않고 코너를 자르며 지나갔다(2026-07-25
+        flight04: 1.8~1.9m 지점에서 통과 판정). 이제 반경 안 + 수평속도
+        < `mc_wp_settle_speed`가 `mc_wp_settle_time` 동안 연속 유지돼야
+        다음 WP로 넘어간다. 위치 setpoint는 그 사이 WP에 고정돼 있으므로
+        (램프가 목표에 도달하면 `raw_target`으로 고정) 기체는 그 점 위에
+        호버하며 정착한다. 정착에 실패해 갇히는 경우는 `mc_wp_timeout`이
+        강제로 다음 WP로 넘긴다.
         """
         pos = state.pos_ned
 
@@ -1108,12 +1140,16 @@ class OffboardNode(Node):
                 f"mode={self._current_mode}")
         self._follow_ticks += 1
         if self._follow_ticks % 20 == 0:
+            settle_info = (
+                f" settle={self._mc_settled_ticks}/{self._mc_settle_req}"
+                if self._is_mc else "")
             self.get_logger().info(
                 f"FOLLOWING tick={self._follow_ticks} "
                 f"mode={self._current_mode} "
                 f"cte={cte:.1f}m "
                 f"pos=[{pos[0]:.1f},{pos[1]:.1f}] "
-                f"tgt=[{tgt[0]:.1f},{tgt[1]:.1f}]")
+                f"tgt=[{tgt[0]:.1f},{tgt[1]:.1f}]"
+                + settle_info)
         if self._current_mode != "OFFBOARD":
             self.get_logger().warn(
                 f"FOLLOWING 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})")
@@ -1125,12 +1161,37 @@ class OffboardNode(Node):
             return trans_mc_trigger(dist_to_end, self._d_end_thresh)
 
         dist_to_wp = float(np.linalg.norm(pos[:2] - tgt))
-        next_idx, done = mc_wp_advance(
-            self._mc_wp_idx, dist_to_wp, self._mc_end_thresh, len(self._mc_wps))
-        if next_idx != self._mc_wp_idx:
+        speed = float(np.linalg.norm(state.vel_ned[:2]))
+        next_idx, self._mc_settled_ticks, done = mc_wp_advance(
+            self._mc_wp_idx, dist_to_wp, self._mc_end_thresh,
+            len(self._mc_wps),
+            speed=speed, settle_speed=self._mc_settle_speed,
+            settled_ticks=self._mc_settled_ticks,
+            settle_req=self._mc_settle_req)
+        self._mc_wp_elapsed += self._dt
+
+        if done or next_idx != self._mc_wp_idx:
             self.get_logger().info(
-                f"WP{self._mc_wp_idx} 통과 → WP{next_idx} 이동 "
-                f"(dist={dist_to_wp:.1f}m)")
+                f"WP{self._mc_wp_idx} 정착 "
+                f"(dist={dist_to_wp:.2f}m speed={speed:.2f}m/s "
+                f"{self._mc_settle_req}틱 유지) → "
+                + ("경로 완료" if done else f"WP{next_idx} 이동"))
+            self._mc_wp_elapsed = 0.0
+        elif self._mc_wp_elapsed > self._mc_wp_timeout:
+            # 바람·GPS 오차로 반경 안에 정착하지 못해 한 WP에 갇히는 것을 막는
+            # 폴백. 강제로 다음 WP(마지막이면 경로완료)로 넘겨 미션이 끝까지
+            # 진행되게 한다 — hold_timeout·landing_timeout과 같은 규약.
+            self.get_logger().warn(
+                f"WP{self._mc_wp_idx} 정착 타임아웃 "
+                f"{self._mc_wp_timeout:.0f}s 초과 "
+                f"(dist={dist_to_wp:.2f}m speed={speed:.2f}m/s) → 강제 진행")
+            if self._mc_wp_idx >= len(self._mc_wps) - 1:
+                done = True
+            else:
+                next_idx = self._mc_wp_idx + 1
+            self._mc_settled_ticks = 0
+            self._mc_wp_elapsed = 0.0
+
         self._mc_wp_idx = next_idx
         return done
 

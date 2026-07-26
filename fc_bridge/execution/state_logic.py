@@ -56,9 +56,32 @@ def trans_mc_trigger(dist_to_end: float, d_end_thresh: float) -> bool:
 
 
 def mc_wp_advance(idx: int, dist_to_wp: float, end_thresh: float,
-                   n_points: int) -> tuple[int, bool]:
-    """MC 이산 웨이포인트 순차추종: 현재 목표(idx)에 도달했으면 다음
-    점으로 전진(마지막 점이면 경로완료). 반환: (다음 tick에 쓸 idx, 완료여부).
+                   n_points: int, speed: float = 0.0,
+                   settle_speed: float = float("inf"),
+                   settled_ticks: int = 0,
+                   settle_req: int = 0) -> tuple[int, int, bool]:
+    """MC 이산 웨이포인트 순차추종: 현재 목표(idx)에 **정착**했으면 다음
+    점으로 전진(마지막 점이면 경로완료).
+    반환: (다음 tick에 쓸 idx, 다음 tick에 쓸 settled_ticks, 완료여부).
+
+    **정착(settle) 판정** (2026-07-27, 사용자 지적): 도달 판정이 거리 조건
+    하나뿐이면 기체가 반경(end_thresh) 경계를 스치는 순간 목표가 다음 점으로
+    바뀌어, WP에 실제로 가보지도 않고 코너를 자르며 지나간다(2026-07-25
+    flight04 실측: WP를 1.8~1.9m 지점에서 "통과" 판정). MC는 호버가 되므로
+    각 WP에 멈춰 서는 게 자연스럽고, "경로를 찍으면 기체가 거기로 간다"는
+    이 테스트기체의 목적에도 그쪽이 맞다. 그래서 거리에 더해
+      ①수평속도 < settle_speed  ②그 상태가 settle_req 틱 연속 유지
+    를 요구한다. 조건이 깨지면 카운터는 0으로 리셋된다(순간적으로 스쳐간
+    표본 하나로 정착이 인정되지 않게).
+
+    기본값 speed=0.0·settle_speed=inf·settle_req=0은 "속도조건 없음 +
+    대기 없음"이라 종전 fly-by 동작과 완전히 동일하다 —
+    `climbing_reached()`의 vz_down 기본값과 같은 규약이다. 이 조건을 실제로
+    활성화하려면 호출부가 현재 수평속도와 정착 요구 틱수를 넘겨야 한다.
+
+    타임아웃(정착을 못 해 한 WP에 갇히는 경우)은 이 함수가 아니라 호출부
+    (`offboard_node._step_following`)가 경과시간으로 처리한다 —
+    `hold_timeout`·`landing_timeout`과 같은 방식.
 
     MC는 L1Guidance(연속경로 투영+lookahead, FW 선회반경 회피용으로 설계된
     알고리즘)가 애초에 필요 없다 — 직선 구간을 순서대로 지나가기만 하면
@@ -73,11 +96,14 @@ def mc_wp_advance(idx: int, dist_to_wp: float, end_thresh: float,
     거리만 본다 — 경로가 왕복이든 직선이든 꺾여있든 상관없이 항상 배열
     순서대로 끝까지 간다.
     """
-    if dist_to_wp < end_thresh:
-        if idx >= n_points - 1:
-            return idx, True
-        return idx + 1, False
-    return idx, False
+    if dist_to_wp < end_thresh and speed < settle_speed:
+        settled = settled_ticks + 1
+        if settled >= settle_req:
+            if idx >= n_points - 1:
+                return idx, settled, True
+            return idx + 1, 0, False
+        return idx, settled, False
+    return idx, 0, False
 
 
 def vtol_is_mc(vtol_state: int, MC: int = 3) -> bool:

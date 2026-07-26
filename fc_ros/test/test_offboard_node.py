@@ -178,26 +178,88 @@ def test_trans_mc_exact_thresh():
 
 def test_mc_wp_advance_not_yet_arrived():
     # 아직 목표점에서 멀면 인덱스 유지, 미완료.
-    idx, done = mc_wp_advance(0, dist_to_wp=5.0, end_thresh=2.0, n_points=3)
-    assert (idx, done) == (0, False)
+    idx, settled, done = mc_wp_advance(
+        0, dist_to_wp=5.0, end_thresh=2.0, n_points=3)
+    assert (idx, settled, done) == (0, 0, False)
 
 
 def test_mc_wp_advance_to_next_point():
     # 목표점 도달(마지막 점 아님) → 다음 인덱스로 전진, 아직 미완료.
-    idx, done = mc_wp_advance(0, dist_to_wp=1.0, end_thresh=2.0, n_points=3)
-    assert (idx, done) == (1, False)
+    idx, settled, done = mc_wp_advance(
+        0, dist_to_wp=1.0, end_thresh=2.0, n_points=3)
+    assert (idx, settled, done) == (1, 0, False)
 
 
 def test_mc_wp_advance_completes_at_last_point():
     # 마지막 점(n_points-1)에 도달하면 완료.
-    idx, done = mc_wp_advance(2, dist_to_wp=1.0, end_thresh=2.0, n_points=3)
+    idx, _, done = mc_wp_advance(
+        2, dist_to_wp=1.0, end_thresh=2.0, n_points=3)
     assert (idx, done) == (2, True)
 
 
 def test_mc_wp_advance_exact_thresh_not_arrived():
     # 경계값: dist_to_wp == end_thresh 는 미도달 (strict <), 기존 trans_mc_trigger와 동일 규약.
-    idx, done = mc_wp_advance(0, dist_to_wp=2.0, end_thresh=2.0, n_points=3)
-    assert (idx, done) == (0, False)
+    idx, settled, done = mc_wp_advance(
+        0, dist_to_wp=2.0, end_thresh=2.0, n_points=3)
+    assert (idx, settled, done) == (0, 0, False)
+
+
+# ── MC 웨이포인트 정착 (2026-07-27) ──────────────────────────────
+# 반경 안에 들어오는 순간 넘어가던 fly-by(WP 위에 실제로 가보지 않고 코너를
+# 자름 — 2026-07-25 flight04에서 1.8~1.9m 지점 통과 판정)를 폐기하고,
+# "반경 안 + 저속"이 settle_req 틱 연속 유지돼야 다음 WP로 넘어간다.
+
+def test_mc_wp_settle_speed_blocks_advance():
+    # 반경 안이어도 아직 빠르게 지나가는 중이면 전진하지 않는다(스쳐 지나감).
+    idx, settled, done = mc_wp_advance(
+        0, dist_to_wp=1.0, end_thresh=2.0, n_points=3,
+        speed=1.5, settle_speed=0.3, settled_ticks=0, settle_req=10)
+    assert (idx, settled, done) == (0, 0, False)
+
+
+def test_mc_wp_settle_counts_up_until_req():
+    # 반경 안 + 저속이면 카운터만 오르고, settle_req 미만이면 아직 전진 안 함.
+    idx, settled, done = mc_wp_advance(
+        0, dist_to_wp=0.4, end_thresh=2.0, n_points=3,
+        speed=0.1, settle_speed=0.3, settled_ticks=5, settle_req=10)
+    assert (idx, settled, done) == (0, 6, False)
+
+
+def test_mc_wp_settle_advances_when_req_met():
+    # settle_req 틱 연속 유지되면 비로소 다음 WP로 전진하고 카운터는 리셋된다.
+    idx, settled, done = mc_wp_advance(
+        0, dist_to_wp=0.4, end_thresh=2.0, n_points=3,
+        speed=0.1, settle_speed=0.3, settled_ticks=9, settle_req=10)
+    assert (idx, settled, done) == (1, 0, False)
+
+
+def test_mc_wp_settle_resets_on_disturbance():
+    # 정착 중 바람 등으로 반경을 벗어나면 카운터는 0으로 리셋 —
+    # 순간 표본 하나로 정착이 인정되지 않게 한다.
+    idx, settled, done = mc_wp_advance(
+        0, dist_to_wp=2.5, end_thresh=2.0, n_points=3,
+        speed=0.1, settle_speed=0.3, settled_ticks=9, settle_req=10)
+    assert (idx, settled, done) == (0, 0, False)
+
+
+def test_mc_wp_settle_required_at_last_point_too():
+    # 마지막 WP도 정착해야 경로완료 — 스쳐 지나가며 끝나지 않는다.
+    _, _, done_moving = mc_wp_advance(
+        2, dist_to_wp=0.4, end_thresh=2.0, n_points=3,
+        speed=1.5, settle_speed=0.3, settled_ticks=0, settle_req=10)
+    _, _, done_settled = mc_wp_advance(
+        2, dist_to_wp=0.4, end_thresh=2.0, n_points=3,
+        speed=0.1, settle_speed=0.3, settled_ticks=9, settle_req=10)
+    assert done_moving is False
+    assert done_settled is True
+
+
+def test_mc_wp_settle_defaults_preserve_flyby():
+    # 기본값(속도조건 없음·대기 없음)은 종전 fly-by와 완전히 동일 —
+    # climbing_reached()의 vz_down 기본값과 같은 하위호환 규약.
+    idx, _, done = mc_wp_advance(
+        0, dist_to_wp=1.0, end_thresh=2.0, n_points=3, speed=9.9)
+    assert (idx, done) == (1, False)
 
 
 def test_mc_wp_advance_reversed_middle_waypoint_visits_correct_side():
