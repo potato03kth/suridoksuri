@@ -27,7 +27,7 @@
 | 정천이 고도손실 | **PASS** | 47.041m → 최저 47.0281m (손실 0.013m) | ≤ 5m |
 | 순항 고도편차 | **FAIL** | 기준 AGL 50.3185m, 평균편차 -1.4133m, 최대 \|편차\| 5.5904m | ±3m |
 | FW cte | **WARN** | 최대 \|cte\| 7.2m 평균 2.1583m (부호 -1.0~7.2m, n=12) — 코너 오버슈트 포함값 | 직선 ≤ 2m (코너는 별도 기록) |
-| 경고/타임아웃 | **WARN** | node.log 0건/0종, mavros.log 50건/12종 — verdict 하단 목록 참조 | 무해성 판단은 사람이 한다(계획서 5장) |
+| 경고/타임아웃 | **WARN** | node.log 12건/8종, mavros.log 50건/12종 — verdict 하단 목록 참조 | 무해성 판단은 사람이 한다(계획서 5장) |
 
 ## 상태 전이 타임라인
 
@@ -55,8 +55,16 @@
 
 ## 경고 / 에러 (전량 — 무해성 판단은 사람이 한다)
 
-| 출처 | 레벨 | 건수 | 최초 | 알려진 코스메틱 | 예시 |
+| 출처 | 레벨 | 건수 | 최초 | 비고 | 예시 |
 |---|---|---|---|---|---|
+| node.log | ERROR | 2 | ≈1785094191.7 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [offboard_node-2] Traceback (most recent call last): |
+| node.log | ERROR | 2 | ≈1785094191.7 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [telemetry_node-1] Traceback (most recent call last): |
+| node.log | ERROR | 2 | ≈1785094191.7 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [telemetry_node-1] KeyboardInterrupt |
+| node.log | ERROR | 2 | ≈1785094191.7 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [offboard_node-2] KeyboardInterrupt |
+| node.log | ERROR | 1 | ≈1785094191.7 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [ERROR] [telemetry_node-1]: process has died [pid 1108, exit code -2, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __nod |
+| node.log | ERROR | 1 | ≈1785094191.7 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [ERROR] [offboard_node-2]: process has died [pid 1110, exit code -2, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node: |
+| node.log | WARN | 1 | ≈1785094039.7 | stdout 중계(비-ROS 포맷) | [offboard_node-2] [Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.057m is large. affine correction guarantees WP passage but curve may be deformed. |
+| node.log | WARN | 1 | ≈1785094191.7 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [WARNING] [launch]: user interrupted with ctrl-c (SIGINT) |
 | mavros.log | ERROR | 13 | 1785093944.2 |  | FCU: EVENT 7791755 with args -255-1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0- |
 | mavros.log | WARN | 10 | 1785093945.4 |  | FCU: UNK(8): EVENT 11047904 with args -0-0-0-18-1-128-0-0-0-0-58-1-128-0-58-1-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0- |
 | mavros.log | WARN | 5 | 1785093943.3 |  | VER: unicast request timeout, retries left 2 |

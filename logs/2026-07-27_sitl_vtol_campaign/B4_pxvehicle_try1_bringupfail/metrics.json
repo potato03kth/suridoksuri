@@ -1,0 +1,488 @@
+{
+  "scenario_id": "B4",
+  "run_dir": "/root/drone_ws/src/suridoksuri/logs/2026-07-27_sitl_vtol_campaign/B4_pxvehicle_try1_bringupfail",
+  "ulog_file": "20_01_08.ulg",
+  "ulog_selection_note": null,
+  "ulog_error": null,
+  "resolved_params": {
+    "control_hz": 10.0,
+    "v_approach": 5.0,
+    "v_cruise": 20.0,
+    "transition_alt": 50.0,
+    "d_end_thresh": 10.0,
+    "wp0_heading_tol": 0.05,
+    "l1_dist": 20.0,
+    "waypoint_frame": "takeoff",
+    "entry_mode": "pre_takeoff"
+  },
+  "waypoints": [
+    [
+      0.0,
+      0.0,
+      50.0
+    ],
+    [
+      250.0,
+      0.0,
+      50.0
+    ],
+    [
+      100.0,
+      150.0,
+      50.0
+    ]
+  ],
+  "ulog_topics": [
+    "actuator_armed",
+    "actuator_controls_status_0",
+    "actuator_motors",
+    "actuator_outputs",
+    "actuator_servos",
+    "airspeed",
+    "airspeed_validated",
+    "airspeed_wind",
+    "battery_status",
+    "config_overrides",
+    "control_allocator_status",
+    "cpuload",
+    "differential_pressure",
+    "distance_sensor_mode_change_request",
+    "ekf2_timestamps",
+    "esc_status",
+    "estimator_aid_src_airspeed",
+    "estimator_aid_src_baro_hgt",
+    "estimator_aid_src_fake_hgt",
+    "estimator_aid_src_fake_pos",
+    "estimator_aid_src_gnss_hgt",
+    "estimator_aid_src_gnss_pos",
+    "estimator_aid_src_gnss_vel",
+    "estimator_aid_src_gravity",
+    "estimator_aid_src_mag",
+    "estimator_baro_bias",
+    "estimator_event_flags",
+    "estimator_fusion_control",
+    "estimator_gps_status",
+    "estimator_innovation_test_ratios",
+    "estimator_innovation_variances",
+    "estimator_innovations",
+    "estimator_sensor_bias",
+    "estimator_states",
+    "estimator_status",
+    "estimator_status_flags",
+    "event",
+    "failsafe_flags",
+    "failure_detector_status",
+    "flaps_setpoint",
+    "flight_phase_estimation",
+    "gain_compression",
+    "gripper",
+    "home_position",
+    "landing_gear",
+    "landing_gear_wheel",
+    "logger_status",
+    "manual_control_setpoint",
+    "mc_virtual_attitude_setpoint",
+    "mission_result",
+    "navigator_status",
+    "parameter_update",
+    "position_setpoint_triplet",
+    "rate_ctrl_status",
+    "rtl_status",
+    "rtl_time_estimate",
+    "sensor_accel",
+    "sensor_baro",
+    "sensor_combined",
+    "sensor_gps",
+    "sensor_gyro",
+    "sensor_mag",
+    "sensor_selection",
+    "sensors_status_imu",
+    "spoilers_setpoint",
+    "system_power",
+    "takeoff_status",
+    "telemetry_status",
+    "timesync_status",
+    "trajectory_setpoint",
+    "transponder_report",
+    "vehicle_acceleration",
+    "vehicle_air_data",
+    "vehicle_angular_velocity",
+    "vehicle_angular_velocity_groundtruth",
+    "vehicle_attitude",
+    "vehicle_attitude_groundtruth",
+    "vehicle_attitude_setpoint",
+    "vehicle_command",
+    "vehicle_command_ack",
+    "vehicle_constraints",
+    "vehicle_control_mode",
+    "vehicle_global_position",
+    "vehicle_global_position_groundtruth",
+    "vehicle_gps_position",
+    "vehicle_imu",
+    "vehicle_imu_status",
+    "vehicle_land_detected",
+    "vehicle_local_position",
+    "vehicle_local_position_groundtruth",
+    "vehicle_local_position_setpoint",
+    "vehicle_magnetometer",
+    "vehicle_rates_setpoint",
+    "vehicle_status",
+    "vehicle_thrust_setpoint",
+    "vehicle_thrust_setpoint_virtual_fw",
+    "vehicle_thrust_setpoint_virtual_mc",
+    "vehicle_torque_setpoint",
+    "vehicle_torque_setpoint_virtual_fw",
+    "vehicle_torque_setpoint_virtual_mc",
+    "vtol_vehicle_status"
+  ],
+  "ulog_duration_s": 134.736,
+  "time_alignment": {
+    "offset_s": null,
+    "scale": null,
+    "reason": "node.log 와 ulog 에 공통 앵커(ARM/이륙/천이 명령)가 없음",
+    "anchors": []
+  },
+  "state_windows_ulog_s": {},
+  "completion": {
+    "states_seen": [],
+    "order_is_subsequence_of_canonical": true,
+    "reached_done": false,
+    "pilot_takeover": false,
+    "override": false,
+    "exit_reason": "mavros_not_connected",
+    "exit_code": 3,
+    "mission_span_s": null,
+    "state_timeline": [],
+    "disarm": {
+      "value": null,
+      "reason": "ulog 상 armed(=2) 구간이 없음 — ARM 실패"
+    }
+  },
+  "vtol_state_sequence": {
+    "value": [
+      3
+    ],
+    "segments": [
+      {
+        "vtol_state": 3,
+        "name": "MC",
+        "t_start_ulog_s": 5.312,
+        "duration_s": 129.0
+      }
+    ],
+    "forward_transition_s": null,
+    "back_transition_s": null,
+    "forward_ok_3_1_4": false,
+    "back_ok_4_2_3": false,
+    "reason": null
+  },
+  "setpoint_jump": {
+    "source_topic": "trajectory_setpoint",
+    "max_gap_s": 0.5,
+    "threshold_m": 1.5,
+    "threshold_note": "3 x v_approach(5.0) x dt(0.100s) — 계획서 4장. 참고: FW 순항 중 lookahead 목표점은 기체속도로 전진하므로 정상 상태에서도 약 v_cruise(20.0) x dt = 2.00m/틱 이 나온다",
+    "max_jump_m": 0.0142,
+    "max_rate_mps": 0.0805,
+    "n_violations": 0,
+    "n_violations_at_state_boundary": 0,
+    "boundary_violations_top": [],
+    "top10": [
+      {
+        "ulog_t_s": 35.356,
+        "jump_m": 0.0142,
+        "rate_mps": 0.0805,
+        "dt_s": 0.176,
+        "near_state_boundary": false,
+        "state": null
+      },
+      {
+        "ulog_t_s": 34.956,
+        "jump_m": 0.0141,
+        "rate_mps": 0.0802,
+        "dt_s": 0.176,
+        "near_state_boundary": false,
+        "state": null
+      },
+      {
+        "ulog_t_s": 8.976,
+        "jump_m": 0.0133,
+        "rate_mps": 0.0665,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": null
+      },
+      {
+        "ulog_t_s": 109.58,
+        "jump_m": 0.0127,
+        "rate_mps": 0.0566,
+        "dt_s": 0.224,
+        "near_state_boundary": false,
+        "state": null
+      },
+      {
+        "ulog_t_s": 46.376,
+        "jump_m": 0.0125,
+        "rate_mps": 0.0623,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": null
+      },
+      {
+        "ulog_t_s": 18.98,
+        "jump_m": 0.0124,
+        "rate_mps": 0.0554,
+        "dt_s": 0.224,
+        "near_state_boundary": false,
+        "state": null
+      },
+      {
+        "ulog_t_s": 43.18,
+        "jump_m": 0.0122,
+        "rate_mps": 0.0547,
+        "dt_s": 0.224,
+        "near_state_boundary": false,
+        "state": null
+      },
+      {
+        "ulog_t_s": 17.956,
+        "jump_m": 0.0122,
+        "rate_mps": 0.0694,
+        "dt_s": 0.176,
+        "near_state_boundary": false,
+        "state": null
+      },
+      {
+        "ulog_t_s": 24.38,
+        "jump_m": 0.0122,
+        "rate_mps": 0.0545,
+        "dt_s": 0.224,
+        "near_state_boundary": false,
+        "state": null
+      },
+      {
+        "ulog_t_s": 43.556,
+        "jump_m": 0.0122,
+        "rate_mps": 0.0693,
+        "dt_s": 0.176,
+        "near_state_boundary": false,
+        "state": null
+      }
+    ],
+    "n_samples": 637,
+    "resumption_gaps": [],
+    "n_resumption_gaps": 0,
+    "reason": null,
+    "boundary_windows_available": false
+  },
+  "vertical_accel": {
+    "value": 0.0738,
+    "peak_g": 0.0075,
+    "peak_at_ulog_s": 114.204,
+    "peak_state": null,
+    "excluded_windows": [
+      "(천이 구간 정보 없음 — 제외 없이 계산)"
+    ],
+    "max_including_transition_mps2": 0.0738,
+    "excl_touchdown": {
+      "value": null,
+      "reason": "disarm 시각을 몰라 접지 구간을 제외할 수 없음"
+    },
+    "reason": null
+  },
+  "decel": {
+    "value": null,
+    "reason": "역천이 구간(vtol_state==2 또는 TRANSITION_MC 상태창)을 특정할 수 없음 — 역천이가 일어나지 않았을 수 있다"
+  },
+  "heading": {
+    "value": null,
+    "reason": "TRANSITION_FW 상태창이 없음 (상태 미도달이거나 시각정렬 실패)"
+  },
+  "altitude": {
+    "z_ground_local_m": 0.0157,
+    "transition_alt_m": 50.0,
+    "climb": {
+      "value": null,
+      "reason": "CLIMBING 상태창 없음 (시각정렬 실패 또는 상태 미도달)"
+    },
+    "climb_to_following": {
+      "value": null,
+      "reason": "동상"
+    },
+    "transition_alt_loss": {
+      "value": null,
+      "reason": "정천이 구간(vtol_state==1)을 특정할 수 없음 — 천이 미발생 가능"
+    },
+    "cruise_alt_dev": {
+      "value": null,
+      "reason": "FOLLOWING 상태창 또는 순항고도 기준을 알 수 없음"
+    }
+  },
+  "cte": {
+    "node_log_cte": {
+      "value": null,
+      "reason": "node.log 에 'FOLLOWING tick= ... cte=' 샘플이 없음 (FOLLOWING 미진입이거나 20틱 미만 체류)"
+    },
+    "geometric_cte": {
+      "value": null,
+      "reason": "ulog 위치 / waypoints / FOLLOWING 상태창 중 하나가 없음"
+    }
+  },
+  "node_log": {
+    "present": false,
+    "state_events": [],
+    "all_state_events": [],
+    "warnings": [],
+    "errors": [],
+    "heading_align": null,
+    "path_origin": null,
+    "takeoff_request": null,
+    "cte_samples": [],
+    "hold_samples": [],
+    "offboard_reacquire": [],
+    "timeouts": [],
+    "planner_nr_residual_m": [],
+    "line_count": 0,
+    "t_first": null,
+    "t_last": null
+  },
+  "mavros_log": {
+    "present": true,
+    "warnings": [
+      {
+        "pattern": "FCU: EVENT # with args ########################################-",
+        "level": "ERROR",
+        "count": 7,
+        "first_t": 1785096068.6781282,
+        "last_t": 1785096071.8101435,
+        "sample": "FCU: EVENT 7791755 with args -255-1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "FCU: UNK(#): EVENT # with args ########################################-",
+        "level": "WARN",
+        "count": 4,
+        "first_t": 1785096069.7613053,
+        "last_t": 1785096071.8102,
+        "sample": "FCU: UNK(8): EVENT 11047904 with args -0-0-0-18-1-128-0-0-0-0-58-1-128-0-58-1-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "TM: RTT too high for timesync: # ms.",
+        "level": "WARN",
+        "count": 3,
+        "first_t": 1785096081.4970136,
+        "last_t": 1785096081.6754987,
+        "sample": "TM: RTT too high for timesync: 1878.10 ms.",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: broadcast request timeout, retries left #",
+        "level": "WARN",
+        "count": 2,
+        "first_t": 1785096065.9112504,
+        "last_t": 1785096066.8162498,
+        "sample": "VER: broadcast request timeout, retries left 4",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "TM: Time jump detected. Resetting time synchroniser.",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785096121.168762,
+        "last_t": 1785096174.3188553,
+        "sample": "TM: Time jump detected. Resetting time synchroniser.",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "PR: request param ## timeout, retries left #, and # params still missing",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785096082.363571,
+        "last_t": 1785096082.363571,
+        "sample": "PR: request param #393 timeout, retries left 2, and 444 params still missing",
+        "known_cosmetic": false
+      }
+    ],
+    "line_count": 189
+  },
+  "verdict": [
+    {
+      "item": "완주 (DONE 도달)",
+      "status": "FAIL",
+      "criterion": "DONE 상태 도달",
+      "detail": "관측 상태: (없음); 종료사유=mavros_not_connected"
+    },
+    {
+      "item": "disarm 확인",
+      "status": "NULL",
+      "criterion": "ulog arming_state 2→1",
+      "detail": "ulog 상 armed(=2) 구간이 없음 — ARM 실패"
+    },
+    {
+      "item": "상태 순서",
+      "status": "PASS",
+      "criterion": "정상 순서의 부분수열",
+      "detail": ""
+    },
+    {
+      "item": "vtol_state 시퀀스",
+      "status": "FAIL",
+      "criterion": "3→1→4, 4→2→3",
+      "detail": "seq=[3], 정천이 Nones / 역천이 Nones"
+    },
+    {
+      "item": "setpoint 점프",
+      "status": "NULL",
+      "criterion": "상태 경계에서 급점프 없음",
+      "detail": "최대 0.0142m — 그러나 상태 경계 시각을 알 수 없어 '경계에서' 판정 불가"
+    },
+    {
+      "item": "수직 가속",
+      "status": "PASS",
+      "criterion": "천이 제외 |az| ≤ 0.5g (4.90 m/s²)",
+      "detail": "피크 |az|=0.0738 m/s² (0.0075g) @114.204s state=None; 접지 제외값 없음(disarm 시각을 몰라 접지 구간을 제외할 수 없음)"
+    },
+    {
+      "item": "역천이 감속률",
+      "status": "NULL",
+      "criterion": "≤ 0.3g (2.94 m/s²)",
+      "detail": "역천이 구간(vtol_state==2 또는 TRANSITION_MC 상태창)을 특정할 수 없음 — 역천이가 일어나지 않았을 수 있다"
+    },
+    {
+      "item": "TRANSITION_FW 헤딩",
+      "status": "NULL",
+      "criterion": "오버슈트 없이 단조수렴, 정렬완료 err ≤ wp0_heading_tol",
+      "detail": "TRANSITION_FW 상태창이 없음 (상태 미도달이거나 시각정렬 실패)"
+    },
+    {
+      "item": "CLIMBING 오버슈트",
+      "status": "NULL",
+      "criterion": "transition_alt 대비 최대 AGL ≤ +10%",
+      "detail": "CLIMBING 상태창 없음 (시각정렬 실패 또는 상태 미도달)"
+    },
+    {
+      "item": "정천이 고도손실",
+      "status": "NULL",
+      "criterion": "≤ 5m",
+      "detail": "정천이 구간(vtol_state==1)을 특정할 수 없음 — 천이 미발생 가능"
+    },
+    {
+      "item": "순항 고도편차",
+      "status": "NULL",
+      "criterion": "±3m",
+      "detail": "FOLLOWING 상태창 또는 순항고도 기준을 알 수 없음"
+    },
+    {
+      "item": "FW cte",
+      "status": "NULL",
+      "criterion": "직선 ≤ 2m",
+      "detail": "node.log 에 'FOLLOWING tick= ... cte=' 샘플이 없음 (FOLLOWING 미진입이거나 20틱 미만 체류)"
+    },
+    {
+      "item": "경고/타임아웃",
+      "status": "WARN",
+      "criterion": "무해성 판단은 사람이 한다(계획서 5장)",
+      "detail": "node.log 0건/0종, mavros.log 19건/6종 — verdict 하단 목록 참조"
+    }
+  ]
+}

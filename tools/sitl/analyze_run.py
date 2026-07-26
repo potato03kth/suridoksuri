@@ -78,6 +78,23 @@ RE_HOLD_TICK = re.compile(r"WP1 홀드 dist=(-?[\d.]+)m speed=(-?[\d.]+)m/s")
 # 숫자를 지워 같은 경고를 하나로 묶는다
 RE_NUM = re.compile(r"-?\d+\.?\d*")
 
+# ── ROS 로그 포맷이 아닌 줄 ────────────────────────────────────────────────
+# `ros2 launch` 는 자식 프로세스의 stdout/stderr 를 `[proc] <원문>` 으로 **그대로**
+# 중계한다. 이 줄들은 `[LEVEL] [t] [logger]:` 구조가 없어서 LOG_LINE_RE 가 통째로
+# 버린다. 여기에 실제 경고가 들어 있었다 — 대표적으로 플래너 경고
+#   [offboard_node-2] [Eta3ClothoidPlannerV3] WARNING: NR pos residual 9.451m is large. ...
+# 가 B2/B3/B4/B5/A3 런에서 verdict 에 한 건도 실리지 않았다(S6 확인).
+# 계획서 5장 "경고는 전부 보고" 를 만족시키려면 이 경로도 읽어야 한다.
+# 무해성 판단은 하지 않는다 — 수집만 하고 출처(`raw_stdout`)·SIGINT 이후 여부만 표시한다.
+RE_RAW_ERROR = re.compile(
+    r"\bERROR\b|\bFATAL\b|\bCRITICAL\b|Traceback \(most recent call last\)"
+    r"|KeyboardInterrupt|\bException\b")
+RE_RAW_WARN = re.compile(r"\bWARNING\b|\bWARN\b")
+# 하니스가 런 종료 시 launch 에 SIGINT 를 보낸다 — 이 줄 이후의 traceback 은
+# 그 종료 절차에서 나온 것이라는 **사실**만 기록한다(무해 판단이 아니다).
+RE_LAUNCH_SIGINT = re.compile(r"user interrupted with ctrl-c \(SIGINT\)")
+RE_PLANNER_NR = re.compile(r"NR pos residual (-?[\d.]+)m is large")
+
 
 # ── 유틸 ───────────────────────────────────────────────────────────────────
 
@@ -113,6 +130,7 @@ def parse_node_log(path: Path) -> dict:
         "hold_samples": [],
         "offboard_reacquire": [],
         "timeouts": [],
+        "planner_nr_residual_m": [],
         "line_count": 0,
         "t_first": None,
         "t_last": None,
@@ -120,12 +138,36 @@ def parse_node_log(path: Path) -> dict:
     if not path.exists():
         return out
     warn_groups: dict[str, dict] = {}
+    raw_groups: dict[str, dict] = {}
+    shutdown_seen = False
     seen_states: set[str] = set()
     with open(path, encoding="utf-8", errors="replace") as f:
         for raw in f:
             out["line_count"] += 1
             m = LOG_LINE_RE.match(raw.strip())
             if not m:
+                # ROS 로그 포맷이 아닌 줄 — 자식 프로세스 stdout/stderr 중계.
+                s = raw.strip()
+                if not s:
+                    continue
+                if RE_LAUNCH_SIGINT.search(s):
+                    shutdown_seen = True
+                mm = RE_PLANNER_NR.search(s)
+                if mm:
+                    out["planner_nr_residual_m"].append(float(mm.group(1)))
+                lvl = ("ERROR" if RE_RAW_ERROR.search(s) else
+                       "WARN" if RE_RAW_WARN.search(s) else None)
+                if lvl:
+                    key = RE_NUM.sub("#", s)[:160]
+                    b = raw_groups.setdefault(key, {
+                        "level": lvl, "count": 0,
+                        # 이 줄엔 ROS 타임스탬프가 없다. 직전 ROS 로그 시각을
+                        # 근사로 쓰고(없으면 None), 줄 번호를 같이 남긴다.
+                        "first_t": out["t_last"], "last_t": out["t_last"],
+                        "first_line": out["line_count"], "sample": s,
+                        "raw_stdout": True, "after_sigint": shutdown_seen})
+                    b["count"] += 1
+                    b["last_t"] = out["t_last"]
                 continue
             t = float(m.group("t"))
             msg, level = m.group("msg"), m.group("level")
@@ -197,6 +239,13 @@ def parse_node_log(path: Path) -> dict:
         rec = {"pattern": key, "level": b["level"], "count": b["count"],
                "first_t": b["first_t"], "last_t": b["last_t"],
                "sample": b["sample"]}
+        (out["errors"] if b["level"] != "WARN" else out["warnings"]).append(rec)
+    for key, b in sorted(raw_groups.items(),
+                         key=lambda kv: -kv[1]["count"]):
+        rec = {"pattern": key, "level": b["level"], "count": b["count"],
+               "first_t": b["first_t"], "last_t": b["last_t"],
+               "first_line": b["first_line"], "sample": b["sample"],
+               "raw_stdout": True, "after_sigint": b["after_sigint"]}
         (out["errors"] if b["level"] != "WARN" else out["warnings"]).append(rec)
     return out
 
@@ -1136,13 +1185,25 @@ def render_verdict(meta, m, verdict, params) -> str:
     if not ws:
         a("없음.")
     else:
-        a("| 출처 | 레벨 | 건수 | 최초 | 알려진 코스메틱 | 예시 |")
+        a("| 출처 | 레벨 | 건수 | 최초 | 비고 | 예시 |")
         a("|---|---|---|---|---|---|")
         for x in ws:
             smp = x["sample"].replace("|", "\\|")[:150]
-            kc = "예" if x.get("known_cosmetic") else ""
+            if x.get("first_t") is None:
+                ft = f"(줄 {x.get('first_line', '?')})"
+            elif x.get("raw_stdout"):
+                ft = f"≈{x['first_t']:.1f}"
+            else:
+                ft = f"{x['first_t']:.1f}"
+            note = []
+            if x.get("known_cosmetic"):
+                note.append("알려진 코스메틱")
+            if x.get("raw_stdout"):
+                note.append("stdout 중계(비-ROS 포맷)")
+            if x.get("after_sigint"):
+                note.append("하니스 SIGINT 이후")
             a(f"| {x['src']} | {x['level']} | {x['count']} | "
-              f"{x['first_t']:.1f} | {kc} | {smp} |")
+              f"{ft} | {', '.join(note)} | {smp} |")
     a("")
 
     inj = meta.get("inject_results") or []

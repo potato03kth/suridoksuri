@@ -738,9 +738,87 @@
         "first_t": 1785088035.4333875,
         "last_t": 1785088035.5806088,
         "sample": "/mavros/cmd/arming 서비스 없음"
+      },
+      {
+        "pattern": "[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785088193.1958818,
+        "last_t": 1785088193.1958818,
+        "first_line": 121,
+        "sample": "[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)",
+        "raw_stdout": true,
+        "after_sigint": true
       }
     ],
-    "errors": [],
+    "errors": [
+      {
+        "pattern": "[offboard_node#] Traceback (most recent call last):",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785088193.1958818,
+        "last_t": 1785088193.1958818,
+        "first_line": 124,
+        "sample": "[offboard_node-2] Traceback (most recent call last):",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[telemetry_node#] Traceback (most recent call last):",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785088193.1958818,
+        "last_t": 1785088193.1958818,
+        "first_line": 128,
+        "sample": "[telemetry_node-1] Traceback (most recent call last):",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[telemetry_node#] KeyboardInterrupt",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785088193.1958818,
+        "last_t": 1785088193.1958818,
+        "first_line": 147,
+        "sample": "[telemetry_node-1] KeyboardInterrupt",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[offboard_node#] KeyboardInterrupt",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785088193.1958818,
+        "last_t": 1785088193.1958818,
+        "first_line": 158,
+        "sample": "[offboard_node-2] KeyboardInterrupt",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[ERROR] [telemetry_node#]: process has died [pid #, exit code #, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __node:=telemetry_no",
+        "level": "ERROR",
+        "count": 1,
+        "first_t": 1785088193.1958818,
+        "last_t": 1785088193.1958818,
+        "first_line": 182,
+        "sample": "[ERROR] [telemetry_node-1]: process has died [pid 1092, exit code -2, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __node:=telemetry_node'].",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[ERROR] [offboard_node#]: process has died [pid #, exit code #, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node:=offboard_node ",
+        "level": "ERROR",
+        "count": 1,
+        "first_t": 1785088193.1958818,
+        "last_t": 1785088193.1958818,
+        "first_line": 183,
+        "sample": "[ERROR] [offboard_node-2]: process has died [pid 1094, exit code -2, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node:=offboard_node --params-file /root/drone_ws/install/fc_ros/share/fc_ros/params/fc_ros_params.yaml --params-file /tmp/launch_params_875dsprq'].",
+        "raw_stdout": true,
+        "after_sigint": true
+      }
+    ],
     "heading_align": {
       "t": 1785088085.7811763,
       "target_deg": 0.0,
@@ -1025,6 +1103,7 @@
     ],
     "offboard_reacquire": [],
     "timeouts": [],
+    "planner_nr_residual_m": [],
     "line_count": 183,
     "t_first": 1785088035.4333875,
     "t_last": 1785088193.1958818
@@ -1211,7 +1290,7 @@
       "item": "경고/타임아웃",
       "status": "WARN",
       "criterion": "무해성 판단은 사람이 한다(계획서 5장)",
-      "detail": "node.log 3건/1종, mavros.log 47건/11종 — verdict 하단 목록 참조"
+      "detail": "node.log 14건/8종, mavros.log 47건/11종 — verdict 하단 목록 참조"
     }
   ]
 }

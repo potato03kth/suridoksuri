@@ -26,7 +26,7 @@
 | 정천이 고도손실 | **PASS** | 50.1266m → 최저 50.1016m (손실 0.025m) | ≤ 5m |
 | 순항 고도편차 | **PASS** | 기준 AGL 49.9457m, 평균편차 -0.5042m, 최대 \|편차\| 2.1799m | ±3m |
 | FW cte | **PASS** | 최대 \|cte\| 1.2m 평균 0.6882m (부호 -1.2~-0.4m, n=17) — 코너 오버슈트 포함값 | 직선 ≤ 2m (코너는 별도 기록) |
-| 경고/타임아웃 | **WARN** | node.log 3건/1종, mavros.log 47건/11종 — verdict 하단 목록 참조 | 무해성 판단은 사람이 한다(계획서 5장) |
+| 경고/타임아웃 | **WARN** | node.log 14건/8종, mavros.log 47건/11종 — verdict 하단 목록 참조 | 무해성 판단은 사람이 한다(계획서 5장) |
 
 ## 상태 전이 타임라인
 
@@ -54,9 +54,16 @@
 
 ## 경고 / 에러 (전량 — 무해성 판단은 사람이 한다)
 
-| 출처 | 레벨 | 건수 | 최초 | 알려진 코스메틱 | 예시 |
+| 출처 | 레벨 | 건수 | 최초 | 비고 | 예시 |
 |---|---|---|---|---|---|
+| node.log | ERROR | 2 | ≈1785088193.2 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [offboard_node-2] Traceback (most recent call last): |
+| node.log | ERROR | 2 | ≈1785088193.2 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [telemetry_node-1] Traceback (most recent call last): |
+| node.log | ERROR | 2 | ≈1785088193.2 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [telemetry_node-1] KeyboardInterrupt |
+| node.log | ERROR | 2 | ≈1785088193.2 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [offboard_node-2] KeyboardInterrupt |
+| node.log | ERROR | 1 | ≈1785088193.2 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [ERROR] [telemetry_node-1]: process has died [pid 1092, exit code -2, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __nod |
+| node.log | ERROR | 1 | ≈1785088193.2 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [ERROR] [offboard_node-2]: process has died [pid 1094, exit code -2, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node: |
 | node.log | WARN | 3 | 1785088035.4 |  | /mavros/cmd/arming 서비스 없음 |
+| node.log | WARN | 1 | ≈1785088193.2 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [WARNING] [launch]: user interrupted with ctrl-c (SIGINT) |
 | mavros.log | ERROR | 13 | 1785088019.5 |  | FCU: EVENT 7791755 with args -255-1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0- |
 | mavros.log | WARN | 10 | 1785088020.7 |  | FCU: UNK(8): EVENT 11047904 with args -0-0-0-18-1-128-0-0-0-0-58-1-128-0-58-1-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0- |
 | mavros.log | WARN | 4 | 1785088017.9 |  | VER: broadcast request timeout, retries left 4 |

@@ -1,0 +1,97 @@
+{
+  "scenario_id": "C10",
+  "desc": "entry_mode=mid_flight (ENTRY 상태) — 거의 미검증 경로",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local",
+    "entry_mode": "mid_flight"
+  },
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame:=local",
+    "entry_mode:=mid_flight"
+  ],
+  "home": null,
+  "timeout_s": 480.0,
+  "inject_spec": [],
+  "started_utc": "2026-07-26T20:53:40.934974+00:00",
+  "run_id": "C10_pxvehicle",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-26T19:05:12.934133+00:00",
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "3f6c517",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785099236\n    nanosec: 109483962\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: AUTO.LOITER\nsystem_status: 3\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-26T20:54:12.594276+00:00",
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 3.43,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785099255.8764725,
+      "t_since_launch_s": 3.43,
+      "t_since_node_alive_s": 0.0,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785099256.2707958,
+      "t_since_launch_s": 3.83,
+      "t_since_node_alive_s": 0.4,
+      "msg": "CommandTOL 이륙 요청 alt=50.1m AMSL (지면 0.1+50.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785099284.1628542,
+      "t_since_launch_s": 31.69,
+      "t_since_node_alive_s": 28.26,
+      "msg": "운용 고도 50.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785099302.7634807,
+      "t_since_launch_s": 50.33,
+      "t_since_node_alive_s": 46.9,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785099302.8738704,
+      "t_since_launch_s": 50.33,
+      "t_since_node_alive_s": 46.9,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    }
+  ],
+  "warn_count": 1,
+  "error_count": 0,
+  "exit_reason": "timeout",
+  "exit_code": 2,
+  "ended_utc": "2026-07-26T21:02:16.224154+00:00",
+  "elapsed_s": 515.3,
+  "ulogs": [
+    "20_53_53.ulg"
+  ]
+}

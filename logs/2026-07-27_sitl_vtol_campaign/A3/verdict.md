@@ -26,7 +26,7 @@
 | 정천이 고도손실 | **PASS** | 50.1879m → 최저 50.1879m (손실 0.0m) | ≤ 5m |
 | 순항 고도편차 | **PASS** | 기준 AGL 49.842m, 평균편차 0.0377m, 최대 \|편차\| 2.0866m | ±3m |
 | FW cte | **WARN** | 최대 \|cte\| 6292.4m 평균 3045.2922m (부호 -6292.4~-0.9m, n=219) — 코너 오버슈트 포함값 | 직선 ≤ 2m (코너는 별도 기록) |
-| 경고/타임아웃 | **WARN** | node.log 1건/1종, mavros.log 48건/12종 — verdict 하단 목록 참조 | 무해성 판단은 사람이 한다(계획서 5장) |
+| 경고/타임아웃 | **WARN** | node.log 17건/9종, mavros.log 48건/12종 — verdict 하단 목록 참조 | 무해성 판단은 사람이 한다(계획서 5장) |
 
 ## 상태 전이 타임라인
 
@@ -48,9 +48,17 @@
 
 ## 경고 / 에러 (전량 — 무해성 판단은 사람이 한다)
 
-| 출처 | 레벨 | 건수 | 최초 | 알려진 코스메틱 | 예시 |
+| 출처 | 레벨 | 건수 | 최초 | 비고 | 예시 |
 |---|---|---|---|---|---|
+| node.log | ERROR | 5 | ≈1785089005.6 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [offboard_node-2] Traceback (most recent call last): |
+| node.log | ERROR | 3 | ≈1785089005.6 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [offboard_node-2] KeyboardInterrupt |
+| node.log | ERROR | 2 | ≈1785089005.6 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [telemetry_node-1] Traceback (most recent call last): |
+| node.log | ERROR | 2 | ≈1785089005.6 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [telemetry_node-1] KeyboardInterrupt |
+| node.log | ERROR | 1 | ≈1785089005.6 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [ERROR] [telemetry_node-1]: process has died [pid 1089, exit code -2, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __nod |
+| node.log | ERROR | 1 | ≈1785089005.6 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [ERROR] [offboard_node-2]: process has died [pid 1091, exit code 1, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node:= |
 | node.log | WARN | 1 | 1785088730.3 |  | altitude 메시지 지연 age=3.2s > 1.0s — 래치/캐시 의심, 수렴 표본에서 제외 |
+| node.log | WARN | 1 | ≈1785088483.0 | stdout 중계(비-ROS 포맷) | [offboard_node-2] [Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.057m is large. affine correction guarantees WP passage but curve may be deformed. |
+| node.log | WARN | 1 | ≈1785089005.6 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [WARNING] [launch]: user interrupted with ctrl-c (SIGINT) |
 | mavros.log | ERROR | 12 | 1785088440.7 |  | TM: Time jump detected. Resetting time synchroniser. |
 | mavros.log | ERROR | 8 | 1785088387.6 |  | FCU: EVENT 7791755 with args -255-1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0- |
 | mavros.log | WARN | 6 | 1785088388.7 |  | FCU: UNK(8): EVENT 11047904 with args -0-0-0-18-1-128-0-0-0-0-58-1-128-0-58-1-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0- |

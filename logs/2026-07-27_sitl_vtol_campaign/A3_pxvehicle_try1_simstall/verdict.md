@@ -28,7 +28,7 @@
 | 정천이 고도손실 | **NULL** | 정천이 구간(vtol_state==1)을 특정할 수 없음 — 천이 미발생 가능 | ≤ 5m |
 | 순항 고도편차 | **NULL** | FOLLOWING 상태창 또는 순항고도 기준을 알 수 없음 | ±3m |
 | FW cte | **NULL** | node.log 에 'FOLLOWING tick= ... cte=' 샘플이 없음 (FOLLOWING 미진입이거나 20틱 미만 체류) | 직선 ≤ 2m |
-| 경고/타임아웃 | **WARN** | node.log 0건/0종, mavros.log 57건/13종 — verdict 하단 목록 참조 | 무해성 판단은 사람이 한다(계획서 5장) |
+| 경고/타임아웃 | **WARN** | node.log 12건/8종, mavros.log 57건/13종 — verdict 하단 목록 참조 | 무해성 판단은 사람이 한다(계획서 5장) |
 
 ## 상태 전이 타임라인
 
@@ -45,8 +45,16 @@
 
 ## 경고 / 에러 (전량 — 무해성 판단은 사람이 한다)
 
-| 출처 | 레벨 | 건수 | 최초 | 알려진 코스메틱 | 예시 |
+| 출처 | 레벨 | 건수 | 최초 | 비고 | 예시 |
 |---|---|---|---|---|---|
+| node.log | ERROR | 2 | ≈1785093462.1 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [offboard_node-2] Traceback (most recent call last): |
+| node.log | ERROR | 2 | ≈1785093462.1 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [telemetry_node-1] Traceback (most recent call last): |
+| node.log | ERROR | 2 | ≈1785093462.1 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [offboard_node-2] KeyboardInterrupt |
+| node.log | ERROR | 2 | ≈1785093462.1 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [telemetry_node-1] KeyboardInterrupt |
+| node.log | ERROR | 1 | ≈1785093462.1 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [ERROR] [telemetry_node-1]: process has died [pid 1230, exit code -2, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __nod |
+| node.log | ERROR | 1 | ≈1785093462.1 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [ERROR] [offboard_node-2]: process has died [pid 1232, exit code -2, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node: |
+| node.log | WARN | 1 | ≈1785092932.1 | stdout 중계(비-ROS 포맷) | [offboard_node-2] [Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.057m is large. affine correction guarantees WP passage but curve may be deformed. |
+| node.log | WARN | 1 | ≈1785093462.1 | stdout 중계(비-ROS 포맷), 하니스 SIGINT 이후 | [WARNING] [launch]: user interrupted with ctrl-c (SIGINT) |
 | mavros.log | ERROR | 14 | 1785092782.9 |  | FCU: EVENT 7791755 with args -255-1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0- |
 | mavros.log | ERROR | 12 | 1785092839.4 |  | TM: Time jump detected. Resetting time synchroniser. |
 | mavros.log | WARN | 8 | 1785092783.9 |  | FCU: UNK(8): EVENT 11047904 with args -0-0-16-18-1-128-0-0-0-0-0-0-0-0-58-1-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0- |

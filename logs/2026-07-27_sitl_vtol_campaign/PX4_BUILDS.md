@@ -29,6 +29,16 @@ SITL-7 S4 에서 **SITL 이 실기체와 다른 PX4 를 쓰고 있었다**는 �
 | `B4_pxvehicle` | `c890d9db0a` | done — U턴 135° 완주 | 〃 |
 | `B4_pxvehicle_try1_bringupfail` | `c890d9db0a` | exit 3 — **PX4 무관, 브링업 실패** | 〃. `mavros_not_connected` (MAVROS 가 120s 안에 FCU 접속 실패). 이륙 전이라 ulog 34.5MB 만 남았다. `wsl --terminate` 후 동일 조건 재실행(`B4_pxvehicle`)이 완주했으므로 일회성 환경 실패로 판단하고 보존만 한다 |
 | `B5_pxvehicle` | `c890d9db0a` | done — 사각폐곡선 5WP 완주 | 〃. 플래너 블로킹 263.5s (기본 `--boot-timeout-s` 300s 에 근접) |
+| `C2_pxvehicle` | `c890d9db0a` | done — 동쪽 300m(헤딩 90°) 완주 | S6(Phase 3 전반부). 정렬 잔류오차 −0.4° |
+| `C1a_pxvehicle` | `c890d9db0a` | done — 천이고도 20m 완주 | 〃. 천이 첫 틱 setpoint 고도 계단 **+30.12m**(h_up 19.92→50.03) 실측 |
+| `C1b_pxvehicle` | `c890d9db0a` | done — 천이고도 120m 완주 | 〃. 계단 **−69.78m**(h_up 119.77→49.99). 종점 포착 실패 → 종점 주위 2회 선회 후 종료 |
+| `C8_pxvehicle` | `c890d9db0a` | done — 통제 HOME(35.9078/126.5310/3.0m) 완주 | 〃. `CommandTOL 이륙 요청 alt=53.0m AMSL (지면 3.0+50.0)` |
+| `C5b_pxvehicle` | `c890d9db0a` | done — `d_end_thresh=30` | 〃. 종점 통과 +26.1m |
+| `C5c_pxvehicle` | `c890d9db0a` | done — `d_end_thresh=60` | 〃. 종점 통과 없음(−1.5m) |
+| `C10_pxvehicle` | `c890d9db0a` | **timeout(exit 2) — 예측된 결과** | 〃. `entry_mode=mid_flight`. ENTRY 무한대기(정적 감사 E-3). 480s 동안 WP0 반대방향으로 **5.85km 이탈**, disarm 없음 |
+
+**C5a(`d_end_thresh=10`)는 별도 런을 만들지 않았다** — `A1_pxvehicle` 이 같은 경로·같은
+기본값(`d_end_thresh=10`)이므로 그 수치를 C5 스윕의 10 지점으로 인용한다(S6).
 
 S4 이후의 런은 `meta.json` 의 `px4_head` / `px4_dir` 와 `verdict.md` 헤더의
 "PX4 빌드" 줄로 스스로를 식별한다 — 이 표에 의존하지 않아도 된다.

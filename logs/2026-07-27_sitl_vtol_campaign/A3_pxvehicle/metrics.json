@@ -745,8 +745,98 @@
         "msg": "착륙 완료 (disarmed) -> DONE"
       }
     ],
-    "warnings": [],
-    "errors": [],
+    "warnings": [
+      {
+        "pattern": "[offboard_node#] [Eta#ClothoidPlannerV#] WARNING: NR pos residual #m is large. affine correction guarantees WP passage but curve may be deformed.",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785094039.6813688,
+        "last_t": 1785094039.6813688,
+        "first_line": 42,
+        "sample": "[offboard_node-2] [Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.057m is large. affine correction guarantees WP passage but curve may be deformed.",
+        "raw_stdout": true,
+        "after_sigint": false
+      },
+      {
+        "pattern": "[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785094191.6806157,
+        "last_t": 1785094191.6806157,
+        "first_line": 148,
+        "sample": "[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)",
+        "raw_stdout": true,
+        "after_sigint": true
+      }
+    ],
+    "errors": [
+      {
+        "pattern": "[offboard_node#] Traceback (most recent call last):",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785094191.6806157,
+        "last_t": 1785094191.6806157,
+        "first_line": 151,
+        "sample": "[offboard_node-2] Traceback (most recent call last):",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[telemetry_node#] Traceback (most recent call last):",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785094191.6806157,
+        "last_t": 1785094191.6806157,
+        "first_line": 155,
+        "sample": "[telemetry_node-1] Traceback (most recent call last):",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[telemetry_node#] KeyboardInterrupt",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785094191.6806157,
+        "last_t": 1785094191.6806157,
+        "first_line": 170,
+        "sample": "[telemetry_node-1] KeyboardInterrupt",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[offboard_node#] KeyboardInterrupt",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785094191.6806157,
+        "last_t": 1785094191.6806157,
+        "first_line": 187,
+        "sample": "[offboard_node-2] KeyboardInterrupt",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[ERROR] [telemetry_node#]: process has died [pid #, exit code #, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __node:=telemetry_no",
+        "level": "ERROR",
+        "count": 1,
+        "first_t": 1785094191.6806157,
+        "last_t": 1785094191.6806157,
+        "first_line": 209,
+        "sample": "[ERROR] [telemetry_node-1]: process has died [pid 1108, exit code -2, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __node:=telemetry_node'].",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[ERROR] [offboard_node#]: process has died [pid #, exit code #, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node:=offboard_node ",
+        "level": "ERROR",
+        "count": 1,
+        "first_t": 1785094191.6806157,
+        "last_t": 1785094191.6806157,
+        "first_line": 210,
+        "sample": "[ERROR] [offboard_node-2]: process has died [pid 1110, exit code -2, cmd '/root/drone_ws/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node:=offboard_node --params-file /root/drone_ws/install/fc_ros/share/fc_ros/params/fc_ros_params.yaml --params-file /tmp/launch_params_zc4fccux'].",
+        "raw_stdout": true,
+        "after_sigint": true
+      }
+    ],
     "heading_align": {
       "t": 1785094091.8901796,
       "target_deg": 0.0,
@@ -961,6 +1051,9 @@
     ],
     "offboard_reacquire": [],
     "timeouts": [],
+    "planner_nr_residual_m": [
+      5.057
+    ],
     "line_count": 210,
     "t_first": 1785093961.7380717,
     "t_last": 1785094191.6806157
@@ -1156,7 +1249,7 @@
       "item": "경고/타임아웃",
       "status": "WARN",
       "criterion": "무해성 판단은 사람이 한다(계획서 5장)",
-      "detail": "node.log 0건/0종, mavros.log 50건/12종 — verdict 하단 목록 참조"
+      "detail": "node.log 12건/8종, mavros.log 50건/12종 — verdict 하단 목록 참조"
     }
   ]
 }
