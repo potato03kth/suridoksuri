@@ -1,0 +1,42 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-07-25-10-22-56-288679-doksuri-126
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [telemetry_node-1]: process started with pid [128]
+[INFO] [offboard_node-2]: process started with pid [130]
+[offboard_node-2] [WARN] [1784974977.374730869] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974977.434092068] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974977.533887457] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974977.633803764] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974977.733830230] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974977.833835957] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974977.933753227] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974978.033795743] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974978.133869547] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974978.233820119] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974978.333891256] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974978.433827107] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974978.533781937] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1784974978.634100539] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [INFO] [1784974979.790633409] [offboard_node]: ARM 요청
+[telemetry_node-1] [INFO] [1784974983.187983940] [telemetry_node]: pos_ned=[-1.59270227  1.1493386   1.77429581]  yaw=0.472  armed=False  vtol=3  batt=16.46V/84%
+[telemetry_node-1] [INFO] [1784974983.191544422] [telemetry_node]: pos_ned=[-1.59270227  1.1493386   1.77429581]  yaw=0.472  armed=False  vtol=3  batt=16.46V/84%
+[telemetry_node-1] [INFO] [1784974983.214768171] [telemetry_node]: pos_ned=[-1.753106    1.21968937  1.62039375]  yaw=0.475  armed=True  vtol=3  batt=16.21V/80%
+[offboard_node-2] [INFO] [1784974983.234071757] [offboard_node]: 경로 원점 = 이륙지점 [N=-1.75, E=1.22, h_up=1.62] 적용 (frame=takeoff) → WP0=[-1.75,1.22] 순항고도 h_up=4.62
+[offboard_node-2] [INFO] [1784974983.235730849] [offboard_node]: CommandTOL 이륙 요청 alt=27.3m AMSL (지면 24.3+3.0) -> CLIMBING
+[telemetry_node-1] [INFO] [1784974985.215039201] [telemetry_node]: pos_ned=[-1.83888292  1.29950488  1.5214119 ]  yaw=0.474  armed=True  vtol=3  batt=15.78V/75%
+[telemetry_node-1] [INFO] [1784974987.215205949] [telemetry_node]: pos_ned=[-2.02770829  1.38982737  1.51477814]  yaw=0.606  armed=True  vtol=3  batt=14.55V/36%
+[telemetry_node-1] [INFO] [1784974989.214942329] [telemetry_node]: pos_ned=[-2.84248805  1.6823101   2.35101891]  yaw=-0.072  armed=True  vtol=3  batt=13.22V/0%
+[telemetry_node-1] [INFO] [1784974991.215124016] [telemetry_node]: pos_ned=[-5.17665577  0.30972365  3.66338348]  yaw=-0.478  armed=True  vtol=3  batt=13.20V/0%
+[telemetry_node-1] [INFO] [1784974993.214974186] [telemetry_node]: pos_ned=[-4.71371412 -7.34151268  3.88013649]  yaw=-1.249  armed=True  vtol=3  batt=12.70V/0%
+[offboard_node-2] [INFO] [1784974994.933704887] [offboard_node]: 운용 고도 3.0m 도달 → streaming (MC, 천이 생략)
+[telemetry_node-1] [INFO] [1784974995.214985958] [telemetry_node]: pos_ned=[-2.77468657 -4.13508511  4.72660446]  yaw=-0.534  armed=True  vtol=3  batt=12.78V/0%
+[offboard_node-2] [INFO] [1784974996.938251199] [offboard_node]: OFFBOARD 전환 요청 (폴백)
+[telemetry_node-1] [INFO] [1784974997.215037177] [telemetry_node]: pos_ned=[-2.92091155  1.32747436  4.0099411 ]  yaw=-1.046  armed=True  vtol=3  batt=13.56V/0%
+[offboard_node-2] [INFO] [1784974997.434126065] [offboard_node]: OFFBOARD 확인 → FOLLOWING
+[offboard_node-2] [INFO] [1784974997.534294370] [offboard_node]: FOLLOWING 시작 pos=[-2.9,1.4] tgt=[-1.8,1.2] cte=1.2m mode=OFFBOARD
+[offboard_node-2] [INFO] [1784974997.535300549] [offboard_node]: WP0 통과 → WP1 이동 (dist=1.2m)
+[telemetry_node-1] [INFO] [1784974999.214969466] [telemetry_node]: pos_ned=[-2.21573377  0.13815877  1.34428406]  yaw=-1.408  armed=True  vtol=3  batt=12.93V/0%
+[offboard_node-2] [INFO] [1784974999.434234321] [offboard_node]: FOLLOWING tick=20 mode=OFFBOARD cte=3.8m pos=[-1.9,-0.0] tgt=[-1.8,-3.8]
+[telemetry_node-1] [INFO] [1784975001.215012166] [telemetry_node]: pos_ned=[-1.50515032 -0.02808662  0.58429718]  yaw=-1.572  armed=True  vtol=3  batt=15.62V/9%
+[offboard_node-2] [INFO] [1784975001.434536849] [offboard_node]: FOLLOWING tick=40 mode=OFFBOARD cte=3.7m pos=[-1.6,-0.1] tgt=[-1.8,-3.8]
+[telemetry_node-1] [INFO] [1784975003.214976552] [telemetry_node]: pos_ned=[-2.05847025 -0.26636219  0.29162216]  yaw=-1.522  armed=True  vtol=3  batt=15.75V/49%
+[offboard_node-2] [INFO] [1784975003.434342695] [offboard_node]: FOLLOWING tick=60 mode=OFFBOARD cte=3.5m pos=[-2.1,-0.3] tgt=[-1.8,-3.8]
