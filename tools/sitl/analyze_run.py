@@ -1072,6 +1072,10 @@ def render_verdict(meta, m, verdict, params) -> str:
     a(f"- 종료: `{meta.get('exit_reason','?')}` (exit={meta.get('exit_code','?')})")
     a(f"- launch: `{' '.join(meta.get('launch_argv', []))}`")
     a(f"- 저장소 HEAD: `{meta.get('repo_head','?')}`")
+    # PX4 빌드 커밋 — 어느 PX4 에서 돈 런인지 없으면 결과를 해석할 수 없다(S4).
+    if meta.get("px4_head"):
+        a(f"- PX4 빌드: `{meta['px4_head'][:10]}` "
+          f"(`{meta.get('px4_dir','?')}`)")
     a(f"- ulog: {m.get('ulog_file') or '(없음)'} "
       f"(meta.json 기록: {', '.join(meta.get('ulogs') or []) or '없음'})")
     if m.get("ulog_selection_note"):

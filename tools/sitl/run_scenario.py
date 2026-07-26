@@ -479,6 +479,10 @@ def main() -> int:
     ap.add_argument("scenario_id")
     ap.add_argument("--outdir", default=None,
                     help="산출물 루트 (기본 logs/2026-07-27_sitl_vtol_campaign)")
+    ap.add_argument("--run-id", default=None,
+                    help="산출물 하위 디렉터리 이름 (기본: 시나리오 id). "
+                         "같은 시나리오를 다른 PX4 빌드로 재실행할 때 기존 결과를 "
+                         "덮어쓰지 않도록 구분한다 (예: A3 → A3_pxvehicle)")
     ap.add_argument("--px4-boot-timeout", type=float, default=90.0)
     ap.add_argument("--mavros-timeout", type=float, default=120.0)
     ap.add_argument("--post-done-s", type=float, default=6.0,
@@ -493,7 +497,7 @@ def main() -> int:
 
     sc = load_scenario(args.scenario_id)
     root = Path(args.outdir) if args.outdir else CAMPAIGN_DIR
-    outdir = root / sc["id"]
+    outdir = root / (args.run_id or sc["id"])
     outdir.mkdir(parents=True, exist_ok=True)
     for stale in ("node.log", "mavros.log", "meta.json",
                   "metrics.json", "verdict.md"):
@@ -516,7 +520,17 @@ def main() -> int:
         "timeout_s": float(sc.get("timeout_s", 420)),
         "inject_spec": sc.get("inject") or [],
         "started_utc": datetime.now(timezone.utc).isoformat(),
+        "run_id": args.run_id or sc["id"],
         "px4_dir": str(PX4_DIR),
+        # ⚠️ 어느 PX4 빌드에서 돈 결과인지 반드시 남긴다. SITL-7 S4 에서 SITL 의
+        #    PX4(9bb0d365c4)와 실기체 PX4(c890d9db0a)의 오프보드 course 처리가
+        #    다르다는 것이 확인됐다 — 런 결과는 PX4 커밋과 짝지어야만 해석된다.
+        "px4_head": sh(["git", "-C", str(PX4_DIR),
+                        "rev-parse", "HEAD"])[1].strip(),
+        "px4_bin": str(PX4_BIN),
+        "px4_bin_mtime_utc": (
+            datetime.fromtimestamp(PX4_BIN.stat().st_mtime, timezone.utc)
+            .isoformat() if PX4_BIN.exists() else None),
         "mavros_fcu_url": MAVROS_FCU_URL,
         "host": os.uname().nodename,
         "repo_head": sh(["git", "-C", str(REPO_ROOT),

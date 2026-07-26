@@ -1,0 +1,72 @@
+{
+  "scenario_id": "A3",
+  "desc": "SITL-4 L자 경로 재현 (90° 1회)",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 200.0,0.0,50.0, 200.0,200.0,50.0]"
+  },
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 200.0,0.0,50.0, 200.0,200.0,50.0]"
+  ],
+  "home": null,
+  "timeout_s": 480.0,
+  "inject_spec": [],
+  "started_utc": "2026-07-26T19:06:10.044533+00:00",
+  "run_id": "A3_pxvehicle",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-26T19:05:12.934133+00:00",
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "3b52ac1",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785092784\n    nanosec: 766382151\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: AUTO.LOITER\nsystem_status: 0\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": "Set parameter successful"
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": "Set parameter successful"
+    }
+  },
+  "launch_started_utc": "2026-07-26T19:06:52.506695+00:00",
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 109.75,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785092933.5971167,
+      "t_since_launch_s": 109.75,
+      "t_since_node_alive_s": 0.0,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785092934.3728452,
+      "t_since_launch_s": 110.55,
+      "t_since_node_alive_s": 0.8,
+      "msg": "CommandTOL 이륙 요청 alt=50.0m AMSL (지면 0.0+50.0) -> CLIMBING"
+    }
+  ],
+  "warn_count": 0,
+  "error_count": 0,
+  "exit_reason": "timeout",
+  "exit_code": 2,
+  "ended_utc": "2026-07-26T19:17:43.034150+00:00",
+  "elapsed_s": 629.1,
+  "ulogs": [
+    "19_06_22.ulg"
+  ]
+}
