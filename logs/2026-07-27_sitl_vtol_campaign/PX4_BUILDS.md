@@ -36,6 +36,15 @@ SITL-7 S4 에서 **SITL 이 실기체와 다른 PX4 를 쓰고 있었다**는 �
 | `C5b_pxvehicle` | `c890d9db0a` | done — `d_end_thresh=30` | 〃. 종점 통과 +26.1m |
 | `C5c_pxvehicle` | `c890d9db0a` | done — `d_end_thresh=60` | 〃. 종점 통과 없음(−1.5m) |
 | `C10_pxvehicle` | `c890d9db0a` | **timeout(exit 2) — 예측된 결과** | 〃. `entry_mode=mid_flight`. ENTRY 무한대기(정적 감사 E-3). 480s 동안 WP0 반대방향으로 **5.85km 이탈**, disarm 없음 |
+| `C3_pxvehicle` | `c890d9db0a` | done — 천이 중 AUTO.LOITER 주입 후 **0.97s 만에 복구·완주** | S7(Phase 3 후반부). 재요청 로그는 10Hz 지만 실제 SetMode 는 1건. 상세 `S7_notes.md` |
+| `C3_pxvehicle_try1_noinject` | `c890d9db0a` | done — **주입 트리거 미성립**(무주입 완주) | 〃. `on_vtol_state:1` 폴링이 2.6초 천이창을 놓침. **C4 의 무풍 대조군으로 사용** |
+| `C3_pxvehicle_try2_cli_late` | `c890d9db0a` | done — 주입이 **천이 종료 1.66s 뒤** FOLLOWING 에 착탄 | 〃. CLI `ros2 service call` 지연 4.04s 실측 → in-process 주입 도입 근거 |
+| `C3_pxvehicle_try3_px4lost` | `c890d9db0a` | done(0) — 주입·복구 정상, **착륙 중 PX4 유실** | 〃. `CON: Lost connection` + LANDING 10.2s(정상 43~45s) + ulog 절단(ratio 0.829). 일회성 환경 실패, 보존만 |
+| `C4_pxvehicle_wind8` | `c890d9db0a` | **done — 바람 8 m/s 완주** | 〃. gz world `windy8`(`PX4_GZ_WORLD`), EKF 풍속 실측 7.89 m/s. cte 4.0m(무풍 1.2m), 정렬 잔류오차 15.34°(무풍 2.0°) |
+| `C6a_pxvehicle` | `c890d9db0a` | done — **OVERRIDE(FW) 작동** | 〃. MANUAL 거부 → 10틱 후 AUTO.LOITER → DONE. `offboard_control_mode` 가 OVERRIDE 진입 시각에 정지 |
+| `C6b_pxvehicle` | `c890d9db0a` | done — **OVERRIDE(MC) 최초 검증** | 〃. `override_mode(vtol=3)="POSCTL"` 분기 발화 확인 |
+| `C7_pxvehicle` | `c890d9db0a` | done — **주입은 FCU 도달, PX4 가 거부** | 〃. ulog `176 p2=3`@88.45s 있으나 nav_state 불변. SITL-1 의 "headless POSCTL 재현 불가" 재현 |
+| `C7_pxvehicle_rcstream` | `c890d9db0a` | **range_exceeded(exit 6) — PILOT_TAKEOVER 최초 검증** | 〃. MAVLink 조이스틱 부여 → nav_state=POSCTL 진입 → setpoint 영구 정지·재요청 0건. 그 뒤 직진해 **1564m 에서 새 거리감시가 종료** |
 
 **C5a(`d_end_thresh=10`)는 별도 런을 만들지 않았다** — `A1_pxvehicle` 이 같은 경로·같은
 기본값(`d_end_thresh=10`)이므로 그 수치를 C5 스윕의 10 지점으로 인용한다(S6).

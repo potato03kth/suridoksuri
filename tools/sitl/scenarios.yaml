@@ -17,8 +17,14 @@
 #                   on_state : 이 상태 진입이 node.log에서 관측되면 트리거
 #                              (ARM_TAKEOFF/CLIMBING/TRANSITION_FW/STREAMING/
 #                               ENTRY/FOLLOWING/TRANSITION_MC/HOLD/LANDING/DONE)
+#                   on_log   : node.log 의 임의 문장 정규식이 처음 매치되면 트리거.
+#                              Monitor 가 이미 증분으로 읽는 스트림이라 지연이
+#                              루프주기(0.1s)뿐 — **짧은 구간을 노릴 때 유일하게
+#                              쓸 수 있는 트리거**다 (S7 추가, 아래 C3 참조)
 #                   on_vtol_state : 이 vtol_state 값이 MAVROS에서 관측되면 트리거
 #                              (1=천이중MC→FW, 2=천이중FW→MC, 3=MC, 4=FW)
+#                              ⚠️ `ros2 topic echo --once` 폴링이라 한 바퀴 1~2초 —
+#                              3초 미만 구간은 통째로 놓친다(C3 1차 실행 실측)
 #                   at_s     : 런 시작으로부터 절대 경과시간(초) 트리거
 #                   delay_s  : 트리거 성립 후 추가 지연(초), 기본 0
 #                   action   : set_mode | override | param_set | probe
@@ -27,8 +33,11 @@
 #                     param_set → param: / value:  (ros2 param set /mavros/param)
 #                     probe     → topic: 을 --once 로 떠서 inject 결과에 기록(무해)
 #
-#   ⚠️ inject 는 A1(probe)로만 동작확인됨 — set_mode/override/param_set 경로는
-#      S4(Phase 3) 세션에서 첫 실사용이다.
+#   액션 검증 상태(S7 기준): probe(A1) · set_mode(C3/C7) · override(C6a/C6b) 실사용 검증됨.
+#   **param_set 은 아직 미검증이다.**
+#   set_mode/override 는 하니스의 in-process rclpy 클라이언트로 나간다(왕복 ~0.003s).
+#   CLI 폴백은 4.04s 가 걸리므로 짧은 구간을 노릴 땐 폴백이 걸렸는지
+#   meta.json 의 inject_transport / inject_results[].via 로 반드시 확인할 것.
 
 defaults:
   model: gz_standard_vtol
@@ -161,8 +170,14 @@ scenarios:
       waypoint_frame: "local"
     timeout_s: 480
     inject:
-      # vtol_state==1(MC→FW 천이 진행중)에서 즉시 AUTO.LOITER 주입.
-      - on_vtol_state: 1
+      # 노려야 하는 구간은 offboard_node 의 "ACTIVE TRANSITION" 서브페이즈 —
+      # `천이 명령 요청` 로그부터 `FW 전환 완료` 까지. 이 구간에만
+      # `천이 중 OFFBOARD 이탈 → 재요청` 복구 코드가 있다.
+      # 1차 실행 실측으로 이 구간은 **2.60초**뿐이라(884.05→886.65)
+      # `on_vtol_state: 1` 폴링(1~2초/바퀴)은 통째로 놓쳤다
+      # → `C3_pxvehicle_try1_noinject` (트리거 미성립, 무주입 완주).
+      # 그래서 구간 시작 로그에 직접 건다.
+      - on_log: "MC→FW 천이 명령 요청"
         delay_s: 0.0
         action: set_mode
         mode: AUTO.LOITER
@@ -174,10 +189,18 @@ scenarios:
       waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
       waypoint_frame: "local"
     timeout_s: 480
+    # ✅ S7에서 바람 주입 방법 확정·실행 완료 (`C4_pxvehicle_wind8`).
+    #    이 시나리오 정의만으로는 바람이 안 분다 — **월드를 바꿔 끼워야 한다.**
+    #      1) default.sdf 를 복사해 world 이름과 <wind><linear_velocity> 만 바꾼 새 파일을
+    #         **PX4 트리의 Tools/simulation/gz/worlds/ 안에** 만든다 (원본 무수정).
+    #         `PX4_GZ_WORLDS` 로 트리 밖을 가리키는 건 통하지 않는다 —
+    #         build/px4_sitl_default/rootfs/gz_env.sh:15 가 무조건 export 로 덮어쓴다.
+    #      2) `PX4_GZ_WORLD=<이름>` 을 얹어 run_scenario.sh 실행 (meta.json 에 기록됨).
+    #      3) 런이 끝나면 새 월드 파일 삭제.
+    #    되는 이유: standard_vtol 의 gz LiftDrag 플러그인이 components::Wind 를 직접 조회한다
+    #    → WindEffects 플러그인도 링크의 enable_wind 도 필요 없다.
+    #    검증: EKF 풍속 추정 최대 7.89 m/s (주입 8.0). 상세는 S7_notes.md §4.
     inject:
-      # ⚠️ 미검증 경로: gz standard_vtol 월드의 바람 주입 방법은 S4에서 확정할 것.
-      #    (PX4 파라미터 SIM_GZ_* 에는 바람 항목이 없다 — gz world 플러그인
-      #     wind 또는 `gz topic -t /world/default/wind` 쪽을 써야 한다.)
       - at_s: 5.0
         action: probe
         topic: /mavros/state

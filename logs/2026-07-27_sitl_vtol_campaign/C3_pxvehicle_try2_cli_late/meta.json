@@ -1,0 +1,157 @@
+{
+  "scenario_id": "C3",
+  "desc": "천이 중 OFFBOARD 강제 이탈 — AUTO.LOITER 주입 후 재요청 복구 확인",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local"
+  },
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame:=local"
+  ],
+  "home": null,
+  "timeout_s": 480.0,
+  "inject_spec": [
+    {
+      "on_log": "MC→FW 천이 명령 요청",
+      "delay_s": 0.0,
+      "action": "set_mode",
+      "mode": "AUTO.LOITER"
+    }
+  ],
+  "started_utc": "2026-07-26T21:26:04.823859+00:00",
+  "run_id": "C3_pxvehicle",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-26T19:05:12.934133+00:00",
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "3f6c517",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785101177\n    nanosec: 788272653\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: CMODE(50593792)\nsystem_status: 0\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-26T21:26:41.773991+00:00",
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 3.42,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785101205.0658557,
+      "t_since_launch_s": 3.42,
+      "t_since_node_alive_s": 0.0,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785101205.6542861,
+      "t_since_launch_s": 4.02,
+      "t_since_node_alive_s": 0.6,
+      "msg": "CommandTOL 이륙 요청 alt=50.0m AMSL (지면 -0.0+50.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785101235.2521448,
+      "t_since_launch_s": 33.51,
+      "t_since_node_alive_s": 30.09,
+      "msg": "운용 고도 50.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785101255.1529558,
+      "t_since_launch_s": 53.57,
+      "t_since_node_alive_s": 50.15,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785101255.275005,
+      "t_since_launch_s": 53.57,
+      "t_since_node_alive_s": 50.15,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    },
+    {
+      "state": "TRANSITION_MC",
+      "ros_t": 1785101275.2113771,
+      "t_since_launch_s": 73.63,
+      "t_since_node_alive_s": 70.21,
+      "msg": "경로 추종 완료 -> transition_mc"
+    },
+    {
+      "state": "HOLD",
+      "ros_t": 1785101280.8520973,
+      "t_since_launch_s": 79.24,
+      "t_since_node_alive_s": 75.82,
+      "msg": "MC 전환 완료 -> HOLD (WP1 복귀)"
+    },
+    {
+      "state": "LANDING",
+      "ros_t": 1785101289.8540518,
+      "t_since_launch_s": 88.27,
+      "t_since_node_alive_s": 84.85,
+      "msg": "WP1 도달·안정 → LANDING (dist=0.7m speed=0.1m/s)"
+    },
+    {
+      "state": "DONE",
+      "ros_t": 1785101334.3518376,
+      "t_since_launch_s": 132.59,
+      "t_since_node_alive_s": 129.17,
+      "msg": "착륙 완료 (disarmed) -> DONE"
+    }
+  ],
+  "warn_count": 11,
+  "error_count": 0,
+  "range_guard": {
+    "enabled": true,
+    "limit_m": 1500.0,
+    "samples": 20,
+    "max_horiz_m": 341.3,
+    "max_at_local_enu": [
+      -0.2,
+      341.3,
+      50.1
+    ],
+    "breach": null
+  },
+  "inject_results": [
+    {
+      "spec": {
+        "on_log": "MC→FW 천이 명령 요청",
+        "delay_s": 0.0,
+        "action": "set_mode",
+        "mode": "AUTO.LOITER"
+      },
+      "action": "set_mode",
+      "fired_mono_s": 50.394,
+      "fired_utc": "2026-07-26T21:27:32.167767+00:00",
+      "rc": 0,
+      "output": "waiting for service to become available...\nrequester: making request: mavros_msgs.srv.SetMode_Request(base_mode=0, custom_mode='AUTO.LOITER')\n\nresponse:\nmavros_msgs.srv.SetMode_Response(mode_sent=True)"
+    }
+  ],
+  "exit_reason": "done",
+  "exit_code": 0,
+  "ended_utc": "2026-07-26T21:29:00.492250+00:00",
+  "elapsed_s": 175.6,
+  "ulogs": [
+    "21_26_16.ulg"
+  ]
+}

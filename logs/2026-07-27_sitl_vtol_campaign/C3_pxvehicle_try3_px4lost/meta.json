@@ -1,0 +1,161 @@
+{
+  "scenario_id": "C3",
+  "desc": "천이 중 OFFBOARD 강제 이탈 — AUTO.LOITER 주입 후 재요청 복구 확인",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local"
+  },
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame:=local"
+  ],
+  "home": null,
+  "timeout_s": 480.0,
+  "inject_spec": [
+    {
+      "on_log": "MC→FW 천이 명령 요청",
+      "delay_s": 0.0,
+      "action": "set_mode",
+      "mode": "AUTO.LOITER"
+    }
+  ],
+  "started_utc": "2026-07-26T21:33:21.934793+00:00",
+  "run_id": "C3_pxvehicle",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-26T19:05:12.934133+00:00",
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "3f6c517",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785101616\n    nanosec: 271915959\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: AUTO.LOITER\nsystem_status: 0\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-26T21:33:56.093433+00:00",
+  "inject_transport": "in-process",
+  "inject_setmode_service_ready": true,
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 2.22,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785101638.27802,
+      "t_since_launch_s": 2.22,
+      "t_since_node_alive_s": 0.0,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785101640.2806017,
+      "t_since_launch_s": 3.63,
+      "t_since_node_alive_s": 1.4,
+      "msg": "CommandTOL 이륙 요청 alt=50.0m AMSL (지면 0.0+50.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785101669.6791801,
+      "t_since_launch_s": 32.88,
+      "t_since_node_alive_s": 30.66,
+      "msg": "운용 고도 50.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785101689.3793309,
+      "t_since_launch_s": 52.11,
+      "t_since_node_alive_s": 49.89,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785101689.489658,
+      "t_since_launch_s": 52.32,
+      "t_since_node_alive_s": 50.09,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    },
+    {
+      "state": "TRANSITION_MC",
+      "ros_t": 1785101709.4027278,
+      "t_since_launch_s": 71.55,
+      "t_since_node_alive_s": 69.33,
+      "msg": "경로 추종 완료 -> transition_mc"
+    },
+    {
+      "state": "HOLD",
+      "ros_t": 1785101714.479547,
+      "t_since_launch_s": 76.76,
+      "t_since_node_alive_s": 74.54,
+      "msg": "MC 전환 완료 -> HOLD (WP1 복귀)"
+    },
+    {
+      "state": "LANDING",
+      "ros_t": 1785101722.579475,
+      "t_since_launch_s": 84.77,
+      "t_since_node_alive_s": 82.55,
+      "msg": "WP1 도달·안정 → LANDING (dist=0.5m speed=0.1m/s)"
+    },
+    {
+      "state": "DONE",
+      "ros_t": 1785101732.7789478,
+      "t_since_launch_s": 94.99,
+      "t_since_node_alive_s": 92.77,
+      "msg": "착륙 완료 (disarmed) -> DONE"
+    }
+  ],
+  "warn_count": 11,
+  "error_count": 0,
+  "range_guard": {
+    "enabled": true,
+    "limit_m": 1500.0,
+    "samples": 14,
+    "max_horiz_m": 329.5,
+    "max_at_local_enu": [
+      0.0,
+      329.5,
+      50.2
+    ],
+    "breach": null
+  },
+  "inject_results": [
+    {
+      "spec": {
+        "on_log": "MC→FW 천이 명령 요청",
+        "delay_s": 0.0,
+        "action": "set_mode",
+        "mode": "AUTO.LOITER"
+      },
+      "action": "set_mode",
+      "fired_mono_s": 49.339,
+      "fired_utc": "2026-07-26T21:34:46.704334+00:00",
+      "rc": 0,
+      "via": "in-process",
+      "done_mono_s": 49.342,
+      "output": "in-process SetMode(custom_mode='AUTO.LOITER') → mode_sent=True (왕복 0.002s)"
+    }
+  ],
+  "exit_reason": "done",
+  "exit_code": 0,
+  "ended_utc": "2026-07-26T21:35:39.887050+00:00",
+  "elapsed_s": 135.6,
+  "ulogs": [
+    "21_33_34.ulg"
+  ]
+}

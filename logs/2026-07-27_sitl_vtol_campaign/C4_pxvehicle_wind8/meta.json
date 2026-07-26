@@ -1,0 +1,161 @@
+{
+  "scenario_id": "C4",
+  "desc": "바람 주입 8m/s — A1 + 바람. gz wind 파라미터를 param_set/gz topic 으로 주입",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local"
+  },
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame:=local"
+  ],
+  "home": null,
+  "timeout_s": 480.0,
+  "inject_spec": [
+    {
+      "at_s": 5.0,
+      "action": "probe",
+      "topic": "/mavros/state"
+    }
+  ],
+  "started_utc": "2026-07-26T21:54:01.801211+00:00",
+  "run_id": "C4_pxvehicle_wind8",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-26T19:05:12.934133+00:00",
+  "px4_gz_world": "windy8",
+  "px4_gz_worlds_dir": null,
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "3f6c517",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785102854\n    nanosec: 514699765\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: CMODE(50593792)\nsystem_status: 0\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-26T21:54:33.735688+00:00",
+  "inject_transport": "in-process",
+  "inject_setmode_service_ready": true,
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 3.02,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785102876.7319334,
+      "t_since_launch_s": 3.02,
+      "t_since_node_alive_s": 0.0,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785102877.450781,
+      "t_since_launch_s": 3.83,
+      "t_since_node_alive_s": 0.8,
+      "msg": "CommandTOL 이륙 요청 alt=50.1m AMSL (지면 0.1+50.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785102905.848925,
+      "t_since_launch_s": 31.48,
+      "t_since_node_alive_s": 28.46,
+      "msg": "운용 고도 50.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785102924.6487281,
+      "t_since_launch_s": 50.32,
+      "t_since_node_alive_s": 47.29,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785102924.7556849,
+      "t_since_launch_s": 50.52,
+      "t_since_node_alive_s": 47.49,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    },
+    {
+      "state": "TRANSITION_MC",
+      "ros_t": 1785102942.9742618,
+      "t_since_launch_s": 67.95,
+      "t_since_node_alive_s": 64.93,
+      "msg": "경로 추종 완료 -> transition_mc"
+    },
+    {
+      "state": "HOLD",
+      "ros_t": 1785102948.2497914,
+      "t_since_launch_s": 73.16,
+      "t_since_node_alive_s": 70.14,
+      "msg": "MC 전환 완료 -> HOLD (WP1 복귀)"
+    },
+    {
+      "state": "LANDING",
+      "ros_t": 1785102957.3598068,
+      "t_since_launch_s": 82.38,
+      "t_since_node_alive_s": 79.36,
+      "msg": "WP1 도달·안정 → LANDING (dist=0.6m speed=0.4m/s)"
+    },
+    {
+      "state": "DONE",
+      "ros_t": 1785103001.5491378,
+      "t_since_launch_s": 125.26,
+      "t_since_node_alive_s": 122.24,
+      "msg": "착륙 완료 (disarmed) -> DONE"
+    }
+  ],
+  "warn_count": 0,
+  "error_count": 0,
+  "range_guard": {
+    "enabled": true,
+    "limit_m": 1500.0,
+    "samples": 22,
+    "max_horiz_m": 346.5,
+    "max_at_local_enu": [
+      6.5,
+      346.4,
+      50.0
+    ],
+    "breach": null
+  },
+  "inject_results": [
+    {
+      "spec": {
+        "at_s": 5.0,
+        "action": "probe",
+        "topic": "/mavros/state"
+      },
+      "action": "probe",
+      "fired_mono_s": 5.242,
+      "fired_utc": "2026-07-26T21:54:38.977697+00:00",
+      "rc": 0,
+      "via": "cli",
+      "done_mono_s": 7.803,
+      "output": "header:\n  stamp:\n    sec: 1785102872\n    nanosec: 162471676\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: AUTO.LOITER\nsystem_status: 3\n---"
+    }
+  ],
+  "exit_reason": "done",
+  "exit_code": 0,
+  "ended_utc": "2026-07-26T21:56:47.867107+00:00",
+  "elapsed_s": 162.9,
+  "ulogs": [
+    "21_54_13.ulg"
+  ]
+}

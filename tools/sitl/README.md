@@ -35,6 +35,7 @@ python3 tools/sitl/analyze_run.py A1
 | `run_scenario.sh` | 위의 소싱 래퍼 (호스트에서 부르는 진입점) |
 | `analyze_run.py` | `node.log` + `.ulg` → `metrics.json` + `verdict.md` (계획서 4장 지표 전량) |
 | `analyze_run.sh` | 분석 소싱 래퍼 |
+| `inject_probe.py` | **장애주입 런 전용 ulog 검사기**(S7). `analyze_run.py` 와 겹치지 않는 것만: `vehicle_status.nav_state` 구간(주입이 **실제로 먹혔는지**) / `offboard_control_mode`·`trajectory_setpoint` 단절(=**setpoint 발행 중단** 여부) / `vehicle_command` DO_SET_MODE / EKF 풍속(C4). 사용: `python3 tools/sitl/inject_probe.py <run_dir>` → JSON |
 
 ## 산출물
 
@@ -71,17 +72,45 @@ SITL ulog 는 런 1건당 **약 40MB**(A1 실측 39.9MB / 122초 비행, gzip 14
 
 ## 장애주입 훅
 
-`scenarios.yaml` 의 `inject:` 목록. 트리거 3종 × 액션 4종.
+`scenarios.yaml` 의 `inject:` 목록. 트리거 4종 × 액션 4종.
 
 ```yaml
 inject:
-  - on_state: FOLLOWING     # node.log 상태 진입 (또는 on_vtol_state: 1 / at_s: 60)
+  - on_state: FOLLOWING     # node.log 상태 진입
     delay_s: 8.0
     action: override        # set_mode(mode:) | override | param_set(param:,value:) | probe(topic:)
+
+  - on_log: "MC→FW 천이 명령 요청"   # node.log 임의 문장 정규식 (S7 추가)
+    action: set_mode
+    mode: AUTO.LOITER
 ```
 
-발화 시각·rc·출력은 `meta.json` 의 `inject_results` 에 남는다.
-**현재 `probe` 경로만 실사용 검증됨(A1).** `set_mode`/`override`/`param_set` 은 S4에서 첫 사용이다.
+트리거: `on_state` / `on_log` / `on_vtol_state` / `at_s`.
+발화 시각·rc·출력·경로(`via`)·소요시간(`done_mono_s`)은 `meta.json` 의 `inject_results` 에 남는다.
+
+**액션 검증 상태:** `probe`(A1) · `set_mode`(S7 C3/C7) · `override`(S7 C6a/C6b) **실사용 검증됨**.
+`param_set` 은 **아직 미검증**이다.
+
+### 트리거 지연 — 짧은 구간은 `on_log` 를 써라
+
+| 트리거 | 지연 | 비고 |
+|---|---|---|
+| `on_log` | **~0.2s** | Monitor 가 이미 증분으로 읽는 node.log. 루프 0.1s |
+| `on_state` | ~0.2s | 같은 경로(상태 진입 문장 한정) |
+| `on_vtol_state` | **1~2s** | `ros2 topic echo --once` 폴링. **3초 미만 구간은 통째로 놓친다** |
+
+S7 C3 실측: MC→FW 천이 구간이 **2.50~2.60초**뿐이라 `on_vtol_state: 1` 은 아예 발화하지 못했다
+(`C3_pxvehicle_try1_noinject`, `inject_results` = "트리거 미성립").
+
+### 주입 전송 경로 — in-process 가 기본, CLI 는 폴백
+
+`set_mode`/`override` 는 런 시작 시 만들어 둔 **in-process rclpy 클라이언트**로 나간다.
+`ros2 service call` CLI 는 호출마다 노드 생성 + 디스커버리를 다시 해서 **4.04초**가 걸린다
+(S7 C3 2차 실측: 트리거 로그 → PX4 모드 변경까지 4.25s 중 CLI 가 3.8s). in-process 는 왕복
+**0.002~0.005s**. rclpy 준비에 실패하면 자동으로 CLI 로 떨어지며 `meta.json` 의
+`inject_transport` / `inject_results[].via` 에 어느 경로였는지 남는다.
+`override` 는 발행 전에 **구독자 수를 확인**한다 — `ros2 topic pub --once` 가 매칭 전에 종료돼
+메시지가 사라지는 사고를 원천 차단.
 
 ## 종료 코드
 
@@ -92,6 +121,22 @@ inject:
 | 3 | 브링업 실패 (PX4/MAVROS 미기동, 또는 `boot_timeout_s` 안에 offboard_node 첫 로그 없음) |
 | 4 | `ros2 launch` 또는 PX4 가 DONE 없이 죽음 |
 | 5 | 시나리오 정의/사용법 오류 |
+| 6 | **거리 상한 초과** (`--range-limit-m`, 기본 1500m) — 미완주. 산출물은 정상 수집됨 |
+
+### 거리 상한 감시 (S7 추가)
+
+`RangeGuard` 가 `/mavros/local_position/pose` 를 4초마다 떠서 **이륙지점 기준 수평거리**를
+보고, `--range-limit-m`(기본 1500) 을 넘으면 즉시 런을 끝낸다(exit 6,
+`meta.json` 의 `exit_reason="range_exceeded"` + `range_guard.breach`).
+관측 최대거리는 이탈이 없어도 매 런 `range_guard.max_horiz_m` 에 남는다.
+
+도입 근거는 `C10_pxvehicle` — **장애주입이 하나도 없는데** 노드가 ENTRY 에서 무한대기하는
+동안 기체가 WP0 반대방향으로 **5.85km** 이탈했고, 하니스는 `timeout_s` 480초를 다 채울
+때까지 붙잡고 있으면서 ulog 만 키웠다. **스트림이 살아 있으면 PX4 의 offboard-loss
+페일세이프가 안 걸린다**는 것도 같은 런에서 실측됐다 — 하니스 밖에 제동장치가 없다.
+
+**이것은 판정이 아니다.** verdict 의 PASS/FAIL 에 관여하지 않고 임계값도 판정 임계가
+아니다. 시나리오 최장 경로가 B1 의 500m 이므로 정상 런에서는 성립하지 않는다.
 
 ### 두 개의 시계
 
@@ -155,4 +200,8 @@ inject:
   (disarm−5s 이후 제외) 값을 봐야 한다.
 - `geometric_cte` 는 원본 waypoints 직선 폴리라인 기준이라, 곡선을 그리는 eta3 플래너
   경로에서는 "계획경로 이탈"이 아니다. 1차 근거는 `node.log` 의 L1Guidance cte 다.
-- 바람 주입(C4)의 gz 측 주입 방법은 **아직 확정되지 않았다** — `scenarios.yaml` C4 주석 참조.
+- 바람 주입(C4)은 **S7에서 확정·실행됐다** — `scenarios.yaml` C4 주석과
+  `logs/2026-07-27_sitl_vtol_campaign/S7_notes.md` §4 참조. 요약: `default.sdf` 를 복사해
+  `<wind><linear_velocity>` 만 바꾼 새 월드를 **PX4 트리의 worlds 디렉터리 안에** 만들고
+  `PX4_GZ_WORLD` 로 지정한다. `PX4_GZ_WORLDS` 로 트리 밖을 가리키는 방법은 통하지 않는다
+  (`build/px4_sitl_default/rootfs/gz_env.sh` 가 무조건 덮어쓴다). 런 후 새 월드 파일은 지운다.
