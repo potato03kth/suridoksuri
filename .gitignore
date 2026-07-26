@@ -6,6 +6,18 @@ node_modules/
 # 결정(2026-07-18). tools/flight_logs/README.md "업로드 방침" 참조.
 *.log
 !logs/**/*.log
+
+# SITL-7 캠페인 ulog만 예외적으로 제외 (2026-07-27, S1).
+# 실비행 ulog(0.6~2MB)와 달리 SITL ulog는 런 1건당 **약 40MB**(gzip 14MB)이다
+# — A1 실측 39.9MB/122초 비행, SDLOG_PROFILE은 이미 기본값 1(최소 세트)이라
+# 더 줄일 여지가 없다. 시나리오 26건이면 1GB급이라 "대용량 raw 바이너리" 예외
+# (CLAUDE.md 공통규칙)에 해당한다.
+# 대신 커밋되는 것: node.log(전문) / mavros.log / meta.json / metrics.json
+# (ulog에서 뽑은 지표 원값 전량) / verdict.md.
+# 원본 ulog는 WSL Ubuntu-22.04 안
+# /root/drone_ws/src/suridoksuri/logs/2026-07-27_sitl_vtol_campaign/<id>/ 에 남고
+# 파일명은 meta.json 의 "ulogs" 에 기록된다.
+logs/2026-07-27_sitl_vtol_campaign/**/*.ulg
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

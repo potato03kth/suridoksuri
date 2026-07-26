@@ -1,0 +1,1081 @@
+{
+  "scenario_id": "A1",
+  "run_dir": "/root/drone_ws/src/suridoksuri/logs/2026-07-27_sitl_vtol_campaign/A1",
+  "ulog_file": "17_26_47.ulg",
+  "ulog_selection_note": null,
+  "ulog_error": null,
+  "resolved_params": {
+    "control_hz": 10.0,
+    "v_approach": 5.0,
+    "v_cruise": 20.0,
+    "transition_alt": 50.0,
+    "d_end_thresh": 10.0,
+    "wp0_heading_tol": 0.05,
+    "l1_dist": 20.0,
+    "waypoint_frame": "local",
+    "entry_mode": "pre_takeoff"
+  },
+  "waypoints": [
+    [
+      0.0,
+      0.0,
+      50.0
+    ],
+    [
+      300.0,
+      0.0,
+      50.0
+    ]
+  ],
+  "ulog_topics": [
+    "actuator_armed",
+    "actuator_controls_status_0",
+    "actuator_motors",
+    "actuator_outputs",
+    "actuator_servos",
+    "airspeed",
+    "airspeed_validated",
+    "airspeed_wind",
+    "battery_status",
+    "config_overrides",
+    "control_allocator_status",
+    "cpuload",
+    "detect_and_avoid_most_urgent",
+    "differential_pressure",
+    "distance_sensor_mode_change_request",
+    "ekf2_timestamps",
+    "esc_status",
+    "estimator_aid_src_airspeed",
+    "estimator_aid_src_baro_hgt",
+    "estimator_aid_src_fake_hgt",
+    "estimator_aid_src_fake_pos",
+    "estimator_aid_src_gnss_hgt",
+    "estimator_aid_src_gnss_pos",
+    "estimator_aid_src_gnss_vel",
+    "estimator_aid_src_gravity",
+    "estimator_aid_src_mag",
+    "estimator_aid_src_sideslip",
+    "estimator_baro_bias",
+    "estimator_event_flags",
+    "estimator_fusion_control",
+    "estimator_gps_status",
+    "estimator_innovation_test_ratios",
+    "estimator_innovation_variances",
+    "estimator_innovations",
+    "estimator_sensor_bias",
+    "estimator_states",
+    "estimator_status",
+    "estimator_status_flags",
+    "event",
+    "failsafe_flags",
+    "failure_detector_status",
+    "fixed_wing_lateral_guidance_status",
+    "fixed_wing_lateral_setpoint",
+    "fixed_wing_lateral_status",
+    "fixed_wing_longitudinal_setpoint",
+    "flaps_setpoint",
+    "flight_phase_estimation",
+    "fw_virtual_attitude_setpoint",
+    "gain_compression",
+    "gripper",
+    "home_position",
+    "hover_thrust_estimate",
+    "landing_gear",
+    "landing_gear_wheel",
+    "lateral_control_configuration",
+    "logger_status",
+    "longitudinal_control_configuration",
+    "manual_control_setpoint",
+    "mc_virtual_attitude_setpoint",
+    "mission_result",
+    "navigator_status",
+    "offboard_control_mode",
+    "parameter_update",
+    "position_setpoint_triplet",
+    "rate_ctrl_status",
+    "rtl_status",
+    "rtl_time_estimate",
+    "sensor_accel",
+    "sensor_baro",
+    "sensor_combined",
+    "sensor_gps",
+    "sensor_gyro",
+    "sensor_gyro_fft",
+    "sensor_mag",
+    "sensor_selection",
+    "sensors_status_imu",
+    "spoilers_setpoint",
+    "system_power",
+    "takeoff_status",
+    "tecs_status",
+    "telemetry_status",
+    "timesync_status",
+    "trajectory_setpoint",
+    "vehicle_acceleration",
+    "vehicle_air_data",
+    "vehicle_angular_velocity",
+    "vehicle_angular_velocity_groundtruth",
+    "vehicle_attitude",
+    "vehicle_attitude_groundtruth",
+    "vehicle_attitude_setpoint",
+    "vehicle_command",
+    "vehicle_command_ack",
+    "vehicle_constraints",
+    "vehicle_control_mode",
+    "vehicle_global_position",
+    "vehicle_global_position_groundtruth",
+    "vehicle_gps_position",
+    "vehicle_imu",
+    "vehicle_imu_status",
+    "vehicle_land_detected",
+    "vehicle_local_position",
+    "vehicle_local_position_groundtruth",
+    "vehicle_local_position_setpoint",
+    "vehicle_magnetometer",
+    "vehicle_rates_setpoint",
+    "vehicle_status",
+    "vehicle_thrust_setpoint",
+    "vehicle_thrust_setpoint_virtual_fw",
+    "vehicle_thrust_setpoint_virtual_mc",
+    "vehicle_torque_setpoint",
+    "vehicle_torque_setpoint_virtual_fw",
+    "vehicle_torque_setpoint_virtual_mc",
+    "vtol_vehicle_status",
+    "wind",
+    "yaw_estimator_status"
+  ],
+  "ulog_duration_s": 149.752,
+  "time_alignment": {
+    "offset_s": 1785086803.3335674,
+    "scale": 1.0860111833985728,
+    "model": "wall_t = scale * ulog_t + offset_s",
+    "n_anchors": 4,
+    "max_abs_residual_s": 0.6837325096130371,
+    "const_offset_spread_s": 6.214197874069214,
+    "anchors": [
+      {
+        "anchor": "COMPONENT_ARM_DISARM(400)",
+        "ulog_t": 24.46,
+        "wall_t": 1785086830.0145626,
+        "const_offset_s": 1785086805.5545626,
+        "fit_residual_s": 0.11716175079345703
+      },
+      {
+        "anchor": "NAV_TAKEOFF(22)",
+        "ulog_t": 24.76,
+        "wall_t": 1785086830.322999,
+        "const_offset_s": 1785086805.562999,
+        "fit_residual_s": 0.09979462623596191
+      },
+      {
+        "anchor": "DO_VTOL_TRANSITION→FW(3000,p1=4)",
+        "ulog_t": 71.052,
+        "wall_t": 1785086879.8131015,
+        "const_offset_s": 1785086808.7611015,
+        "fit_residual_s": -0.6837325096130371
+      },
+      {
+        "anchor": "DO_VTOL_TRANSITION→MC(3000,p1=3)",
+        "ulog_t": 92.644,
+        "wall_t": 1785086904.4127605,
+        "const_offset_s": 1785086811.7687604,
+        "fit_residual_s": 0.46677303314208984
+      }
+    ],
+    "reason": null
+  },
+  "state_windows_ulog_s": {
+    "ARM_TAKEOFF": [
+      24.5679,
+      24.8519
+    ],
+    "CLIMBING": [
+      24.8519,
+      55.8727
+    ],
+    "TRANSITION_FW": [
+      55.8727,
+      72.9074
+    ],
+    "STREAMING": [
+      72.9074,
+      73.0055
+    ],
+    "FOLLOWING": [
+      73.0055,
+      92.992
+    ],
+    "TRANSITION_MC": [
+      92.992,
+      97.9536
+    ],
+    "HOLD": [
+      97.9536,
+      105.8724
+    ],
+    "LANDING": [
+      105.8724,
+      149.752
+    ],
+    "DONE": [
+      149.752,
+      149.752
+    ]
+  },
+  "completion": {
+    "states_seen": [
+      "ARM_TAKEOFF",
+      "CLIMBING",
+      "TRANSITION_FW",
+      "STREAMING",
+      "FOLLOWING",
+      "TRANSITION_MC",
+      "HOLD",
+      "LANDING",
+      "DONE"
+    ],
+    "order_is_subsequence_of_canonical": true,
+    "reached_done": true,
+    "pilot_takeover": false,
+    "override": false,
+    "exit_reason": "done",
+    "exit_code": 0,
+    "mission_span_s": 137.5973,
+    "state_timeline": [
+      {
+        "state": "ARM_TAKEOFF",
+        "entry_wall_t": 1785086830.0145626,
+        "dwell_s": 0.3084
+      },
+      {
+        "state": "CLIMBING",
+        "entry_wall_t": 1785086830.322999,
+        "dwell_s": 33.689
+      },
+      {
+        "state": "TRANSITION_FW",
+        "entry_wall_t": 1785086864.0119932,
+        "dwell_s": 18.4998
+      },
+      {
+        "state": "STREAMING",
+        "entry_wall_t": 1785086882.5118363,
+        "dwell_s": 0.1065
+      },
+      {
+        "state": "FOLLOWING",
+        "entry_wall_t": 1785086882.6183739,
+        "dwell_s": 21.7055
+      },
+      {
+        "state": "TRANSITION_MC",
+        "entry_wall_t": 1785086904.3238847,
+        "dwell_s": 5.3884
+      },
+      {
+        "state": "HOLD",
+        "entry_wall_t": 1785086909.7122378,
+        "dwell_s": 8.5999
+      },
+      {
+        "state": "LANDING",
+        "entry_wall_t": 1785086918.3121781,
+        "dwell_s": 49.2997
+      },
+      {
+        "state": "DONE",
+        "entry_wall_t": 1785086967.6118717,
+        "dwell_s": 5.4938
+      }
+    ],
+    "disarm": {
+      "armed_at_ulog_s": 24.472,
+      "disarmed_at_ulog_s": 148.756,
+      "armed_duration_s": 124.284,
+      "value": true,
+      "reason": null
+    }
+  },
+  "vtol_state_sequence": {
+    "value": [
+      3,
+      1,
+      4,
+      2,
+      3
+    ],
+    "segments": [
+      {
+        "vtol_state": 3,
+        "name": "MC",
+        "t_start_ulog_s": 5.22,
+        "duration_s": 65.836
+      },
+      {
+        "vtol_state": 1,
+        "name": "TRANS_TO_FW",
+        "t_start_ulog_s": 71.056,
+        "duration_s": 2.556
+      },
+      {
+        "vtol_state": 4,
+        "name": "FW",
+        "t_start_ulog_s": 73.612,
+        "duration_s": 19.036
+      },
+      {
+        "vtol_state": 2,
+        "name": "TRANS_TO_MC",
+        "t_start_ulog_s": 92.648,
+        "duration_s": 5.14
+      },
+      {
+        "vtol_state": 3,
+        "name": "MC",
+        "t_start_ulog_s": 97.788,
+        "duration_s": 51.0
+      }
+    ],
+    "forward_transition_s": 2.556,
+    "back_transition_s": 5.14,
+    "forward_ok_3_1_4": true,
+    "back_ok_4_2_3": true,
+    "reason": null
+  },
+  "setpoint_jump": {
+    "source_topic": "trajectory_setpoint",
+    "max_gap_s": 0.5,
+    "threshold_m": 1.5,
+    "threshold_note": "3 x v_approach(5.0) x dt(0.100s) — 계획서 4장. 참고: FW 순항 중 lookahead 목표점은 기체속도로 전진하므로 정상 상태에서도 약 v_cruise(20.0) x dt = 2.00m/틱 이 나온다",
+    "max_jump_m": 216.1008,
+    "max_rate_mps": 683.8634,
+    "n_violations": 73,
+    "n_violations_at_state_boundary": 2,
+    "boundary_violations_top": [
+      {
+        "ulog_t_s": 73.968,
+        "jump_m": 216.1008,
+        "rate_mps": 683.8634,
+        "dt_s": 0.316,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 98.14,
+        "jump_m": 113.1633,
+        "rate_mps": 565.8167,
+        "dt_s": 0.2,
+        "near_state_boundary": true,
+        "state": "HOLD"
+      }
+    ],
+    "top10": [
+      {
+        "ulog_t_s": 73.968,
+        "jump_m": 216.1008,
+        "rate_mps": 683.8634,
+        "dt_s": 0.316,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 98.14,
+        "jump_m": 113.1633,
+        "rate_mps": 565.8167,
+        "dt_s": 0.2,
+        "near_state_boundary": true,
+        "state": "HOLD"
+      },
+      {
+        "ulog_t_s": 74.364,
+        "jump_m": 3.8882,
+        "rate_mps": 19.8378,
+        "dt_s": 0.196,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 74.568,
+        "jump_m": 3.8502,
+        "rate_mps": 18.8733,
+        "dt_s": 0.204,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 74.168,
+        "jump_m": 3.7018,
+        "rate_mps": 18.5092,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 74.764,
+        "jump_m": 3.6497,
+        "rate_mps": 18.6207,
+        "dt_s": 0.196,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 74.964,
+        "jump_m": 3.4174,
+        "rate_mps": 17.0872,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 75.168,
+        "jump_m": 3.238,
+        "rate_mps": 15.8726,
+        "dt_s": 0.204,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 78.16,
+        "jump_m": 3.2144,
+        "rate_mps": 16.0719,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 78.36,
+        "jump_m": 3.2137,
+        "rate_mps": 16.0683,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      }
+    ],
+    "n_samples": 598,
+    "resumption_gaps": [
+      {
+        "ulog_t_s": 73.652,
+        "gap_s": 16.448,
+        "distance_m": 299.9669,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 97.94,
+        "gap_s": 5.384,
+        "distance_m": 113.1633,
+        "state": "TRANSITION_MC"
+      }
+    ],
+    "n_resumption_gaps": 2,
+    "reason": null,
+    "boundary_windows_available": true
+  },
+  "vertical_accel": {
+    "value": 81.8044,
+    "peak_g": 8.3417,
+    "peak_at_ulog_s": 145.648,
+    "peak_state": "LANDING",
+    "excluded_windows": [
+      "vtol_state=1 71.1~73.6s",
+      "vtol_state=2 92.6~97.8s"
+    ],
+    "max_including_transition_mps2": 81.8044,
+    "excl_touchdown": {
+      "value": 9.1878,
+      "peak_g": 0.9369,
+      "peak_at_ulog_s": 74.26,
+      "peak_state": "FOLLOWING",
+      "window_note": "disarm(148.756s) − 5.0s 이후 제외"
+    },
+    "reason": null
+  },
+  "decel": {
+    "value": 2.2371,
+    "peak_decel_g": 0.2281,
+    "peak_at_ulog_s": 94.744,
+    "window_ulog_s": [
+      92.648,
+      97.788
+    ],
+    "v_at_window_start_mps": 14.0326,
+    "v_at_window_end_mps": 5.0858,
+    "reason": null
+  },
+  "heading": {
+    "target_chi_rad": 0.0,
+    "target_chi_deg": 0.0,
+    "target_source": "node.log '헤딩 정렬 완료 target=' 값",
+    "tol_rad": 0.05,
+    "window_ulog_s": [
+      55.8727,
+      72.9074
+    ],
+    "n_samples": 4258,
+    "err_at_window_start_deg": -97.35,
+    "max_abs_err_deg": 97.6442,
+    "final_abs_err_deg": 1.2066,
+    "first_within_tol_ulog_s": 69.112,
+    "align_time_s": 13.236,
+    "overshoot_rad_after_first_in_tol": 0.0,
+    "monotone_convergence": true,
+    "node_log_align": {
+      "t": 1785086879.812132,
+      "target_deg": 0.0,
+      "current_deg": 2.4,
+      "err_deg": -2.4
+    },
+    "t_align_ulog_s": 70.4215,
+    "reason": null
+  },
+  "altitude": {
+    "z_ground_local_m": -0.0132,
+    "transition_alt_m": 50.0,
+    "climb": {
+      "max_agl_m": 49.6981,
+      "overshoot_pct": -0.6038,
+      "window_ulog_s": [
+        24.8519,
+        55.8727
+      ],
+      "reason": null
+    },
+    "climb_to_following": {
+      "max_agl_m": 49.8197,
+      "overshoot_pct": -0.3606,
+      "window_ulog_s": [
+        24.8519,
+        73.0055
+      ],
+      "reason": null
+    },
+    "transition_alt_loss": {
+      "value": 0.0072,
+      "agl_at_start_m": 48.4747,
+      "agl_min_m": 48.4675,
+      "window_ulog_s": [
+        71.056,
+        73.612
+      ],
+      "reason": null
+    },
+    "cruise_alt_dev": {
+      "ref_agl_m": 49.9868,
+      "ref_source": "waypoints[-1].z (EKF 로컬 절대, waypoint_frame=local) − 지면 h_up",
+      "mean_dev_m": -0.6094,
+      "max_abs_dev_m": 2.4454,
+      "min_agl_m": 48.1366,
+      "max_agl_m": 52.4322,
+      "window_ulog_s": [
+        73.0055,
+        92.992
+      ],
+      "reason": null
+    }
+  },
+  "cte": {
+    "node_log_cte": {
+      "n_samples": 10,
+      "max_m": 1.1,
+      "mean_m": 0.8,
+      "p95_m": 1.055,
+      "signed_min_m": -1.1,
+      "signed_max_m": -0.6,
+      "first_m": -0.6,
+      "last_m": -0.8,
+      "note": "offboard_node 가 20틱마다 찍는 L1Guidance cte. max/mean/p95 는 절댓값, signed_* 는 부호 유지",
+      "reason": null
+    },
+    "geometric_cte": {
+      "n_samples": 2497,
+      "max_m": 1.114,
+      "mean_m": 0.8008,
+      "p95_m": 1.1107,
+      "note": "원본 waypoints 직선 폴리라인 기준. VTOL 기본 플래너(eta3)는 코너를 곡선으로 잇기 때문에 이 값은 '계획경로 이탈'이 아니라 '직선 대비 편차'다 — 코너 구간에서 크게 나오는 것이 정상.",
+      "reason": null
+    }
+  },
+  "node_log": {
+    "present": true,
+    "state_events": [
+      {
+        "state": "ARM_TAKEOFF",
+        "t": 1785086830.0145626,
+        "msg": "ARM 요청"
+      },
+      {
+        "state": "CLIMBING",
+        "t": 1785086830.322999,
+        "msg": "CommandTOL 이륙 요청 alt=50.2m AMSL (지면 0.2+50.0) -> CLIMBING"
+      },
+      {
+        "state": "TRANSITION_FW",
+        "t": 1785086864.0119932,
+        "msg": "운용 고도 50.0m 도달 → transition_fw"
+      },
+      {
+        "state": "STREAMING",
+        "t": 1785086882.5118363,
+        "msg": "FW 전환 완료 -> STREAMING"
+      },
+      {
+        "state": "FOLLOWING",
+        "t": 1785086882.6183739,
+        "msg": "OFFBOARD 확인 → FOLLOWING"
+      },
+      {
+        "state": "TRANSITION_MC",
+        "t": 1785086904.3238847,
+        "msg": "경로 추종 완료 -> transition_mc"
+      },
+      {
+        "state": "HOLD",
+        "t": 1785086909.7122378,
+        "msg": "MC 전환 완료 -> HOLD (WP1 복귀)"
+      },
+      {
+        "state": "LANDING",
+        "t": 1785086918.3121781,
+        "msg": "WP1 도달·안정 → LANDING (dist=0.9m speed=0.2m/s)"
+      },
+      {
+        "state": "DONE",
+        "t": 1785086967.6118717,
+        "msg": "착륙 완료 (disarmed) -> DONE"
+      }
+    ],
+    "all_state_events": [
+      {
+        "state": "ARM_TAKEOFF",
+        "t": 1785086830.0145626,
+        "msg": "ARM 요청"
+      },
+      {
+        "state": "CLIMBING",
+        "t": 1785086830.322999,
+        "msg": "CommandTOL 이륙 요청 alt=50.2m AMSL (지면 0.2+50.0) -> CLIMBING"
+      },
+      {
+        "state": "TRANSITION_FW",
+        "t": 1785086864.0119932,
+        "msg": "운용 고도 50.0m 도달 → transition_fw"
+      },
+      {
+        "state": "STREAMING",
+        "t": 1785086882.5118363,
+        "msg": "FW 전환 완료 -> STREAMING"
+      },
+      {
+        "state": "FOLLOWING",
+        "t": 1785086882.6183739,
+        "msg": "OFFBOARD 확인 → FOLLOWING"
+      },
+      {
+        "state": "TRANSITION_MC",
+        "t": 1785086904.3238847,
+        "msg": "경로 추종 완료 -> transition_mc"
+      },
+      {
+        "state": "HOLD",
+        "t": 1785086909.7122378,
+        "msg": "MC 전환 완료 -> HOLD (WP1 복귀)"
+      },
+      {
+        "state": "LANDING",
+        "t": 1785086918.3121781,
+        "msg": "WP1 도달·안정 → LANDING (dist=0.9m speed=0.2m/s)"
+      },
+      {
+        "state": "DONE",
+        "t": 1785086967.6118717,
+        "msg": "착륙 완료 (disarmed) -> DONE"
+      }
+    ],
+    "warnings": [
+      {
+        "pattern": "/mavros/cmd/arming 서비스 없음",
+        "level": "WARN",
+        "count": 6,
+        "first_t": 1785086829.4735024,
+        "last_t": 1785086829.9125814,
+        "sample": "/mavros/cmd/arming 서비스 없음"
+      }
+    ],
+    "errors": [],
+    "heading_align": {
+      "t": 1785086879.812132,
+      "target_deg": 0.0,
+      "current_deg": 2.4,
+      "err_deg": -2.4
+    },
+    "path_origin": null,
+    "takeoff_request": {
+      "t": 1785086830.322999,
+      "target_amsl": 50.2,
+      "ground_amsl": 0.2,
+      "transition_alt": 50.0
+    },
+    "cte_samples": [
+      {
+        "t": 1785086882.7254035,
+        "tick": 0,
+        "mode": "OFFBOARD",
+        "cte": -0.6,
+        "pos": [
+          13.9,
+          -0.6
+        ],
+        "tgt": [
+          83.9,
+          0.0
+        ]
+      },
+      {
+        "t": 1785086884.6224027,
+        "tick": 20,
+        "mode": "OFFBOARD",
+        "cte": -1.1,
+        "pos": [
+          45.8,
+          -1.1
+        ],
+        "tgt": [
+          115.8,
+          0.0
+        ]
+      },
+      {
+        "t": 1785086886.6249142,
+        "tick": 40,
+        "mode": "OFFBOARD",
+        "cte": -1.0,
+        "pos": [
+          76.0,
+          -1.0
+        ],
+        "tgt": [
+          146.0,
+          0.0
+        ]
+      },
+      {
+        "t": 1785086891.522722,
+        "tick": 60,
+        "mode": "OFFBOARD",
+        "cte": -0.9,
+        "pos": [
+          105.8,
+          -0.9
+        ],
+        "tgt": [
+          175.8,
+          0.0
+        ]
+      },
+      {
+        "t": 1785086893.524463,
+        "tick": 80,
+        "mode": "OFFBOARD",
+        "cte": -0.8,
+        "pos": [
+          136.0,
+          -0.8
+        ],
+        "tgt": [
+          206.0,
+          0.0
+        ]
+      },
+      {
+        "t": 1785086895.52956,
+        "tick": 100,
+        "mode": "OFFBOARD",
+        "cte": -0.7,
+        "pos": [
+          165.6,
+          -0.7
+        ],
+        "tgt": [
+          235.6,
+          0.0
+        ]
+      },
+      {
+        "t": 1785086897.526103,
+        "tick": 120,
+        "mode": "OFFBOARD",
+        "cte": -0.6,
+        "pos": [
+          194.5,
+          -0.6
+        ],
+        "tgt": [
+          264.5,
+          0.0
+        ]
+      },
+      {
+        "t": 1785086899.5237453,
+        "tick": 140,
+        "mode": "OFFBOARD",
+        "cte": -0.7,
+        "pos": [
+          223.1,
+          -0.7
+        ],
+        "tgt": [
+          293.1,
+          0.0
+        ]
+      },
+      {
+        "t": 1785086901.5212038,
+        "tick": 160,
+        "mode": "OFFBOARD",
+        "cte": -0.8,
+        "pos": [
+          251.4,
+          -0.8
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ]
+      },
+      {
+        "t": 1785086903.529669,
+        "tick": 180,
+        "mode": "OFFBOARD",
+        "cte": -0.8,
+        "pos": [
+          279.5,
+          -0.8
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ]
+      }
+    ],
+    "hold_samples": [
+      {
+        "t": 1785086911.712097,
+        "dist": 41.4,
+        "speed": 8.8
+      },
+      {
+        "t": 1785086913.7124665,
+        "dist": 26.0,
+        "speed": 7.9
+      },
+      {
+        "t": 1785086915.712211,
+        "dist": 10.1,
+        "speed": 8.0
+      },
+      {
+        "t": 1785086917.7122555,
+        "dist": 1.2,
+        "speed": 0.7
+      }
+    ],
+    "offboard_reacquire": [],
+    "timeouts": [],
+    "line_count": 171,
+    "t_first": 1785086829.4735024,
+    "t_last": 1785086973.1057062
+  },
+  "mavros_log": {
+    "present": true,
+    "warnings": [
+      {
+        "pattern": "FCU: EVENT # with args ########################################-",
+        "level": "ERROR",
+        "count": 13,
+        "first_t": 1785086808.187832,
+        "last_t": 1785086969.8018198,
+        "sample": "FCU: EVENT 7791755 with args -255-1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "FCU: UNK(#): EVENT # with args ########################################-",
+        "level": "WARN",
+        "count": 10,
+        "first_t": 1785086809.2760222,
+        "last_t": 1785086969.8028016,
+        "sample": "FCU: UNK(8): EVENT 11047904 with args -0-0-0-18-1-128-0-0-0-0-58-1-128-0-58-1-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: unicast request timeout, retries left #",
+        "level": "WARN",
+        "count": 5,
+        "first_t": 1785086807.1237633,
+        "last_t": 1785086814.402826,
+        "sample": "VER: unicast request timeout, retries left 2",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: broadcast request timeout, retries left #",
+        "level": "WARN",
+        "count": 4,
+        "first_t": 1785086805.3244271,
+        "last_t": 1785086811.5785632,
+        "sample": "VER: broadcast request timeout, retries left 4",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: command plugin service call failed!",
+        "level": "ERROR",
+        "count": 4,
+        "first_t": 1785086812.5283456,
+        "last_t": 1785086815.338001,
+        "sample": "VER: command plugin service call failed!",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "CMD: Unexpected command #, result #",
+        "level": "WARN",
+        "count": 3,
+        "first_t": 1785086808.0309937,
+        "last_t": 1785086918.4227967,
+        "sample": "CMD: Unexpected command 520, result 3",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "TM: RTT too high for timesync: # ms.",
+        "level": "WARN",
+        "count": 3,
+        "first_t": 1785086824.711572,
+        "last_t": 1785086824.927008,
+        "sample": "TM: RTT too high for timesync: 2119.69 ms.",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "TM: Time jump detected. Resetting time synchroniser.",
+        "level": "ERROR",
+        "count": 3,
+        "first_t": 1785086864.6852674,
+        "last_t": 1785086967.0522032,
+        "sample": "TM: Time jump detected. Resetting time synchroniser.",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: your FCU don't support AUTOPILOT_VERSION, switched to default capabilities",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785086815.338121,
+        "last_t": 1785086815.338121,
+        "sample": "VER: your FCU don't support AUTOPILOT_VERSION, switched to default capabilities",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "PR: Failed to get parameter type: CBRK_SUPPLY_CHK",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785086815.4509227,
+        "last_t": 1785086815.4509227,
+        "sample": "PR: Failed to get parameter type: CBRK_SUPPLY_CHK",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "PR: request param ## timeout, retries left #, and # params still missing",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785086825.6955945,
+        "last_t": 1785086825.6955945,
+        "sample": "PR: request param #387 timeout, retries left 2, and 356 params still missing",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "UAS Executor terminated",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785086974.303181,
+        "last_t": 1785086974.303181,
+        "sample": "UAS Executor terminated",
+        "known_cosmetic": false
+      }
+    ],
+    "line_count": 229
+  },
+  "verdict": [
+    {
+      "item": "완주 (DONE 도달)",
+      "status": "PASS",
+      "criterion": "DONE 상태 도달",
+      "detail": "상태 ARM_TAKEOFF → CLIMBING → TRANSITION_FW → STREAMING → FOLLOWING → TRANSITION_MC → HOLD → LANDING → DONE, 소요 137.5973s"
+    },
+    {
+      "item": "disarm 확인",
+      "status": "PASS",
+      "criterion": "ulog arming_state 2→1",
+      "detail": "armed 24.472s → disarmed 148.756s (비행 124.284s)"
+    },
+    {
+      "item": "상태 순서",
+      "status": "PASS",
+      "criterion": "정상 순서의 부분수열",
+      "detail": "ARM_TAKEOFF → CLIMBING → TRANSITION_FW → STREAMING → FOLLOWING → TRANSITION_MC → HOLD → LANDING → DONE"
+    },
+    {
+      "item": "vtol_state 시퀀스",
+      "status": "PASS",
+      "criterion": "3→1→4, 4→2→3",
+      "detail": "seq=[3, 1, 4, 2, 3], 정천이 2.556s / 역천이 5.14s"
+    },
+    {
+      "item": "setpoint 점프",
+      "status": "FAIL",
+      "criterion": "상태 경계 ±1s 에서 1.5m 초과 점프 없음",
+      "detail": "임계 1.5m, 경계±1s 위반 2건 / 전체 위반 73건 / 샘플 598개, 최대 216.1008m (683.8634 m/s). 경계 최대: 216.1008m@73.968s(FOLLOWING), 113.1633m@98.14s(HOLD). 스트림 재개 갭 2건은 별도 집계"
+    },
+    {
+      "item": "수직 가속",
+      "status": "FAIL",
+      "criterion": "천이 제외 |az| ≤ 0.5g (4.90 m/s²)",
+      "detail": "피크 |az|=81.8044 m/s² (8.3417g) @145.648s state=LANDING; 접지(disarm−5s) 제외 시 9.1878 m/s² (0.9369g) @74.26s state=FOLLOWING"
+    },
+    {
+      "item": "역천이 감속률",
+      "status": "PASS",
+      "criterion": "≤ 0.3g (2.94 m/s²)",
+      "detail": "최대 2.2371 m/s² (0.2281g), 14.0326→5.0858 m/s"
+    },
+    {
+      "item": "TRANSITION_FW 헤딩",
+      "status": "PASS",
+      "criterion": "단조수렴 + err ≤ 2.9°",
+      "detail": "시작오차 -97.35° → 정렬 13.236s 소요, 최대 97.6442°, tol 진입 후 재증가 0.0 rad, 단조수렴=True"
+    },
+    {
+      "item": "CLIMBING 오버슈트",
+      "status": "PASS",
+      "criterion": "≤ +10%",
+      "detail": "최대 AGL 49.6981m vs transition_alt 50.0m → -0.6038%"
+    },
+    {
+      "item": "정천이 고도손실",
+      "status": "PASS",
+      "criterion": "≤ 5m",
+      "detail": "48.4747m → 최저 48.4675m (손실 0.0072m)"
+    },
+    {
+      "item": "순항 고도편차",
+      "status": "PASS",
+      "criterion": "±3m",
+      "detail": "기준 AGL 49.9868m, 평균편차 -0.6094m, 최대 |편차| 2.4454m"
+    },
+    {
+      "item": "FW cte",
+      "status": "PASS",
+      "criterion": "직선 ≤ 2m (코너는 별도 기록)",
+      "detail": "최대 |cte| 1.1m 평균 0.8m (부호 -1.1~-0.6m, n=10) — 코너 오버슈트 포함값"
+    },
+    {
+      "item": "경고/타임아웃",
+      "status": "WARN",
+      "criterion": "무해성 판단은 사람이 한다(계획서 5장)",
+      "detail": "node.log 6건/1종, mavros.log 49건/12종 — verdict 하단 목록 참조"
+    }
+  ]
+}

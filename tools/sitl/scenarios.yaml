@@ -1,0 +1,277 @@
+# SITL-7 VTOL 오프보드 전면 회귀 캠페인 — 시나리오 정의
+#
+# 근거 문서: docs/sitl_vtol_campaign.md 3장.
+# 실행:      python3 tools/sitl/run_scenario.py <id>   (WSL Ubuntu-22.04 안에서)
+# 분석:      python3 tools/sitl/analyze_run.py <id>
+#
+# 스키마
+#   id          : 시나리오 식별자 (산출물 디렉터리 이름)
+#   desc        : 목적 한 줄
+#   model       : PX4 SITL 모델 (기본 defaults.model = gz_standard_vtol)
+#   launch_args : phase2.launch.py 에 `key:=value` 로 그대로 전달되는 dict.
+#                 값은 전부 문자열로 적는다(YAML이 숫자로 바꿔 포맷이 흔들리는 것을 막음).
+#                 여기 비어 있는 파라미터는 fc_ros_params.yaml 정식값이 쓰인다.
+#   timeout_s   : 이 시간(초) 안에 DONE에 도달하지 못하면 강제 종료 (exit 2)
+#   home        : (옵션) PX4_HOME_LAT/LON/ALT 환경변수. C8 통제조건용
+#   inject      : (옵션) 장애주입 훅 목록. 각 항목:
+#                   on_state : 이 상태 진입이 node.log에서 관측되면 트리거
+#                              (ARM_TAKEOFF/CLIMBING/TRANSITION_FW/STREAMING/
+#                               ENTRY/FOLLOWING/TRANSITION_MC/HOLD/LANDING/DONE)
+#                   on_vtol_state : 이 vtol_state 값이 MAVROS에서 관측되면 트리거
+#                              (1=천이중MC→FW, 2=천이중FW→MC, 3=MC, 4=FW)
+#                   at_s     : 런 시작으로부터 절대 경과시간(초) 트리거
+#                   delay_s  : 트리거 성립 후 추가 지연(초), 기본 0
+#                   action   : set_mode | override | param_set | probe
+#                     set_mode  → mode:  (예 AUTO.LOITER / POSCTL / MANUAL)
+#                     override  → /fc_ros/override 에 std_msgs/Bool true 1회 발행
+#                     param_set → param: / value:  (ros2 param set /mavros/param)
+#                     probe     → topic: 을 --once 로 떠서 inject 결과에 기록(무해)
+#
+#   ⚠️ inject 는 A1(probe)로만 동작확인됨 — set_mode/override/param_set 경로는
+#      S4(Phase 3) 세션에서 첫 실사용이다.
+
+defaults:
+  model: gz_standard_vtol
+  timeout_s: 420
+
+scenarios:
+
+  # ── Phase 1 — 기준선 회귀 (SITL-4 재현) ─────────────────────────────────
+  - id: A1
+    desc: "SITL-4 직선 300m 재현 (3주치 변경 후 회귀 여부). waypoint_frame=local(SITL-4 당시 동작)"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+    timeout_s: 420
+    inject:
+      # 하니스 훅 자체의 동작확인용 무해 프로브 (S1). 기체 거동에 영향 없음.
+      - on_state: FOLLOWING
+        delay_s: 3.0
+        action: probe
+        topic: /mavros/state
+
+  - id: A2
+    desc: "동일 경로, waypoint_frame=takeoff(현 기본값) — VTOL 첫 검증"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+    timeout_s: 420
+
+  - id: A3
+    desc: "SITL-4 L자 경로 재현 (90° 1회)"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 200.0,0.0,50.0, 200.0,200.0,50.0]"
+    timeout_s: 480
+
+  - id: A4
+    desc: "중간 WP 고도가 다른 경로 → _cruise_alt 스칼라화(중간 WP z 무시) 실증"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 150.0,0.0,80.0, 300.0,0.0,50.0]"
+    timeout_s: 480
+
+  # ── Phase 2 — 경로 다양성 ───────────────────────────────────────────────
+  - id: B1
+    desc: "장거리 직선 500m — 순항 안정성"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 500.0,0.0,50.0]"
+    timeout_s: 540
+
+  - id: B2
+    desc: "완만 곡선 4WP(30°급 꺾임) — eta3 NR 경로(_trapz 수정) 실행 검증"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 150.0,0.0,50.0, 300.0,80.0,50.0, 450.0,200.0,50.0]"
+    timeout_s: 600
+
+  - id: B3
+    desc: "직각 코너(90°) — 코너 오버슈트 정량화"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 250.0,0.0,50.0, 250.0,250.0,50.0]"
+    timeout_s: 540
+
+  - id: B4
+    desc: "예각/U턴(135°) — 선회반경 초과 시 거동"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 250.0,0.0,50.0, 100.0,150.0,50.0]"
+    timeout_s: 540
+
+  - id: B5
+    desc: "사각 폐곡선(시점≈종점) — 종점 근접 오판 여부"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 200.0,0.0,50.0, 200.0,200.0,50.0, 0.0,200.0,50.0, 0.0,20.0,50.0]"
+    timeout_s: 660
+
+  - id: B6
+    desc: "2-WP 최소 경로 (플래너 N≤2 특수케이스, NR 우회)"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 200.0,0.0,50.0]"
+    timeout_s: 420
+
+  - id: B7
+    desc: "단거리 경로(40m, d_end_thresh=10m 대비 짧음) — FOLLOWING 즉시완료 오판"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 40.0,0.0,50.0]"
+    timeout_s: 420
+
+  - id: B8
+    desc: "후방 경로(초기 헤딩과 180° 반대) — 헤딩 정렬 P제어 최악조건"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, -300.0,0.0,50.0]"
+    timeout_s: 480
+
+  # ── Phase 3 — 천이 집중 + 장애주입 ──────────────────────────────────────
+  - id: C1a
+    desc: "천이고도 민감도 — 저(20m). 경로는 A1"
+    launch_args:
+      transition_alt: "20.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+    timeout_s: 420
+
+  - id: C1b
+    desc: "천이고도 민감도 — 고(120m). 경로는 A1"
+    launch_args:
+      transition_alt: "120.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+    timeout_s: 540
+
+  - id: C2
+    desc: "헤딩 정렬 90° 조건 (동쪽 경로)"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 0.0,300.0,50.0]"
+    timeout_s: 420
+
+  - id: C3
+    desc: "천이 중 OFFBOARD 강제 이탈 — AUTO.LOITER 주입 후 재요청 복구 확인"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+    timeout_s: 480
+    inject:
+      # vtol_state==1(MC→FW 천이 진행중)에서 즉시 AUTO.LOITER 주입.
+      - on_vtol_state: 1
+        delay_s: 0.0
+        action: set_mode
+        mode: AUTO.LOITER
+
+  - id: C4
+    desc: "바람 주입 8m/s — A1 + 바람. gz wind 파라미터를 param_set/gz topic 으로 주입"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+    timeout_s: 480
+    inject:
+      # ⚠️ 미검증 경로: gz standard_vtol 월드의 바람 주입 방법은 S4에서 확정할 것.
+      #    (PX4 파라미터 SIM_GZ_* 에는 바람 항목이 없다 — gz world 플러그인
+      #     wind 또는 `gz topic -t /world/default/wind` 쪽을 써야 한다.)
+      - at_s: 5.0
+        action: probe
+        topic: /mavros/state
+
+  - id: C5a
+    desc: "역천이 오버슈트 — d_end_thresh=10 (기본값)"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+      d_end_thresh: "10.0"
+    timeout_s: 420
+
+  - id: C5b
+    desc: "역천이 오버슈트 — d_end_thresh=30"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+      d_end_thresh: "30.0"
+    timeout_s: 420
+
+  - id: C5c
+    desc: "역천이 오버슈트 — d_end_thresh=60"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+      d_end_thresh: "60.0"
+    timeout_s: 420
+
+  - id: C6a
+    desc: "긴급 OVERRIDE — FW 순항(FOLLOWING) 중 /fc_ros/override true"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+    timeout_s: 420
+    inject:
+      - on_state: FOLLOWING
+        delay_s: 8.0
+        action: override
+
+  - id: C6b
+    desc: "긴급 OVERRIDE — MC HOLD 중 /fc_ros/override true"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+    timeout_s: 480
+    inject:
+      - on_state: HOLD
+        delay_s: 3.0
+        action: override
+
+  - id: C7
+    desc: "조종사 인계(PILOT_TAKEOVER) — FOLLOWING 중 POSCTL 강제 주입, 노드가 손을 떼는가"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+    timeout_s: 420
+    inject:
+      - on_state: FOLLOWING
+        delay_s: 8.0
+        action: set_mode
+        mode: POSCTL
+
+  - id: C8
+    desc: "home_amsl/geoid 회귀 (작업 H-2 체크리스트를 VTOL로) — 통제 HOME 좌표"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+    timeout_s: 420
+    # 대회장(전북 새만금 인근) 실측 좌표계 — geoid separation 약 24.8m 구간.
+    # 이 값으로 AMSL/타원체고 혼동이 재현되는지 본다.
+    home:
+      lat: "35.9078"
+      lon: "126.5310"
+      alt: "3.0"
+
+  - id: C9
+    desc: "STREAMING 오버슈트 재현 여부(미해결 이슈)가 VTOL에서도 나오는가 — A1 로그 정밀분석"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+    timeout_s: 420
+
+  - id: C10
+    desc: "entry_mode=mid_flight (ENTRY 상태) — 거의 미검증 경로"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+      entry_mode: "mid_flight"
+    timeout_s: 480

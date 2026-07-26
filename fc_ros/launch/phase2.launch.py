@@ -10,6 +10,9 @@ Phase 2 launch: TelemetryNode + OffboardNode — Offboard 경로 추종.
   ros2 launch fc_ros phase2.launch.py waypoints:="[0.0,0.0,50.0, 300.0,0.0,50.0]"
   ros2 launch fc_ros phase2.launch.py vehicle_type:=mc transition_alt:=4.0 waypoints:="[0.0,0.0,4.0, 8.0,0.0,4.0]"
   ros2 launch fc_ros phase2.launch.py vehicle_type:=mc mc_wp_settle_time:=3.0   # WP마다 3초씩 정착
+  ros2 launch fc_ros phase2.launch.py d_end_thresh:=30.0        # 역천이 진입 거리 스윕 (SITL-7 C5)
+  ros2 launch fc_ros phase2.launch.py entry_mode:=mid_flight    # ENTRY 상태 경로 (SITL-7 C10)
+  ros2 launch fc_ros phase2.launch.py planner:=straight l1_dist:=30.0
 
 TelemetryNode: 진단·모니터링 용도 (VehicleState 로깅).
 OffboardNode:  실제 제어 루프 (MAVROS 토픽 직접 구독, 자체 VehicleState 유지).
@@ -32,10 +35,18 @@ def _make_nodes(context):
     overrides = {"vehicle_type": LaunchConfiguration("vehicle_type").perform(context)}
 
     for name in ("v_cruise", "transition_alt",
-                 "mc_end_thresh", "mc_wp_settle_time"):
+                 "mc_end_thresh", "mc_wp_settle_time",
+                 # SITL-7 회귀 캠페인용 확장 (docs/sitl_vtol_campaign.md 3장)
+                 "d_end_thresh", "v_approach", "l1_dist", "wp0_heading_tol",
+                 "hold_timeout", "landing_timeout", "control_hz"):
         val = LaunchConfiguration(name).perform(context)
         if val:
             overrides[name] = float(val)
+
+    for name in ("entry_mode", "planner"):
+        val = LaunchConfiguration(name).perform(context)
+        if val:
+            overrides[name] = val
 
     waypoints = LaunchConfiguration("waypoints").perform(context)
     if waypoints:
@@ -91,5 +102,40 @@ def generate_launch_description():
             "waypoint_frame", default_value="",
             description='waypoints 기준계: "takeoff"(기본, 이륙지점 상대) | "local"(EKF 로컬 절대, 종전 동작). '
                         '빈 값이면 YAML 값 사용'),
+        # ── SITL-7 VTOL 회귀 캠페인 확장 인자 (docs/sitl_vtol_campaign.md 3장) ──
+        # 전부 빈 문자열 기본값 = YAML 값 사용. 테스트 임시값은 YAML을 고치지 않고
+        # 여기로만 준다(프로젝트 규율).
+        DeclareLaunchArgument(
+            "d_end_thresh", default_value="",
+            description="FW/VTOL 역천이 진입 거리 기준 오버라이드 (m). 시나리오 C5 스윕용. "
+                        "빈 값(기본)이면 YAML 값 사용"),
+        DeclareLaunchArgument(
+            "entry_mode", default_value="",
+            description='진입 모드: "pre_takeoff"(기본) | "mid_flight"(ENTRY 상태 경유). '
+                        '시나리오 C10용. 빈 값이면 YAML 값 사용'),
+        DeclareLaunchArgument(
+            "planner", default_value="",
+            description='경로 플래너: "auto"(기본) | "eta3" | "diterpin" | "straight". '
+                        '빈 값이면 YAML 값 사용'),
+        DeclareLaunchArgument(
+            "v_approach", default_value="",
+            description="ENTRY 접근 속도 / MC 위치 setpoint 슬루레이트 (m/s). "
+                        "빈 값(기본)이면 YAML 값 사용"),
+        DeclareLaunchArgument(
+            "l1_dist", default_value="",
+            description="L1 유도 lookahead 거리 (m). 빈 값(기본)이면 YAML 값 사용"),
+        DeclareLaunchArgument(
+            "wp0_heading_tol", default_value="",
+            description="헤딩 정렬 허용 오차 (rad). TRANSITION_FW 정렬·ENTRY 공용. "
+                        "빈 값(기본)이면 YAML 값 사용"),
+        DeclareLaunchArgument(
+            "hold_timeout", default_value="",
+            description="WP1 홀드 타임아웃 (s). 빈 값(기본)이면 YAML 값 사용"),
+        DeclareLaunchArgument(
+            "landing_timeout", default_value="",
+            description="AUTO.LAND 타임아웃 (s). 빈 값(기본)이면 YAML 값 사용"),
+        DeclareLaunchArgument(
+            "control_hz", default_value="",
+            description="제어 루프 주파수 (Hz, ≥2). 빈 값(기본)이면 YAML 값 사용"),
         OpaqueFunction(function=_make_nodes),
     ])
