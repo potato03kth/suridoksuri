@@ -22,6 +22,13 @@ SITL-7 S4 에서 **SITL 이 실기체와 다른 PX4 를 쓰고 있었다**는 �
 | `A1_pxvehicle` | `c890d9db0a` | done — 기존 A1 과 동등 | meta.json `px4_head` (S4 에서 하니스에 추가) |
 | `A3_pxvehicle` | `c890d9db0a` | **done — L자 완주** | 〃 |
 | `A3_pxvehicle_try1_simstall` | `c890d9db0a` | timeout — **PX4 무관, 시뮬 정지** | 〃. CLIMBING 중 gz 실시간율이 0.79→0.05 로 급락해 미션 시계만 흘렀다. 같은 조건 재실행(`A3_pxvehicle`)이 완주했으므로 일회성 환경 실패로 판단하고 보존만 한다 |
+| `B8_pxvehicle` | `c890d9db0a` | **done — 후방 300m 완주** | S5(Phase 2). 비-정북 레그 최초 실증 |
+| `B2_pxvehicle` | `c890d9db0a` | done — 완만곡선 4WP 완주 | 〃 |
+| `B3_pxvehicle` | `c890d9db0a` | done — 직각코너 완주 | 〃 |
+| `B7_pxvehicle` | `c890d9db0a` | done — 단거리 40m 완주 | 〃. FOLLOWING 체류 1.0s |
+| `B4_pxvehicle` | `c890d9db0a` | done — U턴 135° 완주 | 〃 |
+| `B4_pxvehicle_try1_bringupfail` | `c890d9db0a` | exit 3 — **PX4 무관, 브링업 실패** | 〃. `mavros_not_connected` (MAVROS 가 120s 안에 FCU 접속 실패). 이륙 전이라 ulog 34.5MB 만 남았다. `wsl --terminate` 후 동일 조건 재실행(`B4_pxvehicle`)이 완주했으므로 일회성 환경 실패로 판단하고 보존만 한다 |
+| `B5_pxvehicle` | `c890d9db0a` | done — 사각폐곡선 5WP 완주 | 〃. 플래너 블로킹 263.5s (기본 `--boot-timeout-s` 300s 에 근접) |
 
 S4 이후의 런은 `meta.json` 의 `px4_head` / `px4_dir` 와 `verdict.md` 헤더의
 "PX4 빌드" 줄로 스스로를 식별한다 — 이 표에 의존하지 않아도 된다.
