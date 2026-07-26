@@ -1,0 +1,89 @@
+{
+  "scenario_id": "A3",
+  "desc": "SITL-4 L자 경로 재현 (90° 1회)",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 200.0,0.0,50.0, 200.0,200.0,50.0]"
+  },
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 200.0,0.0,50.0, 200.0,200.0,50.0]"
+  ],
+  "home": null,
+  "timeout_s": 480.0,
+  "inject_spec": [],
+  "started_utc": "2026-07-26T17:52:55.644162+00:00",
+  "px4_dir": "/root/PX4-Autopilot",
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "3b52ac1",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785088390\n    nanosec: 192734703\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: AUTO.LOITER\nsystem_status: 3\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-26T17:53:25.968958+00:00",
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 68.54,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785088484.3825066,
+      "t_since_launch_s": 68.54,
+      "t_since_node_alive_s": 0.0,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785088484.93389,
+      "t_since_launch_s": 69.14,
+      "t_since_node_alive_s": 0.6,
+      "msg": "CommandTOL 이륙 요청 alt=49.9m AMSL (지면 -0.1+50.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785088511.830892,
+      "t_since_launch_s": 95.98,
+      "t_since_node_alive_s": 27.44,
+      "msg": "운용 고도 50.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785088533.1310132,
+      "t_since_launch_s": 114.21,
+      "t_since_node_alive_s": 45.67,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785088533.2386513,
+      "t_since_launch_s": 114.21,
+      "t_since_node_alive_s": 45.67,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    }
+  ],
+  "warn_count": 1,
+  "error_count": 0,
+  "exit_reason": "timeout",
+  "exit_code": 2,
+  "ended_utc": "2026-07-26T18:03:25.575339+00:00",
+  "elapsed_s": 579.3,
+  "ulogs": [
+    "17_53_07.ulg"
+  ]
+}

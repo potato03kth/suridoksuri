@@ -1,0 +1,3904 @@
+{
+  "scenario_id": "A3",
+  "run_dir": "/root/drone_ws/src/suridoksuri/logs/2026-07-27_sitl_vtol_campaign/A3",
+  "ulog_file": "17_53_07.ulg",
+  "ulog_selection_note": null,
+  "ulog_error": null,
+  "resolved_params": {
+    "control_hz": 10.0,
+    "v_approach": 5.0,
+    "v_cruise": 20.0,
+    "transition_alt": 50.0,
+    "d_end_thresh": 10.0,
+    "wp0_heading_tol": 0.05,
+    "l1_dist": 20.0,
+    "waypoint_frame": "takeoff",
+    "entry_mode": "pre_takeoff"
+  },
+  "waypoints": [
+    [
+      0.0,
+      0.0,
+      50.0
+    ],
+    [
+      200.0,
+      0.0,
+      50.0
+    ],
+    [
+      200.0,
+      200.0,
+      50.0
+    ]
+  ],
+  "ulog_topics": [
+    "actuator_armed",
+    "actuator_controls_status_0",
+    "actuator_motors",
+    "actuator_outputs",
+    "actuator_servos",
+    "airspeed",
+    "airspeed_validated",
+    "airspeed_wind",
+    "battery_status",
+    "config_overrides",
+    "control_allocator_status",
+    "cpuload",
+    "detect_and_avoid_most_urgent",
+    "differential_pressure",
+    "distance_sensor_mode_change_request",
+    "ekf2_timestamps",
+    "esc_status",
+    "estimator_aid_src_airspeed",
+    "estimator_aid_src_baro_hgt",
+    "estimator_aid_src_fake_hgt",
+    "estimator_aid_src_fake_pos",
+    "estimator_aid_src_gnss_hgt",
+    "estimator_aid_src_gnss_pos",
+    "estimator_aid_src_gnss_vel",
+    "estimator_aid_src_gravity",
+    "estimator_aid_src_mag",
+    "estimator_aid_src_sideslip",
+    "estimator_baro_bias",
+    "estimator_event_flags",
+    "estimator_fusion_control",
+    "estimator_gps_status",
+    "estimator_innovation_test_ratios",
+    "estimator_innovation_variances",
+    "estimator_innovations",
+    "estimator_sensor_bias",
+    "estimator_states",
+    "estimator_status",
+    "estimator_status_flags",
+    "event",
+    "failsafe_flags",
+    "failure_detector_status",
+    "fixed_wing_lateral_guidance_status",
+    "fixed_wing_lateral_setpoint",
+    "fixed_wing_lateral_status",
+    "fixed_wing_longitudinal_setpoint",
+    "flaps_setpoint",
+    "flight_phase_estimation",
+    "fw_virtual_attitude_setpoint",
+    "gain_compression",
+    "gripper",
+    "home_position",
+    "hover_thrust_estimate",
+    "landing_gear",
+    "landing_gear_wheel",
+    "lateral_control_configuration",
+    "logger_status",
+    "longitudinal_control_configuration",
+    "manual_control_setpoint",
+    "mc_virtual_attitude_setpoint",
+    "mission_result",
+    "navigator_mission_item",
+    "navigator_status",
+    "offboard_control_mode",
+    "parameter_update",
+    "position_setpoint_triplet",
+    "rate_ctrl_status",
+    "rtl_status",
+    "rtl_time_estimate",
+    "sensor_accel",
+    "sensor_baro",
+    "sensor_combined",
+    "sensor_gps",
+    "sensor_gyro",
+    "sensor_gyro_fft",
+    "sensor_mag",
+    "sensor_selection",
+    "sensors_status_imu",
+    "spoilers_setpoint",
+    "system_power",
+    "takeoff_status",
+    "tecs_status",
+    "telemetry_status",
+    "timesync_status",
+    "trajectory_setpoint",
+    "vehicle_acceleration",
+    "vehicle_air_data",
+    "vehicle_angular_velocity",
+    "vehicle_angular_velocity_groundtruth",
+    "vehicle_attitude",
+    "vehicle_attitude_groundtruth",
+    "vehicle_attitude_setpoint",
+    "vehicle_command",
+    "vehicle_command_ack",
+    "vehicle_constraints",
+    "vehicle_control_mode",
+    "vehicle_global_position",
+    "vehicle_global_position_groundtruth",
+    "vehicle_gps_position",
+    "vehicle_imu",
+    "vehicle_imu_status",
+    "vehicle_land_detected",
+    "vehicle_local_position",
+    "vehicle_local_position_groundtruth",
+    "vehicle_local_position_setpoint",
+    "vehicle_magnetometer",
+    "vehicle_rates_setpoint",
+    "vehicle_status",
+    "vehicle_thrust_setpoint",
+    "vehicle_thrust_setpoint_virtual_fw",
+    "vehicle_thrust_setpoint_virtual_mc",
+    "vehicle_torque_setpoint",
+    "vehicle_torque_setpoint_virtual_fw",
+    "vehicle_torque_setpoint_virtual_mc",
+    "vtol_vehicle_status",
+    "wind",
+    "yaw_estimator_status"
+  ],
+  "ulog_duration_s": 573.24,
+  "time_alignment": {
+    "offset_s": 1785088385.0704076,
+    "scale": 1.075883954748318,
+    "model": "wall_t = scale * ulog_t + offset_s",
+    "n_anchors": 3,
+    "max_abs_residual_s": 0.04740500450134277,
+    "const_offset_spread_s": 3.260993719100952,
+    "anchors": [
+      {
+        "anchor": "COMPONENT_ARM_DISARM(400)",
+        "ulog_t": 92.264,
+        "wall_t": 1785088484.3825066,
+        "const_offset_s": 1785088392.1185067,
+        "fit_residual_s": 0.04674172401428223
+      },
+      {
+        "anchor": "NAV_TAKEOFF(22)",
+        "ulog_t": 92.864,
+        "wall_t": 1785088484.93389,
+        "const_offset_s": 1785088392.06989,
+        "fit_residual_s": -0.04740500450134277
+      },
+      {
+        "anchor": "DO_VTOL_TRANSITION→FW(3000,p1=4)",
+        "ulog_t": 135.204,
+        "wall_t": 1785088530.5348837,
+        "const_offset_s": 1785088395.3308837,
+        "fit_residual_s": 0.0006618499755859375
+      }
+    ],
+    "reason": null
+  },
+  "state_windows_ulog_s": {
+    "ARM_TAKEOFF": [
+      92.3074,
+      92.8199
+    ],
+    "CLIMBING": [
+      92.8199,
+      117.8198
+    ],
+    "TRANSITION_FW": [
+      117.8198,
+      137.6176
+    ],
+    "STREAMING": [
+      137.6176,
+      137.7177
+    ],
+    "FOLLOWING": [
+      137.7177,
+      573.24
+    ]
+  },
+  "completion": {
+    "states_seen": [
+      "ARM_TAKEOFF",
+      "CLIMBING",
+      "TRANSITION_FW",
+      "STREAMING",
+      "FOLLOWING"
+    ],
+    "order_is_subsequence_of_canonical": true,
+    "reached_done": false,
+    "pilot_takeover": false,
+    "override": false,
+    "exit_reason": "timeout",
+    "exit_code": 2,
+    "mission_span_s": 48.8561,
+    "state_timeline": [
+      {
+        "state": "ARM_TAKEOFF",
+        "entry_wall_t": 1785088484.3825066,
+        "dwell_s": 0.5514
+      },
+      {
+        "state": "CLIMBING",
+        "entry_wall_t": 1785088484.93389,
+        "dwell_s": 26.897
+      },
+      {
+        "state": "TRANSITION_FW",
+        "entry_wall_t": 1785088511.830892,
+        "dwell_s": 21.3001
+      },
+      {
+        "state": "STREAMING",
+        "entry_wall_t": 1785088533.1310132,
+        "dwell_s": 0.1076
+      },
+      {
+        "state": "FOLLOWING",
+        "entry_wall_t": 1785088533.2386513,
+        "dwell_s": 472.3151
+      }
+    ],
+    "disarm": {
+      "armed_at_ulog_s": 92.268,
+      "disarmed_at_ulog_s": null,
+      "armed_duration_s": null,
+      "value": false,
+      "reason": "로그 끝까지 disarm 되지 않음"
+    }
+  },
+  "vtol_state_sequence": {
+    "value": [
+      3,
+      1,
+      4
+    ],
+    "segments": [
+      {
+        "vtol_state": 3,
+        "name": "MC",
+        "t_start_ulog_s": 5.32,
+        "duration_s": 129.888
+      },
+      {
+        "vtol_state": 1,
+        "name": "TRANS_TO_FW",
+        "t_start_ulog_s": 135.208,
+        "duration_s": 2.504
+      },
+      {
+        "vtol_state": 4,
+        "name": "FW",
+        "t_start_ulog_s": 137.712,
+        "duration_s": 435.024
+      }
+    ],
+    "forward_transition_s": 2.504,
+    "back_transition_s": null,
+    "forward_ok_3_1_4": true,
+    "back_ok_4_2_3": false,
+    "reason": null
+  },
+  "setpoint_jump": {
+    "source_topic": "trajectory_setpoint",
+    "max_gap_s": 0.5,
+    "threshold_m": 1.5,
+    "threshold_note": "3 x v_approach(5.0) x dt(0.100s) — 계획서 4장. 참고: FW 순항 중 lookahead 목표점은 기체속도로 전진하므로 정상 상태에서도 약 v_cruise(20.0) x dt = 2.00m/틱 이 나온다",
+    "max_jump_m": 233.048,
+    "max_rate_mps": 1120.4229,
+    "n_violations": 61,
+    "n_violations_at_state_boundary": 5,
+    "boundary_violations_top": [
+      {
+        "ulog_t_s": 137.908,
+        "jump_m": 233.048,
+        "rate_mps": 1120.4229,
+        "dt_s": 0.208,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 138.62,
+        "jump_m": 3.7404,
+        "rate_mps": 18.3354,
+        "dt_s": 0.204,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 138.416,
+        "jump_m": 3.6538,
+        "rate_mps": 18.6419,
+        "dt_s": 0.196,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 138.116,
+        "jump_m": 3.2326,
+        "rate_mps": 15.5412,
+        "dt_s": 0.208,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 138.22,
+        "jump_m": 1.6773,
+        "rate_mps": 16.1281,
+        "dt_s": 0.104,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      }
+    ],
+    "top10": [
+      {
+        "ulog_t_s": 137.908,
+        "jump_m": 233.048,
+        "rate_mps": 1120.4229,
+        "dt_s": 0.208,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 333.488,
+        "jump_m": 6.2961,
+        "rate_mps": 29.6988,
+        "dt_s": 0.212,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 142.508,
+        "jump_m": 4.7253,
+        "rate_mps": 15.9638,
+        "dt_s": 0.296,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 139.712,
+        "jump_m": 4.6676,
+        "rate_mps": 15.7689,
+        "dt_s": 0.296,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 141.108,
+        "jump_m": 4.4493,
+        "rate_mps": 15.2375,
+        "dt_s": 0.292,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 140.312,
+        "jump_m": 4.4272,
+        "rate_mps": 15.3723,
+        "dt_s": 0.288,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 140.712,
+        "jump_m": 4.4029,
+        "rate_mps": 15.2879,
+        "dt_s": 0.288,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 138.62,
+        "jump_m": 3.7404,
+        "rate_mps": 18.3354,
+        "dt_s": 0.204,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 138.816,
+        "jump_m": 3.6759,
+        "rate_mps": 18.7544,
+        "dt_s": 0.196,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 138.416,
+        "jump_m": 3.6538,
+        "rate_mps": 18.6419,
+        "dt_s": 0.196,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      }
+    ],
+    "n_samples": 2751,
+    "resumption_gaps": [
+      {
+        "ulog_t_s": 135.3,
+        "gap_s": 13.596,
+        "distance_m": 282.8504,
+        "state": "TRANSITION_FW"
+      }
+    ],
+    "n_resumption_gaps": 1,
+    "reason": null,
+    "boundary_windows_available": true
+  },
+  "vertical_accel": {
+    "value": 5.2038,
+    "peak_g": 0.5306,
+    "peak_at_ulog_s": 138.428,
+    "peak_state": "FOLLOWING",
+    "excluded_windows": [
+      "vtol_state=1 135.2~137.7s"
+    ],
+    "max_including_transition_mps2": 5.2038,
+    "excl_touchdown": {
+      "value": null,
+      "reason": "disarm 시각을 몰라 접지 구간을 제외할 수 없음"
+    },
+    "reason": null
+  },
+  "decel": {
+    "value": null,
+    "reason": "역천이 구간(vtol_state==2 또는 TRANSITION_MC 상태창)을 특정할 수 없음 — 역천이가 일어나지 않았을 수 있다"
+  },
+  "heading": {
+    "target_chi_rad": 0.0,
+    "target_chi_deg": 0.0,
+    "target_source": "node.log '헤딩 정렬 완료 target=' 값",
+    "tol_rad": 0.05,
+    "window_ulog_s": [
+      117.8198,
+      137.6176
+    ],
+    "n_samples": 4948,
+    "err_at_window_start_deg": -91.4128,
+    "max_abs_err_deg": 91.7138,
+    "final_abs_err_deg": 0.3802,
+    "first_within_tol_ulog_s": 133.232,
+    "align_time_s": 15.412,
+    "overshoot_rad_after_first_in_tol": 0.0,
+    "monotone_convergence": true,
+    "node_log_align": {
+      "t": 1785088530.5318074,
+      "target_deg": 0.0,
+      "current_deg": 2.4,
+      "err_deg": -2.4
+    },
+    "t_align_ulog_s": 135.2018,
+    "reason": null
+  },
+  "altitude": {
+    "z_ground_local_m": 0.042,
+    "transition_alt_m": 50.0,
+    "climb": {
+      "max_agl_m": 48.4934,
+      "overshoot_pct": -3.0131,
+      "window_ulog_s": [
+        92.8199,
+        117.8198
+      ],
+      "reason": null
+    },
+    "climb_to_following": {
+      "max_agl_m": 50.3933,
+      "overshoot_pct": 0.7867,
+      "window_ulog_s": [
+        92.8199,
+        137.7177
+      ],
+      "reason": null
+    },
+    "transition_alt_loss": {
+      "value": 0.0,
+      "agl_at_start_m": 50.1879,
+      "agl_min_m": 50.1879,
+      "window_ulog_s": [
+        135.208,
+        137.712
+      ],
+      "reason": null
+    },
+    "cruise_alt_dev": {
+      "ref_agl_m": 49.842,
+      "ref_source": "node.log '순항고도 h_up=' (EKF 로컬) − 지면 h_up",
+      "mean_dev_m": 0.0377,
+      "max_abs_dev_m": 2.0866,
+      "min_agl_m": 49.0051,
+      "max_agl_m": 51.9285,
+      "window_ulog_s": [
+        137.7177,
+        573.24
+      ],
+      "reason": null
+    }
+  },
+  "cte": {
+    "node_log_cte": {
+      "n_samples": 219,
+      "max_m": 6292.4,
+      "mean_m": 3045.2922,
+      "p95_m": 5968.95,
+      "signed_min_m": -6292.4,
+      "signed_max_m": -0.9,
+      "first_m": -0.9,
+      "last_m": -6292.4,
+      "note": "offboard_node 가 20틱마다 찍는 L1Guidance cte. max/mean/p95 는 절댓값, signed_* 는 부호 유지",
+      "reason": null
+    },
+    "geometric_cte": {
+      "n_samples": 54397,
+      "max_m": 6323.1218,
+      "mean_m": 3056.9948,
+      "p95_m": 5996.7987,
+      "note": "원본 waypoints 직선 폴리라인 기준. VTOL 기본 플래너(eta3)는 코너를 곡선으로 잇기 때문에 이 값은 '계획경로 이탈'이 아니라 '직선 대비 편차'다 — 코너 구간에서 크게 나오는 것이 정상.",
+      "reason": null
+    }
+  },
+  "node_log": {
+    "present": true,
+    "state_events": [
+      {
+        "state": "ARM_TAKEOFF",
+        "t": 1785088484.3825066,
+        "msg": "ARM 요청"
+      },
+      {
+        "state": "CLIMBING",
+        "t": 1785088484.93389,
+        "msg": "CommandTOL 이륙 요청 alt=49.9m AMSL (지면 -0.1+50.0) -> CLIMBING"
+      },
+      {
+        "state": "TRANSITION_FW",
+        "t": 1785088511.830892,
+        "msg": "운용 고도 50.0m 도달 → transition_fw"
+      },
+      {
+        "state": "STREAMING",
+        "t": 1785088533.1310132,
+        "msg": "FW 전환 완료 -> STREAMING"
+      },
+      {
+        "state": "FOLLOWING",
+        "t": 1785088533.2386513,
+        "msg": "OFFBOARD 확인 → FOLLOWING"
+      }
+    ],
+    "all_state_events": [
+      {
+        "state": "ARM_TAKEOFF",
+        "t": 1785088484.3825066,
+        "msg": "ARM 요청"
+      },
+      {
+        "state": "CLIMBING",
+        "t": 1785088484.93389,
+        "msg": "CommandTOL 이륙 요청 alt=49.9m AMSL (지면 -0.1+50.0) -> CLIMBING"
+      },
+      {
+        "state": "TRANSITION_FW",
+        "t": 1785088511.830892,
+        "msg": "운용 고도 50.0m 도달 → transition_fw"
+      },
+      {
+        "state": "STREAMING",
+        "t": 1785088533.1310132,
+        "msg": "FW 전환 완료 -> STREAMING"
+      },
+      {
+        "state": "FOLLOWING",
+        "t": 1785088533.2386513,
+        "msg": "OFFBOARD 확인 → FOLLOWING"
+      }
+    ],
+    "warnings": [
+      {
+        "pattern": "altitude 메시지 지연 age=#s > #s — 래치/캐시 의심, 수렴 표본에서 제외",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785088730.2642276,
+        "last_t": 1785088730.2642276,
+        "sample": "altitude 메시지 지연 age=3.2s > 1.0s — 래치/캐시 의심, 수렴 표본에서 제외"
+      }
+    ],
+    "errors": [],
+    "heading_align": {
+      "t": 1785088530.5318074,
+      "target_deg": 0.0,
+      "current_deg": 2.4,
+      "err_deg": -2.4
+    },
+    "path_origin": {
+      "t": 1785088484.9318616,
+      "n": -0.03,
+      "e": -0.0,
+      "h_up": -0.2,
+      "frame": "takeoff",
+      "cruise_alt": 49.8
+    },
+    "takeoff_request": {
+      "t": 1785088484.93389,
+      "target_amsl": 49.9,
+      "ground_amsl": -0.1,
+      "transition_alt": 50.0
+    },
+    "cte_samples": [
+      {
+        "t": 1785088533.3573284,
+        "tick": 0,
+        "mode": "OFFBOARD",
+        "cte": -0.9,
+        "pos": [
+          11.8,
+          -0.9
+        ],
+        "tgt": [
+          81.8,
+          -0.0
+        ]
+      },
+      {
+        "t": 1785088535.2456877,
+        "tick": 20,
+        "mode": "OFFBOARD",
+        "cte": -1.9,
+        "pos": [
+          44.0,
+          -1.9
+        ],
+        "tgt": [
+          114.0,
+          -0.0
+        ]
+      },
+      {
+        "t": 1785088537.248384,
+        "tick": 40,
+        "mode": "OFFBOARD",
+        "cte": -1.7,
+        "pos": [
+          73.6,
+          -1.8
+        ],
+        "tgt": [
+          143.6,
+          -0.0
+        ]
+      },
+      {
+        "t": 1785088539.2494187,
+        "tick": 60,
+        "mode": "OFFBOARD",
+        "cte": -1.5,
+        "pos": [
+          104.3,
+          -1.5
+        ],
+        "tgt": [
+          174.3,
+          -0.0
+        ]
+      },
+      {
+        "t": 1785088541.2478328,
+        "tick": 80,
+        "mode": "OFFBOARD",
+        "cte": -1.4,
+        "pos": [
+          134.1,
+          -1.3
+        ],
+        "tgt": [
+          200.1,
+          4.2
+        ]
+      },
+      {
+        "t": 1785088543.2530572,
+        "tick": 100,
+        "mode": "OFFBOARD",
+        "cte": -1.2,
+        "pos": [
+          163.5,
+          -1.2
+        ],
+        "tgt": [
+          200.1,
+          33.5
+        ]
+      },
+      {
+        "t": 1785088545.2524173,
+        "tick": 120,
+        "mode": "OFFBOARD",
+        "cte": -1.0,
+        "pos": [
+          192.4,
+          -1.1
+        ],
+        "tgt": [
+          200.0,
+          62.4
+        ]
+      },
+      {
+        "t": 1785088547.2491338,
+        "tick": 140,
+        "mode": "OFFBOARD",
+        "cte": -1.5,
+        "pos": [
+          220.9,
+          -0.9
+        ],
+        "tgt": [
+          199.9,
+          70.0
+        ]
+      },
+      {
+        "t": 1785088549.2454226,
+        "tick": 160,
+        "mode": "OFFBOARD",
+        "cte": -48.7,
+        "pos": [
+          248.7,
+          -0.9
+        ],
+        "tgt": [
+          199.9,
+          70.5
+        ]
+      },
+      {
+        "t": 1785088553.9542532,
+        "tick": 180,
+        "mode": "OFFBOARD",
+        "cte": -75.8,
+        "pos": [
+          275.8,
+          -0.8
+        ],
+        "tgt": [
+          199.9,
+          71.0
+        ]
+      },
+      {
+        "t": 1785088555.9493036,
+        "tick": 200,
+        "mode": "OFFBOARD",
+        "cte": -103.9,
+        "pos": [
+          303.9,
+          -0.8
+        ],
+        "tgt": [
+          199.9,
+          71.6
+        ]
+      },
+      {
+        "t": 1785088557.9473085,
+        "tick": 220,
+        "mode": "OFFBOARD",
+        "cte": -132.0,
+        "pos": [
+          332.0,
+          -0.8
+        ],
+        "tgt": [
+          200.0,
+          72.0
+        ]
+      },
+      {
+        "t": 1785088559.9482243,
+        "tick": 240,
+        "mode": "OFFBOARD",
+        "cte": -160.1,
+        "pos": [
+          360.1,
+          -0.7
+        ],
+        "tgt": [
+          200.0,
+          72.1
+        ]
+      },
+      {
+        "t": 1785088561.951265,
+        "tick": 260,
+        "mode": "OFFBOARD",
+        "cte": -188.3,
+        "pos": [
+          388.3,
+          -0.8
+        ],
+        "tgt": [
+          200.0,
+          72.5
+        ]
+      },
+      {
+        "t": 1785088563.9513733,
+        "tick": 280,
+        "mode": "OFFBOARD",
+        "cte": -216.5,
+        "pos": [
+          416.5,
+          -0.9
+        ],
+        "tgt": [
+          200.0,
+          72.9
+        ]
+      },
+      {
+        "t": 1785088565.94863,
+        "tick": 300,
+        "mode": "OFFBOARD",
+        "cte": -244.9,
+        "pos": [
+          444.9,
+          -1.0
+        ],
+        "tgt": [
+          200.0,
+          73.1
+        ]
+      },
+      {
+        "t": 1785088567.94705,
+        "tick": 320,
+        "mode": "OFFBOARD",
+        "cte": -273.3,
+        "pos": [
+          473.3,
+          -1.0
+        ],
+        "tgt": [
+          200.0,
+          73.1
+        ]
+      },
+      {
+        "t": 1785088569.9593604,
+        "tick": 340,
+        "mode": "OFFBOARD",
+        "cte": -301.4,
+        "pos": [
+          501.4,
+          -1.0
+        ],
+        "tgt": [
+          200.0,
+          73.1
+        ]
+      },
+      {
+        "t": 1785088571.9522154,
+        "tick": 360,
+        "mode": "OFFBOARD",
+        "cte": -330.1,
+        "pos": [
+          530.1,
+          -0.9
+        ],
+        "tgt": [
+          200.0,
+          73.3
+        ]
+      },
+      {
+        "t": 1785088573.9455333,
+        "tick": 380,
+        "mode": "OFFBOARD",
+        "cte": -358.8,
+        "pos": [
+          558.8,
+          -0.8
+        ],
+        "tgt": [
+          200.0,
+          73.7
+        ]
+      },
+      {
+        "t": 1785088575.950647,
+        "tick": 400,
+        "mode": "OFFBOARD",
+        "cte": -387.6,
+        "pos": [
+          587.7,
+          -0.8
+        ],
+        "tgt": [
+          200.0,
+          74.3
+        ]
+      },
+      {
+        "t": 1785088577.949002,
+        "tick": 420,
+        "mode": "OFFBOARD",
+        "cte": -416.6,
+        "pos": [
+          616.6,
+          -0.7
+        ],
+        "tgt": [
+          200.0,
+          75.1
+        ]
+      },
+      {
+        "t": 1785088579.9517355,
+        "tick": 440,
+        "mode": "OFFBOARD",
+        "cte": -445.7,
+        "pos": [
+          645.7,
+          -0.7
+        ],
+        "tgt": [
+          200.0,
+          75.1
+        ]
+      },
+      {
+        "t": 1785088581.9579086,
+        "tick": 460,
+        "mode": "OFFBOARD",
+        "cte": -474.8,
+        "pos": [
+          674.8,
+          -0.6
+        ],
+        "tgt": [
+          200.0,
+          75.1
+        ]
+      },
+      {
+        "t": 1785088583.9506147,
+        "tick": 480,
+        "mode": "OFFBOARD",
+        "cte": -504.1,
+        "pos": [
+          704.1,
+          -0.6
+        ],
+        "tgt": [
+          200.0,
+          75.5
+        ]
+      },
+      {
+        "t": 1785088589.1539044,
+        "tick": 500,
+        "mode": "OFFBOARD",
+        "cte": -532.0,
+        "pos": [
+          732.1,
+          -0.6
+        ],
+        "tgt": [
+          200.0,
+          76.0
+        ]
+      },
+      {
+        "t": 1785088591.1582656,
+        "tick": 520,
+        "mode": "OFFBOARD",
+        "cte": -561.5,
+        "pos": [
+          761.5,
+          -0.6
+        ],
+        "tgt": [
+          200.0,
+          76.0
+        ]
+      },
+      {
+        "t": 1785088593.1620424,
+        "tick": 540,
+        "mode": "OFFBOARD",
+        "cte": -591.1,
+        "pos": [
+          791.1,
+          -0.6
+        ],
+        "tgt": [
+          200.0,
+          76.0
+        ]
+      },
+      {
+        "t": 1785088595.1520464,
+        "tick": 560,
+        "mode": "OFFBOARD",
+        "cte": -620.6,
+        "pos": [
+          820.7,
+          -0.5
+        ],
+        "tgt": [
+          200.0,
+          76.1
+        ]
+      },
+      {
+        "t": 1785088597.1571357,
+        "tick": 580,
+        "mode": "OFFBOARD",
+        "cte": -649.6,
+        "pos": [
+          849.6,
+          -0.4
+        ],
+        "tgt": [
+          200.0,
+          76.5
+        ]
+      },
+      {
+        "t": 1785088599.1478903,
+        "tick": 600,
+        "mode": "OFFBOARD",
+        "cte": -679.3,
+        "pos": [
+          879.3,
+          -0.3
+        ],
+        "tgt": [
+          200.0,
+          77.6
+        ]
+      },
+      {
+        "t": 1785088601.146922,
+        "tick": 620,
+        "mode": "OFFBOARD",
+        "cte": -709.0,
+        "pos": [
+          909.1,
+          -0.3
+        ],
+        "tgt": [
+          200.0,
+          77.9
+        ]
+      },
+      {
+        "t": 1785088603.148611,
+        "tick": 640,
+        "mode": "OFFBOARD",
+        "cte": -738.8,
+        "pos": [
+          938.8,
+          -0.3
+        ],
+        "tgt": [
+          200.0,
+          78.8
+        ]
+      },
+      {
+        "t": 1785088605.1541035,
+        "tick": 660,
+        "mode": "OFFBOARD",
+        "cte": -768.6,
+        "pos": [
+          968.6,
+          -0.3
+        ],
+        "tgt": [
+          200.0,
+          79.0
+        ]
+      },
+      {
+        "t": 1785088607.1535313,
+        "tick": 680,
+        "mode": "OFFBOARD",
+        "cte": -798.4,
+        "pos": [
+          998.5,
+          -0.2
+        ],
+        "tgt": [
+          200.0,
+          79.0
+        ]
+      },
+      {
+        "t": 1785088609.1475189,
+        "tick": 700,
+        "mode": "OFFBOARD",
+        "cte": -828.3,
+        "pos": [
+          1028.3,
+          -0.1
+        ],
+        "tgt": [
+          200.0,
+          79.0
+        ]
+      },
+      {
+        "t": 1785088611.1471286,
+        "tick": 720,
+        "mode": "OFFBOARD",
+        "cte": -858.2,
+        "pos": [
+          1058.3,
+          -0.1
+        ],
+        "tgt": [
+          200.0,
+          79.0
+        ]
+      },
+      {
+        "t": 1785088613.162313,
+        "tick": 740,
+        "mode": "OFFBOARD",
+        "cte": -888.2,
+        "pos": [
+          1088.2,
+          -0.0
+        ],
+        "tgt": [
+          200.0,
+          79.1
+        ]
+      },
+      {
+        "t": 1785088615.1554968,
+        "tick": 760,
+        "mode": "OFFBOARD",
+        "cte": -917.1,
+        "pos": [
+          1117.1,
+          0.0
+        ],
+        "tgt": [
+          200.0,
+          80.5
+        ]
+      },
+      {
+        "t": 1785088617.154475,
+        "tick": 780,
+        "mode": "OFFBOARD",
+        "cte": -947.1,
+        "pos": [
+          1147.2,
+          -0.0
+        ],
+        "tgt": [
+          200.0,
+          80.9
+        ]
+      },
+      {
+        "t": 1785088619.1462123,
+        "tick": 800,
+        "mode": "OFFBOARD",
+        "cte": -977.1,
+        "pos": [
+          1177.2,
+          -0.0
+        ],
+        "tgt": [
+          200.0,
+          80.9
+        ]
+      },
+      {
+        "t": 1785088623.9496188,
+        "tick": 820,
+        "mode": "OFFBOARD",
+        "cte": -1005.6,
+        "pos": [
+          1205.6,
+          -0.0
+        ],
+        "tgt": [
+          200.0,
+          80.9
+        ]
+      },
+      {
+        "t": 1785088625.9499729,
+        "tick": 840,
+        "mode": "OFFBOARD",
+        "cte": -1035.6,
+        "pos": [
+          1235.6,
+          -0.1
+        ],
+        "tgt": [
+          200.0,
+          80.9
+        ]
+      },
+      {
+        "t": 1785088627.9650097,
+        "tick": 860,
+        "mode": "OFFBOARD",
+        "cte": -1065.1,
+        "pos": [
+          1265.1,
+          -0.1
+        ],
+        "tgt": [
+          200.0,
+          80.9
+        ]
+      },
+      {
+        "t": 1785088629.9658241,
+        "tick": 880,
+        "mode": "OFFBOARD",
+        "cte": -1095.0,
+        "pos": [
+          1295.0,
+          0.0
+        ],
+        "tgt": [
+          200.0,
+          81.9
+        ]
+      },
+      {
+        "t": 1785088631.9606931,
+        "tick": 900,
+        "mode": "OFFBOARD",
+        "cte": -1124.6,
+        "pos": [
+          1324.7,
+          0.1
+        ],
+        "tgt": [
+          200.0,
+          81.9
+        ]
+      },
+      {
+        "t": 1785088633.9587,
+        "tick": 920,
+        "mode": "OFFBOARD",
+        "cte": -1154.2,
+        "pos": [
+          1354.3,
+          0.1
+        ],
+        "tgt": [
+          200.0,
+          82.2
+        ]
+      },
+      {
+        "t": 1785088635.950939,
+        "tick": 940,
+        "mode": "OFFBOARD",
+        "cte": -1184.3,
+        "pos": [
+          1384.3,
+          0.1
+        ],
+        "tgt": [
+          200.0,
+          82.8
+        ]
+      },
+      {
+        "t": 1785088637.9498706,
+        "tick": 960,
+        "mode": "OFFBOARD",
+        "cte": -1214.3,
+        "pos": [
+          1414.3,
+          0.1
+        ],
+        "tgt": [
+          200.0,
+          82.8
+        ]
+      },
+      {
+        "t": 1785088639.9543526,
+        "tick": 980,
+        "mode": "OFFBOARD",
+        "cte": -1244.3,
+        "pos": [
+          1444.4,
+          0.2
+        ],
+        "tgt": [
+          200.0,
+          82.8
+        ]
+      },
+      {
+        "t": 1785088641.9538796,
+        "tick": 1000,
+        "mode": "OFFBOARD",
+        "cte": -1274.4,
+        "pos": [
+          1474.5,
+          0.3
+        ],
+        "tgt": [
+          200.0,
+          82.8
+        ]
+      },
+      {
+        "t": 1785088643.948821,
+        "tick": 1020,
+        "mode": "OFFBOARD",
+        "cte": -1304.3,
+        "pos": [
+          1504.4,
+          0.4
+        ],
+        "tgt": [
+          200.0,
+          83.1
+        ]
+      },
+      {
+        "t": 1785088645.9513557,
+        "tick": 1040,
+        "mode": "OFFBOARD",
+        "cte": -1334.6,
+        "pos": [
+          1534.7,
+          0.6
+        ],
+        "tgt": [
+          200.0,
+          83.8
+        ]
+      },
+      {
+        "t": 1785088647.948608,
+        "tick": 1060,
+        "mode": "OFFBOARD",
+        "cte": -1364.7,
+        "pos": [
+          1564.8,
+          0.8
+        ],
+        "tgt": [
+          200.0,
+          84.0
+        ]
+      },
+      {
+        "t": 1785088649.950803,
+        "tick": 1080,
+        "mode": "OFFBOARD",
+        "cte": -1394.9,
+        "pos": [
+          1594.9,
+          0.9
+        ],
+        "tgt": [
+          200.0,
+          84.5
+        ]
+      },
+      {
+        "t": 1785088651.9478252,
+        "tick": 1100,
+        "mode": "OFFBOARD",
+        "cte": -1425.0,
+        "pos": [
+          1625.0,
+          1.1
+        ],
+        "tgt": [
+          200.0,
+          84.7
+        ]
+      },
+      {
+        "t": 1785088653.9535382,
+        "tick": 1120,
+        "mode": "OFFBOARD",
+        "cte": -1455.1,
+        "pos": [
+          1655.2,
+          1.3
+        ],
+        "tgt": [
+          200.0,
+          84.7
+        ]
+      },
+      {
+        "t": 1785088655.9540687,
+        "tick": 1140,
+        "mode": "OFFBOARD",
+        "cte": -1485.3,
+        "pos": [
+          1685.3,
+          1.5
+        ],
+        "tgt": [
+          200.0,
+          84.9
+        ]
+      },
+      {
+        "t": 1785088661.062677,
+        "tick": 1160,
+        "mode": "OFFBOARD",
+        "cte": -1513.4,
+        "pos": [
+          1713.4,
+          1.6
+        ],
+        "tgt": [
+          200.0,
+          85.6
+        ]
+      },
+      {
+        "t": 1785088663.0644486,
+        "tick": 1180,
+        "mode": "OFFBOARD",
+        "cte": -1543.5,
+        "pos": [
+          1743.5,
+          1.9
+        ],
+        "tgt": [
+          200.0,
+          86.4
+        ]
+      },
+      {
+        "t": 1785088665.0577493,
+        "tick": 1200,
+        "mode": "OFFBOARD",
+        "cte": -1573.6,
+        "pos": [
+          1773.6,
+          2.1
+        ],
+        "tgt": [
+          200.0,
+          86.7
+        ]
+      },
+      {
+        "t": 1785088667.0630362,
+        "tick": 1220,
+        "mode": "OFFBOARD",
+        "cte": -1603.7,
+        "pos": [
+          1803.8,
+          2.3
+        ],
+        "tgt": [
+          200.0,
+          87.3
+        ]
+      },
+      {
+        "t": 1785088669.06552,
+        "tick": 1240,
+        "mode": "OFFBOARD",
+        "cte": -1633.3,
+        "pos": [
+          1833.4,
+          2.5
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088671.051003,
+        "tick": 1260,
+        "mode": "OFFBOARD",
+        "cte": -1663.9,
+        "pos": [
+          1864.0,
+          2.6
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088673.0647266,
+        "tick": 1280,
+        "mode": "OFFBOARD",
+        "cte": -1693.6,
+        "pos": [
+          1893.6,
+          2.8
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088675.0538666,
+        "tick": 1300,
+        "mode": "OFFBOARD",
+        "cte": -1723.7,
+        "pos": [
+          1923.7,
+          2.9
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088677.053813,
+        "tick": 1320,
+        "mode": "OFFBOARD",
+        "cte": -1753.8,
+        "pos": [
+          1953.9,
+          3.1
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088679.0502677,
+        "tick": 1340,
+        "mode": "OFFBOARD",
+        "cte": -1783.9,
+        "pos": [
+          1984.0,
+          3.3
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088681.0515065,
+        "tick": 1360,
+        "mode": "OFFBOARD",
+        "cte": -1814.1,
+        "pos": [
+          2014.1,
+          3.5
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088683.0531368,
+        "tick": 1380,
+        "mode": "OFFBOARD",
+        "cte": -1844.3,
+        "pos": [
+          2044.4,
+          3.6
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088685.056988,
+        "tick": 1400,
+        "mode": "OFFBOARD",
+        "cte": -1874.6,
+        "pos": [
+          2074.6,
+          3.7
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088687.0513563,
+        "tick": 1420,
+        "mode": "OFFBOARD",
+        "cte": -1904.8,
+        "pos": [
+          2104.9,
+          3.8
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088689.053717,
+        "tick": 1440,
+        "mode": "OFFBOARD",
+        "cte": -1935.1,
+        "pos": [
+          2135.1,
+          4.0
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088691.0559065,
+        "tick": 1460,
+        "mode": "OFFBOARD",
+        "cte": -1965.2,
+        "pos": [
+          2165.3,
+          4.1
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088696.149841,
+        "tick": 1480,
+        "mode": "OFFBOARD",
+        "cte": -1994.5,
+        "pos": [
+          2194.6,
+          4.3
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088698.1662526,
+        "tick": 1500,
+        "mode": "OFFBOARD",
+        "cte": -2024.8,
+        "pos": [
+          2224.9,
+          4.4
+        ],
+        "tgt": [
+          200.0,
+          87.7
+        ]
+      },
+      {
+        "t": 1785088700.155201,
+        "tick": 1520,
+        "mode": "OFFBOARD",
+        "cte": -2053.1,
+        "pos": [
+          2253.1,
+          4.6
+        ],
+        "tgt": [
+          200.0,
+          88.1
+        ]
+      },
+      {
+        "t": 1785088702.1538255,
+        "tick": 1540,
+        "mode": "OFFBOARD",
+        "cte": -2082.9,
+        "pos": [
+          2283.0,
+          4.8
+        ],
+        "tgt": [
+          200.0,
+          89.1
+        ]
+      },
+      {
+        "t": 1785088704.154094,
+        "tick": 1560,
+        "mode": "OFFBOARD",
+        "cte": -2113.2,
+        "pos": [
+          2313.3,
+          5.0
+        ],
+        "tgt": [
+          200.0,
+          89.6
+        ]
+      },
+      {
+        "t": 1785088706.1725678,
+        "tick": 1580,
+        "mode": "OFFBOARD",
+        "cte": -2143.3,
+        "pos": [
+          2343.4,
+          5.1
+        ],
+        "tgt": [
+          200.0,
+          89.9
+        ]
+      },
+      {
+        "t": 1785088708.1596835,
+        "tick": 1600,
+        "mode": "OFFBOARD",
+        "cte": -2173.6,
+        "pos": [
+          2373.7,
+          5.3
+        ],
+        "tgt": [
+          200.0,
+          90.2
+        ]
+      },
+      {
+        "t": 1785088710.1517036,
+        "tick": 1620,
+        "mode": "OFFBOARD",
+        "cte": -2203.8,
+        "pos": [
+          2403.8,
+          5.5
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088712.1500318,
+        "tick": 1640,
+        "mode": "OFFBOARD",
+        "cte": -2234.0,
+        "pos": [
+          2434.0,
+          5.5
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088714.1475291,
+        "tick": 1660,
+        "mode": "OFFBOARD",
+        "cte": -2264.1,
+        "pos": [
+          2464.2,
+          5.6
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088716.1521995,
+        "tick": 1680,
+        "mode": "OFFBOARD",
+        "cte": -2294.3,
+        "pos": [
+          2494.4,
+          5.7
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088718.1489727,
+        "tick": 1700,
+        "mode": "OFFBOARD",
+        "cte": -2324.4,
+        "pos": [
+          2524.5,
+          5.9
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088720.1536415,
+        "tick": 1720,
+        "mode": "OFFBOARD",
+        "cte": -2354.5,
+        "pos": [
+          2554.6,
+          6.0
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088722.1492672,
+        "tick": 1740,
+        "mode": "OFFBOARD",
+        "cte": -2384.6,
+        "pos": [
+          2584.7,
+          6.0
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088724.1593015,
+        "tick": 1760,
+        "mode": "OFFBOARD",
+        "cte": -2414.7,
+        "pos": [
+          2614.8,
+          6.0
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088726.151532,
+        "tick": 1780,
+        "mode": "OFFBOARD",
+        "cte": -2444.8,
+        "pos": [
+          2644.8,
+          6.0
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088731.254679,
+        "tick": 1800,
+        "mode": "OFFBOARD",
+        "cte": -2473.3,
+        "pos": [
+          2673.4,
+          6.0
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088733.2546008,
+        "tick": 1820,
+        "mode": "OFFBOARD",
+        "cte": -2503.4,
+        "pos": [
+          2703.5,
+          6.1
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088735.2622626,
+        "tick": 1840,
+        "mode": "OFFBOARD",
+        "cte": -2533.5,
+        "pos": [
+          2733.6,
+          6.2
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088737.2598696,
+        "tick": 1860,
+        "mode": "OFFBOARD",
+        "cte": -2563.7,
+        "pos": [
+          2763.7,
+          6.4
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088739.2501287,
+        "tick": 1880,
+        "mode": "OFFBOARD",
+        "cte": -2593.8,
+        "pos": [
+          2793.8,
+          6.5
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088741.2540596,
+        "tick": 1900,
+        "mode": "OFFBOARD",
+        "cte": -2623.9,
+        "pos": [
+          2823.9,
+          6.7
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088743.2486286,
+        "tick": 1920,
+        "mode": "OFFBOARD",
+        "cte": -2654.0,
+        "pos": [
+          2854.0,
+          6.8
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088745.248341,
+        "tick": 1940,
+        "mode": "OFFBOARD",
+        "cte": -2684.0,
+        "pos": [
+          2884.1,
+          6.9
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088747.2506666,
+        "tick": 1960,
+        "mode": "OFFBOARD",
+        "cte": -2714.1,
+        "pos": [
+          2914.2,
+          7.1
+        ],
+        "tgt": [
+          200.0,
+          90.6
+        ]
+      },
+      {
+        "t": 1785088749.2527447,
+        "tick": 1980,
+        "mode": "OFFBOARD",
+        "cte": -2743.7,
+        "pos": [
+          2943.8,
+          7.3
+        ],
+        "tgt": [
+          200.0,
+          96.9
+        ]
+      },
+      {
+        "t": 1785088751.2503283,
+        "tick": 2000,
+        "mode": "OFFBOARD",
+        "cte": -2773.8,
+        "pos": [
+          2973.8,
+          7.6
+        ],
+        "tgt": [
+          200.0,
+          96.9
+        ]
+      },
+      {
+        "t": 1785088753.2491577,
+        "tick": 2020,
+        "mode": "OFFBOARD",
+        "cte": -2803.8,
+        "pos": [
+          3003.9,
+          7.8
+        ],
+        "tgt": [
+          200.0,
+          96.9
+        ]
+      },
+      {
+        "t": 1785088755.2566957,
+        "tick": 2040,
+        "mode": "OFFBOARD",
+        "cte": -2833.8,
+        "pos": [
+          3033.9,
+          7.9
+        ],
+        "tgt": [
+          200.0,
+          96.9
+        ]
+      },
+      {
+        "t": 1785088757.2473903,
+        "tick": 2060,
+        "mode": "OFFBOARD",
+        "cte": -2863.8,
+        "pos": [
+          3063.8,
+          8.0
+        ],
+        "tgt": [
+          200.0,
+          97.2
+        ]
+      },
+      {
+        "t": 1785088759.2526069,
+        "tick": 2080,
+        "mode": "OFFBOARD",
+        "cte": -2893.8,
+        "pos": [
+          3093.9,
+          8.2
+        ],
+        "tgt": [
+          200.0,
+          97.7
+        ]
+      },
+      {
+        "t": 1785088761.253416,
+        "tick": 2100,
+        "mode": "OFFBOARD",
+        "cte": -2923.3,
+        "pos": [
+          3123.3,
+          8.4
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088766.3527107,
+        "tick": 2120,
+        "mode": "OFFBOARD",
+        "cte": -2952.4,
+        "pos": [
+          3152.5,
+          8.6
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088768.354524,
+        "tick": 2140,
+        "mode": "OFFBOARD",
+        "cte": -2982.4,
+        "pos": [
+          3182.5,
+          8.8
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088770.3492234,
+        "tick": 2160,
+        "mode": "OFFBOARD",
+        "cte": -3012.4,
+        "pos": [
+          3212.5,
+          9.0
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088772.3544552,
+        "tick": 2180,
+        "mode": "OFFBOARD",
+        "cte": -3041.9,
+        "pos": [
+          3242.0,
+          9.3
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088774.3500595,
+        "tick": 2200,
+        "mode": "OFFBOARD",
+        "cte": -3071.9,
+        "pos": [
+          3272.0,
+          9.5
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088776.35354,
+        "tick": 2220,
+        "mode": "OFFBOARD",
+        "cte": -3102.0,
+        "pos": [
+          3302.1,
+          9.7
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088778.351834,
+        "tick": 2240,
+        "mode": "OFFBOARD",
+        "cte": -3131.6,
+        "pos": [
+          3331.6,
+          9.7
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088780.3571334,
+        "tick": 2260,
+        "mode": "OFFBOARD",
+        "cte": -3161.6,
+        "pos": [
+          3361.6,
+          9.9
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088782.3514924,
+        "tick": 2280,
+        "mode": "OFFBOARD",
+        "cte": -3191.6,
+        "pos": [
+          3391.7,
+          10.0
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088784.351263,
+        "tick": 2300,
+        "mode": "OFFBOARD",
+        "cte": -3221.2,
+        "pos": [
+          3421.3,
+          10.1
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088786.3474321,
+        "tick": 2320,
+        "mode": "OFFBOARD",
+        "cte": -3251.3,
+        "pos": [
+          3451.3,
+          10.2
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088788.3519862,
+        "tick": 2340,
+        "mode": "OFFBOARD",
+        "cte": -3281.3,
+        "pos": [
+          3481.4,
+          10.4
+        ],
+        "tgt": [
+          200.0,
+          97.8
+        ]
+      },
+      {
+        "t": 1785088790.3513258,
+        "tick": 2360,
+        "mode": "OFFBOARD",
+        "cte": -3311.3,
+        "pos": [
+          3511.4,
+          10.5
+        ],
+        "tgt": [
+          200.0,
+          98.0
+        ]
+      },
+      {
+        "t": 1785088792.353853,
+        "tick": 2380,
+        "mode": "OFFBOARD",
+        "cte": -3341.4,
+        "pos": [
+          3541.5,
+          10.6
+        ],
+        "tgt": [
+          200.0,
+          98.3
+        ]
+      },
+      {
+        "t": 1785088794.3530774,
+        "tick": 2400,
+        "mode": "OFFBOARD",
+        "cte": -3371.5,
+        "pos": [
+          3571.6,
+          10.7
+        ],
+        "tgt": [
+          200.0,
+          98.6
+        ]
+      },
+      {
+        "t": 1785088796.3507576,
+        "tick": 2420,
+        "mode": "OFFBOARD",
+        "cte": -3401.5,
+        "pos": [
+          3601.6,
+          10.8
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088798.3478684,
+        "tick": 2440,
+        "mode": "OFFBOARD",
+        "cte": -3431.6,
+        "pos": [
+          3631.7,
+          10.9
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088802.6578648,
+        "tick": 2460,
+        "mode": "OFFBOARD",
+        "cte": -3460.2,
+        "pos": [
+          3660.3,
+          11.0
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088804.660259,
+        "tick": 2480,
+        "mode": "OFFBOARD",
+        "cte": -3490.3,
+        "pos": [
+          3690.4,
+          11.1
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088806.660887,
+        "tick": 2500,
+        "mode": "OFFBOARD",
+        "cte": -3520.3,
+        "pos": [
+          3720.4,
+          11.2
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088808.6642575,
+        "tick": 2520,
+        "mode": "OFFBOARD",
+        "cte": -3550.3,
+        "pos": [
+          3750.4,
+          11.3
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088810.6542952,
+        "tick": 2540,
+        "mode": "OFFBOARD",
+        "cte": -3580.3,
+        "pos": [
+          3780.4,
+          11.4
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088812.654055,
+        "tick": 2560,
+        "mode": "OFFBOARD",
+        "cte": -3609.8,
+        "pos": [
+          3810.0,
+          11.5
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088814.6531384,
+        "tick": 2580,
+        "mode": "OFFBOARD",
+        "cte": -3639.7,
+        "pos": [
+          3839.8,
+          11.5
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088816.654591,
+        "tick": 2600,
+        "mode": "OFFBOARD",
+        "cte": -3669.6,
+        "pos": [
+          3869.7,
+          11.5
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088818.6518087,
+        "tick": 2620,
+        "mode": "OFFBOARD",
+        "cte": -3699.7,
+        "pos": [
+          3899.8,
+          11.5
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088820.6564932,
+        "tick": 2640,
+        "mode": "OFFBOARD",
+        "cte": -3729.7,
+        "pos": [
+          3929.8,
+          11.6
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088822.660457,
+        "tick": 2660,
+        "mode": "OFFBOARD",
+        "cte": -3759.2,
+        "pos": [
+          3959.3,
+          11.7
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088824.6596189,
+        "tick": 2680,
+        "mode": "OFFBOARD",
+        "cte": -3789.2,
+        "pos": [
+          3989.3,
+          11.7
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088826.652688,
+        "tick": 2700,
+        "mode": "OFFBOARD",
+        "cte": -3819.2,
+        "pos": [
+          4019.3,
+          11.8
+        ],
+        "tgt": [
+          200.0,
+          98.8
+        ]
+      },
+      {
+        "t": 1785088828.6526394,
+        "tick": 2720,
+        "mode": "OFFBOARD",
+        "cte": -3849.2,
+        "pos": [
+          4049.4,
+          12.0
+        ],
+        "tgt": [
+          200.0,
+          99.1
+        ]
+      },
+      {
+        "t": 1785088830.6551738,
+        "tick": 2740,
+        "mode": "OFFBOARD",
+        "cte": -3879.3,
+        "pos": [
+          4079.4,
+          12.3
+        ],
+        "tgt": [
+          200.0,
+          99.7
+        ]
+      },
+      {
+        "t": 1785088832.656468,
+        "tick": 2760,
+        "mode": "OFFBOARD",
+        "cte": -3909.3,
+        "pos": [
+          4109.4,
+          12.6
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088837.1523097,
+        "tick": 2780,
+        "mode": "OFFBOARD",
+        "cte": -3937.2,
+        "pos": [
+          4137.3,
+          12.8
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088839.162682,
+        "tick": 2800,
+        "mode": "OFFBOARD",
+        "cte": -3966.9,
+        "pos": [
+          4167.0,
+          13.0
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088841.156499,
+        "tick": 2820,
+        "mode": "OFFBOARD",
+        "cte": -3997.0,
+        "pos": [
+          4197.1,
+          13.2
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088843.1558685,
+        "tick": 2840,
+        "mode": "OFFBOARD",
+        "cte": -4026.9,
+        "pos": [
+          4227.1,
+          13.3
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088845.1551218,
+        "tick": 2860,
+        "mode": "OFFBOARD",
+        "cte": -4057.1,
+        "pos": [
+          4257.2,
+          13.5
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088847.1562445,
+        "tick": 2880,
+        "mode": "OFFBOARD",
+        "cte": -4086.8,
+        "pos": [
+          4286.9,
+          13.6
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088849.1549551,
+        "tick": 2900,
+        "mode": "OFFBOARD",
+        "cte": -4116.9,
+        "pos": [
+          4317.0,
+          13.7
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088851.1548889,
+        "tick": 2920,
+        "mode": "OFFBOARD",
+        "cte": -4147.0,
+        "pos": [
+          4347.1,
+          13.8
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088853.1545198,
+        "tick": 2940,
+        "mode": "OFFBOARD",
+        "cte": -4177.1,
+        "pos": [
+          4377.3,
+          13.9
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088855.1537006,
+        "tick": 2960,
+        "mode": "OFFBOARD",
+        "cte": -4204.4,
+        "pos": [
+          4404.5,
+          14.1
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088857.1569364,
+        "tick": 2980,
+        "mode": "OFFBOARD",
+        "cte": -4234.6,
+        "pos": [
+          4434.8,
+          14.2
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088859.1555295,
+        "tick": 3000,
+        "mode": "OFFBOARD",
+        "cte": -4265.0,
+        "pos": [
+          4465.2,
+          14.4
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088861.1527803,
+        "tick": 3020,
+        "mode": "OFFBOARD",
+        "cte": -4295.2,
+        "pos": [
+          4495.4,
+          14.6
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088863.155867,
+        "tick": 3040,
+        "mode": "OFFBOARD",
+        "cte": -4325.5,
+        "pos": [
+          4525.6,
+          14.8
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088865.1601536,
+        "tick": 3060,
+        "mode": "OFFBOARD",
+        "cte": -4355.8,
+        "pos": [
+          4556.0,
+          15.0
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088867.1580045,
+        "tick": 3080,
+        "mode": "OFFBOARD",
+        "cte": -4386.2,
+        "pos": [
+          4586.3,
+          15.1
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088871.762555,
+        "tick": 3100,
+        "mode": "OFFBOARD",
+        "cte": -4414.7,
+        "pos": [
+          4614.8,
+          15.3
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088873.7528,
+        "tick": 3120,
+        "mode": "OFFBOARD",
+        "cte": -4444.9,
+        "pos": [
+          4645.1,
+          15.6
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088875.7524934,
+        "tick": 3140,
+        "mode": "OFFBOARD",
+        "cte": -4475.3,
+        "pos": [
+          4675.4,
+          15.9
+        ],
+        "tgt": [
+          200.0,
+          99.8
+        ]
+      },
+      {
+        "t": 1785088877.7518244,
+        "tick": 3160,
+        "mode": "OFFBOARD",
+        "cte": -4505.5,
+        "pos": [
+          4705.6,
+          16.2
+        ],
+        "tgt": [
+          200.0,
+          100.2
+        ]
+      },
+      {
+        "t": 1785088879.750289,
+        "tick": 3180,
+        "mode": "OFFBOARD",
+        "cte": -4535.6,
+        "pos": [
+          4735.7,
+          16.6
+        ],
+        "tgt": [
+          200.0,
+          100.9
+        ]
+      },
+      {
+        "t": 1785088881.7560031,
+        "tick": 3200,
+        "mode": "OFFBOARD",
+        "cte": -4565.7,
+        "pos": [
+          4765.9,
+          16.8
+        ],
+        "tgt": [
+          200.0,
+          101.5
+        ]
+      },
+      {
+        "t": 1785088883.7534003,
+        "tick": 3220,
+        "mode": "OFFBOARD",
+        "cte": -4595.2,
+        "pos": [
+          4795.3,
+          17.1
+        ],
+        "tgt": [
+          200.0,
+          101.7
+        ]
+      },
+      {
+        "t": 1785088885.756265,
+        "tick": 3240,
+        "mode": "OFFBOARD",
+        "cte": -4625.3,
+        "pos": [
+          4825.5,
+          17.3
+        ],
+        "tgt": [
+          200.0,
+          101.7
+        ]
+      },
+      {
+        "t": 1785088887.7529254,
+        "tick": 3260,
+        "mode": "OFFBOARD",
+        "cte": -4655.5,
+        "pos": [
+          4855.6,
+          17.5
+        ],
+        "tgt": [
+          200.0,
+          101.7
+        ]
+      },
+      {
+        "t": 1785088889.748866,
+        "tick": 3280,
+        "mode": "OFFBOARD",
+        "cte": -4685.4,
+        "pos": [
+          4885.6,
+          17.6
+        ],
+        "tgt": [
+          200.0,
+          101.7
+        ]
+      },
+      {
+        "t": 1785088891.7631395,
+        "tick": 3300,
+        "mode": "OFFBOARD",
+        "cte": -4715.4,
+        "pos": [
+          4915.6,
+          17.8
+        ],
+        "tgt": [
+          200.0,
+          101.7
+        ]
+      },
+      {
+        "t": 1785088893.7524061,
+        "tick": 3320,
+        "mode": "OFFBOARD",
+        "cte": -4745.5,
+        "pos": [
+          4945.6,
+          17.9
+        ],
+        "tgt": [
+          200.0,
+          101.7
+        ]
+      },
+      {
+        "t": 1785088895.7607968,
+        "tick": 3340,
+        "mode": "OFFBOARD",
+        "cte": -4774.9,
+        "pos": [
+          4975.0,
+          18.0
+        ],
+        "tgt": [
+          200.0,
+          101.7
+        ]
+      },
+      {
+        "t": 1785088897.7497926,
+        "tick": 3360,
+        "mode": "OFFBOARD",
+        "cte": -4804.8,
+        "pos": [
+          5005.0,
+          18.0
+        ],
+        "tgt": [
+          200.0,
+          101.7
+        ]
+      },
+      {
+        "t": 1785088899.7508676,
+        "tick": 3380,
+        "mode": "OFFBOARD",
+        "cte": -4834.8,
+        "pos": [
+          5035.0,
+          18.0
+        ],
+        "tgt": [
+          200.0,
+          101.7
+        ]
+      },
+      {
+        "t": 1785088901.7557218,
+        "tick": 3400,
+        "mode": "OFFBOARD",
+        "cte": -4864.9,
+        "pos": [
+          5065.0,
+          18.1
+        ],
+        "tgt": [
+          200.0,
+          101.7
+        ]
+      },
+      {
+        "t": 1785088906.3741193,
+        "tick": 3420,
+        "mode": "OFFBOARD",
+        "cte": -4893.3,
+        "pos": [
+          5093.4,
+          18.2
+        ],
+        "tgt": [
+          200.0,
+          101.8
+        ]
+      },
+      {
+        "t": 1785088908.3523312,
+        "tick": 3440,
+        "mode": "OFFBOARD",
+        "cte": -4923.4,
+        "pos": [
+          5123.5,
+          18.2
+        ],
+        "tgt": [
+          200.0,
+          101.9
+        ]
+      },
+      {
+        "t": 1785088910.3530872,
+        "tick": 3460,
+        "mode": "OFFBOARD",
+        "cte": -4952.9,
+        "pos": [
+          5153.0,
+          18.3
+        ],
+        "tgt": [
+          200.0,
+          101.9
+        ]
+      },
+      {
+        "t": 1785088912.3513834,
+        "tick": 3480,
+        "mode": "OFFBOARD",
+        "cte": -4982.8,
+        "pos": [
+          5182.9,
+          18.3
+        ],
+        "tgt": [
+          200.0,
+          102.0
+        ]
+      },
+      {
+        "t": 1785088914.3524168,
+        "tick": 3500,
+        "mode": "OFFBOARD",
+        "cte": -5012.3,
+        "pos": [
+          5212.4,
+          18.4
+        ],
+        "tgt": [
+          200.0,
+          102.1
+        ]
+      },
+      {
+        "t": 1785088916.3552516,
+        "tick": 3520,
+        "mode": "OFFBOARD",
+        "cte": -5042.1,
+        "pos": [
+          5242.2,
+          18.6
+        ],
+        "tgt": [
+          200.0,
+          102.2
+        ]
+      },
+      {
+        "t": 1785088918.3541965,
+        "tick": 3540,
+        "mode": "OFFBOARD",
+        "cte": -5072.0,
+        "pos": [
+          5272.1,
+          18.7
+        ],
+        "tgt": [
+          200.0,
+          102.4
+        ]
+      },
+      {
+        "t": 1785088920.3525276,
+        "tick": 3560,
+        "mode": "OFFBOARD",
+        "cte": -5101.3,
+        "pos": [
+          5301.4,
+          19.0
+        ],
+        "tgt": [
+          200.0,
+          102.6
+        ]
+      },
+      {
+        "t": 1785088922.352835,
+        "tick": 3580,
+        "mode": "OFFBOARD",
+        "cte": -5131.2,
+        "pos": [
+          5331.3,
+          19.2
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088924.352767,
+        "tick": 3600,
+        "mode": "OFFBOARD",
+        "cte": -5161.1,
+        "pos": [
+          5361.2,
+          19.5
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088926.3501146,
+        "tick": 3620,
+        "mode": "OFFBOARD",
+        "cte": -5191.0,
+        "pos": [
+          5391.0,
+          19.7
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088928.3565626,
+        "tick": 3640,
+        "mode": "OFFBOARD",
+        "cte": -5220.8,
+        "pos": [
+          5420.9,
+          19.7
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088930.3534942,
+        "tick": 3660,
+        "mode": "OFFBOARD",
+        "cte": -5250.1,
+        "pos": [
+          5450.2,
+          19.7
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088932.3584957,
+        "tick": 3680,
+        "mode": "OFFBOARD",
+        "cte": -5280.0,
+        "pos": [
+          5480.1,
+          19.8
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088934.3588405,
+        "tick": 3700,
+        "mode": "OFFBOARD",
+        "cte": -5309.4,
+        "pos": [
+          5509.5,
+          19.8
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088936.3550282,
+        "tick": 3720,
+        "mode": "OFFBOARD",
+        "cte": -5339.5,
+        "pos": [
+          5539.5,
+          19.7
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088938.352839,
+        "tick": 3740,
+        "mode": "OFFBOARD",
+        "cte": -5369.3,
+        "pos": [
+          5569.4,
+          19.7
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088942.9500701,
+        "tick": 3760,
+        "mode": "OFFBOARD",
+        "cte": -5398.3,
+        "pos": [
+          5598.4,
+          19.7
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088944.9532695,
+        "tick": 3780,
+        "mode": "OFFBOARD",
+        "cte": -5428.4,
+        "pos": [
+          5628.5,
+          19.7
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088946.9550908,
+        "tick": 3800,
+        "mode": "OFFBOARD",
+        "cte": -5458.5,
+        "pos": [
+          5658.5,
+          19.7
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088948.9546344,
+        "tick": 3820,
+        "mode": "OFFBOARD",
+        "cte": -5488.5,
+        "pos": [
+          5688.6,
+          19.8
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088950.9518876,
+        "tick": 3840,
+        "mode": "OFFBOARD",
+        "cte": -5518.6,
+        "pos": [
+          5718.7,
+          19.8
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088952.9491117,
+        "tick": 3860,
+        "mode": "OFFBOARD",
+        "cte": -5548.7,
+        "pos": [
+          5748.8,
+          19.9
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088954.9580367,
+        "tick": 3880,
+        "mode": "OFFBOARD",
+        "cte": -5578.8,
+        "pos": [
+          5778.8,
+          20.0
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088956.9586987,
+        "tick": 3900,
+        "mode": "OFFBOARD",
+        "cte": -5608.2,
+        "pos": [
+          5808.3,
+          20.0
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088958.9484527,
+        "tick": 3920,
+        "mode": "OFFBOARD",
+        "cte": -5638.1,
+        "pos": [
+          5838.2,
+          20.1
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088960.9481568,
+        "tick": 3940,
+        "mode": "OFFBOARD",
+        "cte": -5668.1,
+        "pos": [
+          5868.2,
+          20.2
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088962.949864,
+        "tick": 3960,
+        "mode": "OFFBOARD",
+        "cte": -5698.3,
+        "pos": [
+          5898.4,
+          20.3
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088964.9493186,
+        "tick": 3980,
+        "mode": "OFFBOARD",
+        "cte": -5728.3,
+        "pos": [
+          5928.4,
+          20.4
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088966.9484327,
+        "tick": 4000,
+        "mode": "OFFBOARD",
+        "cte": -5758.3,
+        "pos": [
+          5958.3,
+          20.5
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088968.9541368,
+        "tick": 4020,
+        "mode": "OFFBOARD",
+        "cte": -5787.7,
+        "pos": [
+          5987.8,
+          20.6
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088970.956322,
+        "tick": 4040,
+        "mode": "OFFBOARD",
+        "cte": -5817.7,
+        "pos": [
+          6017.7,
+          20.7
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088972.955146,
+        "tick": 4060,
+        "mode": "OFFBOARD",
+        "cte": -5847.6,
+        "pos": [
+          6047.7,
+          20.7
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088977.5637245,
+        "tick": 4080,
+        "mode": "OFFBOARD",
+        "cte": -5876.5,
+        "pos": [
+          6076.6,
+          20.8
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088979.554498,
+        "tick": 4100,
+        "mode": "OFFBOARD",
+        "cte": -5906.0,
+        "pos": [
+          6106.1,
+          20.9
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088981.5510485,
+        "tick": 4120,
+        "mode": "OFFBOARD",
+        "cte": -5936.0,
+        "pos": [
+          6136.1,
+          21.0
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088983.5599015,
+        "tick": 4140,
+        "mode": "OFFBOARD",
+        "cte": -5966.0,
+        "pos": [
+          6166.1,
+          21.0
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088985.5558403,
+        "tick": 4160,
+        "mode": "OFFBOARD",
+        "cte": -5995.5,
+        "pos": [
+          6195.5,
+          20.9
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088987.553075,
+        "tick": 4180,
+        "mode": "OFFBOARD",
+        "cte": -6025.4,
+        "pos": [
+          6225.5,
+          21.0
+        ],
+        "tgt": [
+          200.0,
+          102.7
+        ]
+      },
+      {
+        "t": 1785088989.5543778,
+        "tick": 4200,
+        "mode": "OFFBOARD",
+        "cte": -6055.4,
+        "pos": [
+          6255.4,
+          21.1
+        ],
+        "tgt": [
+          200.0,
+          102.9
+        ]
+      },
+      {
+        "t": 1785088991.5517697,
+        "tick": 4220,
+        "mode": "OFFBOARD",
+        "cte": -6085.3,
+        "pos": [
+          6285.4,
+          21.2
+        ],
+        "tgt": [
+          200.0,
+          103.2
+        ]
+      },
+      {
+        "t": 1785088993.5544484,
+        "tick": 4240,
+        "mode": "OFFBOARD",
+        "cte": -6114.7,
+        "pos": [
+          6314.8,
+          21.4
+        ],
+        "tgt": [
+          200.0,
+          103.5
+        ]
+      },
+      {
+        "t": 1785088995.5571818,
+        "tick": 4260,
+        "mode": "OFFBOARD",
+        "cte": -6143.6,
+        "pos": [
+          6343.7,
+          21.6
+        ],
+        "tgt": [
+          200.0,
+          103.6
+        ]
+      },
+      {
+        "t": 1785088997.5534964,
+        "tick": 4280,
+        "mode": "OFFBOARD",
+        "cte": -6173.1,
+        "pos": [
+          6373.2,
+          21.8
+        ],
+        "tgt": [
+          200.0,
+          103.6
+        ]
+      },
+      {
+        "t": 1785088999.555042,
+        "tick": 4300,
+        "mode": "OFFBOARD",
+        "cte": -6203.1,
+        "pos": [
+          6403.1,
+          22.0
+        ],
+        "tgt": [
+          200.0,
+          103.6
+        ]
+      },
+      {
+        "t": 1785089001.5599215,
+        "tick": 4320,
+        "mode": "OFFBOARD",
+        "cte": -6233.0,
+        "pos": [
+          6433.1,
+          22.2
+        ],
+        "tgt": [
+          200.0,
+          103.6
+        ]
+      },
+      {
+        "t": 1785089003.5545866,
+        "tick": 4340,
+        "mode": "OFFBOARD",
+        "cte": -6262.5,
+        "pos": [
+          6462.6,
+          22.5
+        ],
+        "tgt": [
+          200.0,
+          103.6
+        ]
+      },
+      {
+        "t": 1785089005.5537367,
+        "tick": 4360,
+        "mode": "OFFBOARD",
+        "cte": -6292.4,
+        "pos": [
+          6492.5,
+          22.7
+        ],
+        "tgt": [
+          200.0,
+          103.6
+        ]
+      }
+    ],
+    "hold_samples": [],
+    "offboard_reacquire": [],
+    "timeouts": [],
+    "line_count": 624,
+    "t_first": 1785088413.0647688,
+    "t_last": 1785089005.5537367
+  },
+  "mavros_log": {
+    "present": true,
+    "warnings": [
+      {
+        "pattern": "TM: Time jump detected. Resetting time synchroniser.",
+        "level": "ERROR",
+        "count": 12,
+        "first_t": 1785088440.7022521,
+        "last_t": 1785089003.7599447,
+        "sample": "TM: Time jump detected. Resetting time synchroniser.",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "FCU: EVENT # with args ########################################-",
+        "level": "ERROR",
+        "count": 8,
+        "first_t": 1785088387.6293116,
+        "last_t": 1785088511.94934,
+        "sample": "FCU: EVENT 7791755 with args -255-1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "FCU: UNK(#): EVENT # with args ########################################-",
+        "level": "WARN",
+        "count": 6,
+        "first_t": 1785088388.7089593,
+        "last_t": 1785088511.9500062,
+        "sample": "FCU: UNK(8): EVENT 11047904 with args -0-0-0-18-1-128-0-0-0-0-58-1-128-0-58-1-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: unicast request timeout, retries left #",
+        "level": "WARN",
+        "count": 5,
+        "first_t": 1785088386.706898,
+        "last_t": 1785088393.6270912,
+        "sample": "VER: unicast request timeout, retries left 2",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: broadcast request timeout, retries left #",
+        "level": "WARN",
+        "count": 4,
+        "first_t": 1785088384.9025192,
+        "last_t": 1785088390.9166152,
+        "sample": "VER: broadcast request timeout, retries left 4",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: command plugin service call failed!",
+        "level": "ERROR",
+        "count": 4,
+        "first_t": 1785088391.826199,
+        "last_t": 1785088394.5272892,
+        "sample": "VER: command plugin service call failed!",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "TM: RTT too high for timesync: # ms.",
+        "level": "WARN",
+        "count": 3,
+        "first_t": 1785088400.1495342,
+        "last_t": 1785088400.6300068,
+        "sample": "TM: RTT too high for timesync: 1909.38 ms.",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "CMD: Unexpected command #, result #",
+        "level": "WARN",
+        "count": 2,
+        "first_t": 1785088387.6087654,
+        "last_t": 1785088513.843618,
+        "sample": "CMD: Unexpected command 520, result 3",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: your FCU don't support AUTOPILOT_VERSION, switched to default capabilities",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785088394.5276937,
+        "last_t": 1785088394.5276937,
+        "sample": "VER: your FCU don't support AUTOPILOT_VERSION, switched to default capabilities",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "PR: Failed to get parameter type: NAV_DLL_ACT",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785088401.115161,
+        "last_t": 1785088401.115161,
+        "sample": "PR: Failed to get parameter type: NAV_DLL_ACT",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "PR: request param ## timeout, retries left #, and # params still missing",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785088401.3377464,
+        "last_t": 1785088401.3377464,
+        "sample": "PR: request param #366 timeout, retries left 2, and 493 params still missing",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "UAS Executor terminated",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785089006.182049,
+        "last_t": 1785089006.182049,
+        "sample": "UAS Executor terminated",
+        "known_cosmetic": false
+      }
+    ],
+    "line_count": 222
+  },
+  "verdict": [
+    {
+      "item": "완주 (DONE 도달)",
+      "status": "FAIL",
+      "criterion": "DONE 상태 도달",
+      "detail": "관측 상태: ARM_TAKEOFF → CLIMBING → TRANSITION_FW → STREAMING → FOLLOWING; 종료사유=timeout"
+    },
+    {
+      "item": "disarm 확인",
+      "status": "FAIL",
+      "criterion": "ulog arming_state 2→1",
+      "detail": "로그 끝까지 disarm 되지 않음"
+    },
+    {
+      "item": "상태 순서",
+      "status": "PASS",
+      "criterion": "정상 순서의 부분수열",
+      "detail": "ARM_TAKEOFF → CLIMBING → TRANSITION_FW → STREAMING → FOLLOWING"
+    },
+    {
+      "item": "vtol_state 시퀀스",
+      "status": "FAIL",
+      "criterion": "3→1→4, 4→2→3",
+      "detail": "seq=[3, 1, 4], 정천이 2.504s / 역천이 Nones"
+    },
+    {
+      "item": "setpoint 점프",
+      "status": "FAIL",
+      "criterion": "상태 경계 ±1s 에서 1.5m 초과 점프 없음",
+      "detail": "임계 1.5m, 경계±1s 위반 5건 / 전체 위반 61건 / 샘플 2751개, 최대 233.048m (1120.4229 m/s). 경계 최대: 233.048m@137.908s(FOLLOWING), 3.7404m@138.62s(FOLLOWING), 3.6538m@138.416s(FOLLOWING). 스트림 재개 갭 1건은 별도 집계"
+    },
+    {
+      "item": "수직 가속",
+      "status": "FAIL",
+      "criterion": "천이 제외 |az| ≤ 0.5g (4.90 m/s²)",
+      "detail": "피크 |az|=5.2038 m/s² (0.5306g) @138.428s state=FOLLOWING; 접지 제외값 없음(disarm 시각을 몰라 접지 구간을 제외할 수 없음)"
+    },
+    {
+      "item": "역천이 감속률",
+      "status": "NULL",
+      "criterion": "≤ 0.3g (2.94 m/s²)",
+      "detail": "역천이 구간(vtol_state==2 또는 TRANSITION_MC 상태창)을 특정할 수 없음 — 역천이가 일어나지 않았을 수 있다"
+    },
+    {
+      "item": "TRANSITION_FW 헤딩",
+      "status": "PASS",
+      "criterion": "단조수렴 + err ≤ 2.9°",
+      "detail": "시작오차 -91.4128° → 정렬 15.412s 소요, 최대 91.7138°, tol 진입 후 재증가 0.0 rad, 단조수렴=True"
+    },
+    {
+      "item": "CLIMBING 오버슈트",
+      "status": "PASS",
+      "criterion": "≤ +10%",
+      "detail": "최대 AGL 48.4934m vs transition_alt 50.0m → -3.0131%"
+    },
+    {
+      "item": "정천이 고도손실",
+      "status": "PASS",
+      "criterion": "≤ 5m",
+      "detail": "50.1879m → 최저 50.1879m (손실 0.0m)"
+    },
+    {
+      "item": "순항 고도편차",
+      "status": "PASS",
+      "criterion": "±3m",
+      "detail": "기준 AGL 49.842m, 평균편차 0.0377m, 최대 |편차| 2.0866m"
+    },
+    {
+      "item": "FW cte",
+      "status": "WARN",
+      "criterion": "직선 ≤ 2m (코너는 별도 기록)",
+      "detail": "최대 |cte| 6292.4m 평균 3045.2922m (부호 -6292.4~-0.9m, n=219) — 코너 오버슈트 포함값"
+    },
+    {
+      "item": "경고/타임아웃",
+      "status": "WARN",
+      "criterion": "무해성 판단은 사람이 한다(계획서 5장)",
+      "detail": "node.log 1건/1종, mavros.log 48건/12종 — verdict 하단 목록 참조"
+    }
+  ]
+}
