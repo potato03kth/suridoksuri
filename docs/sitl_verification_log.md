@@ -716,6 +716,43 @@ ros2 topic echo /mavros/statustext/recv     # "Already higher…" 안 떠야 정
 
 ---
 
+## MC 웨이포인트 정착 — fly-by 통과 폐기 (2026-07-27)
+
+**결과: PASS** (커밋 `4e8e378`, 환경: 이 노트북 `Ubuntu-22.04` + `gz_x500`)
+
+**배경:** `mc_wp_advance()`가 거리 조건 하나만 봐서 WP 반경 경계를 스치는 순간 목표가
+다음 WP로 바뀌었다 — 기체가 WP 위에 실제로 가보지 않고 코너를 자르며 지나감
+(2026-07-25 flight04 실측: 1.8~1.9m 지점에서 통과 판정). MC는 호버가 되므로 각 WP에
+정착(도달→정지→출발)하는 게 자연스럽고, "찍은 경로대로 가는지"를 보는 이 테스트기체의
+목적에도 맞다는 사용자 지적으로 정착 판정 도입.
+
+**실행:**
+
+```bash
+ros2 launch fc_ros phase2.launch.py vehicle_type:=mc transition_alt:=3.0 \
+  waypoints:='[0.0,0.0,3.0, 5.0,0.0,3.0, 5.0,5.0,3.0, 0.0,5.0,3.0, 0.0,0.0,3.0]'
+```
+
+**결과 — WP 5점 전부 정착 후 전진, 미션 완주:**
+
+| WP | 정착 시점 WP 오차 | 정착 시점 수평속도 |
+|---|---|---|
+| WP0 | 0.02 m | 0.01 m/s |
+| WP1 | 0.17 m | 0.17 m/s |
+| WP2 | 0.05 m | 0.17 m/s |
+| WP3 | 0.14 m | 0.20 m/s |
+| WP4 | 0.10 m | 0.21 m/s |
+
+종전 fly-by의 1.8~1.9m 통과와 대조된다. ARM→CLIMBING→STREAMING→OFFBOARD→FOLLOWING
+→HOLD→LANDING→disarm 전 구간 완주, `mc_wp_timeout` 발동·경고 없음. 마지막 WP 정착 후
+HOLD가 곧바로 안정 판정(`dist=0.1m speed=0.1m/s`)되어 착륙까지 이어졌다.
+노드 로그: 배포판 로컬 `/root/fc_launch_settle_20260727.log`.
+
+**동일 커밋 RPi5 배포·검증 완료** — 소스↔install md5 일치, yaml 신규 파라미터 3종 반영,
+`import fc_ros.nodes.offboard_node` 통과(`docs/rpi_deploy.md` §5 절차).
+
+---
+
 ## 현재 진행 상태 (2026-06-30 기준)
 
 - [x] WSL SITL 환경 구축
