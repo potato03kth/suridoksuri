@@ -27,7 +27,7 @@ class KalmanTracker:
         if not state.detections:
             if self._initialized:
                 pred = self._kf.predict()
-                state.meta["kalman"] = {"predicted": (int(pred[0]), int(pred[1])), "source": "predict"}
+                state.meta["kalman"] = {"predicted": (int(pred[0][0]), int(pred[1][0])), "source": "predict"}
             return state
 
         best = max(state.detections, key=lambda d: d.confidence)
@@ -40,5 +40,5 @@ class KalmanTracker:
 
         self._kf.correct(measurement)
         pred = self._kf.predict()
-        state.meta["kalman"] = {"predicted": (int(pred[0]), int(pred[1])), "source": "correct"}
+        state.meta["kalman"] = {"predicted": (int(pred[0][0]), int(pred[1][0])), "source": "correct"}
         return state
