@@ -55,7 +55,39 @@ def test_planner_eta_scales_with_corner_count():
     """실측: 3WP(코너 1개) 45~73s · 5WP 폐곡선(코너 3개) 263.5s."""
     one = planner_eta_s("eta3", 3)
     three = planner_eta_s("eta3", 5)
-    assert 45.0 <= one <= 100.0
+    assert 45.0 <= one <= 120.0
     assert three == 3 * one
     # 폐곡선 실측 263.5s 를 같은 자릿수로 예고해야 안내로서 쓸모가 있다
     assert 0.5 * 263.5 <= three <= 1.5 * 263.5
+
+
+# ── 예고는 실측보다 항상 커야 한다 (2026-07-28, v_cruise 18.0 정식값 확정) ──
+#
+# 이 로그의 유일한 존재 이유가 "죽은 게 아니라 계산 중"을 알리는 것이므로
+# (F-12), 예고가 실측보다 작으면 정확히 그 오판을 유발한다.
+# 아래 실측은 정식값 v_cruise=18.0, PX4 /root/PX4-vehicle @ c890d9db0a,
+# 원본 logs/2026-07-28_vc18/<run>/node.log 의 "경로 계획 완료 — 소요 Xs".
+_MEASURED_BLOCKING_S = {
+    ("R2_a3_vc18", 3): 57.6,       # L자 90° 1회, 코너 1개
+    ("R2_b5_vc18", 5): 221.6,      # 사각 폐곡선, 코너 3개
+    ("R2_closed_vc18", 5): 223.6,  # 완전 폐회로(대회 경로 형상), 코너 3개
+}
+
+
+def test_planner_eta_never_underestimates_measured_blocking():
+    """v_cruise=18.0 실측 전건에서 예고 ≥ 실측 이어야 한다.
+
+    코너당 75s 였을 때 코너3 예고 225s 가 실측 223.6s 를 **1.4초 차이로**
+    겨우 넘겼다 — 사실상 마진이 없었다. 90s 로 올려 여유를 되찾는다.
+    """
+    for (run, n_wp), measured in _MEASURED_BLOCKING_S.items():
+        eta = planner_eta_s("eta3", n_wp)
+        assert eta >= measured, f"{run}: 예고 {eta}s < 실측 {measured}s"
+
+
+def test_planner_eta_keeps_useful_margin_over_measurement():
+    """다만 여유가 10% 미만이면 런간 변동에 바로 뒤집힌다 — 최소 15% 확보."""
+    for (run, n_wp), measured in _MEASURED_BLOCKING_S.items():
+        eta = planner_eta_s("eta3", n_wp)
+        assert eta >= measured * 1.15, (
+            f"{run}: 예고 {eta}s 가 실측 {measured}s 대비 15% 여유 미달")
