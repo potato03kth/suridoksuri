@@ -453,3 +453,197 @@ set(CMAKE_C_FLAGS "${cpu_flags} -Wno-error=implicit-function-declaration \
 - 10.3.1 산출물은 보존: `/root/artifacts_gcc1031/`, `/mnt/c/px4_flash/px4_fmu-v6c_f17f4patch_20260728.px4`
   (`.px4` sha256 `f1c16e2b…` — §4-1 값과 일치 재확인).
 - 14.2.1 툴체인은 `/opt/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi/` 에 설치된 채 유지.
+
+---
+
+## 10. PX4 공식 빌드 환경 특정 — §9-4 의 「남는 의문」 해소 (2026-07-28)
+
+> **결론 요약**
+> 1. 공식 CI 컨테이너는 **`ghcr.io/px4/px4-dev:v1.17.0-rc2`**, 내용물은 `ubuntu:24.04` +
+>    apt `gcc-arm-none-eabi` = **GCC 13.2.1 20231009**.
+> 2. `getaddrinfo` 벽의 정체는 **GCC 14 의 permerror 승격**이다. 공식 환경은 **GCC 13** 이라
+>    애초에 벽을 만나지 않는다. 우회 플래그도, 다른 config 도 없다.
+> 3. ⚠ **§9 의 전제가 뒤집힌다** — 공식 CI 는 이 커밋을 **13.2.1** 로 빌드한다.
+>    실기체의 `14.2.1 20241119` 는 **공식 CI 산출물이 아니다.**
+> 4. 이번 세션은 **도커 빌드를 수행하지 못했다** — 이 머신에 docker 가 없다(§10-5).
+
+### 10-1. 공식 이미지 태그 — 저장소 내부 근거
+
+커밋 `c890d9db0a` 의 저장소에서 직접 특정했다. 웹 추정 아님.
+
+| 근거 파일 | 내용 |
+|---|---|
+| `.github/workflows/build_all_targets.yml:135,168` | 펌웨어 빌드 job 이 `container.image: ${{ matrix.container }}` 사용 |
+| `Tools/ci/generate_board_targets_json.py` | 그 matrix 를 `Tools/ci/build_all_config.yml` 에서 생성 |
+| **`Tools/ci/build_all_config.yml`** | `containers.default: "ghcr.io/px4/px4-dev:v1.17.0-rc2"` ← **확정** |
+
+`px4_fmu-v6c` 는 STM32H7 계열이라 `voxl2` 예외에 해당하지 않고 `default` 컨테이너를 쓴다.
+`build_all_targets.yml` 주석에도 *"currently pinned to v1.17.0-rc2 in Tools/ci/build_all_config.yml"* 로 명시돼 있다.
+
+빌드 명령은 `Tools/ci/build_all_runner.sh` 의 `make $target` — 순정 그대로, 추가 플래그 **없음**.
+
+**S3 업로드 경로 확인:** 같은 워크플로가 `main` 브랜치 빌드를 `s3://px4-travis/Firmware/master/`
+로 올린다(`# Main branch uploads to "master" for QGC backward compatibility`).
+QGC 의 Developer/master 채널이 정확히 이 경로다 → 사용자가 QGC 로 받은 경로 자체는 맞다.
+
+### 10-2. 그 이미지의 실제 내용물 — **GCC 13.2.1**
+
+이미지는 외부 저장소가 아니라 **PX4 소스트리 안의 Dockerfile** 로 빌드된다
+(`.github/workflows/dev_container.yml` → `context: Tools/setup`).
+
+```dockerfile
+# Tools/setup/Dockerfile  — 태그 v1.17.0-rc2 시점
+FROM ubuntu:24.04
+...
+RUN bash /tmp/ubuntu.sh --no-sim-tools
+```
+
+```bash
+# git diff v1.17.0-rc2 HEAD -- Tools/setup/Dockerfile
+(출력 없음 — 태그 시점과 HEAD 가 동일)
+```
+
+`Tools/setup/ubuntu.sh:172` 는 ARM 툴체인을 **apt 배포판 패키지**로 깐다 (Arm 타르볼 아님):
+
+```bash
+sudo apt-get install ... gcc-arm-none-eabi ...
+```
+
+ARM 툴체인용 PPA·외부 저장소 추가는 **없다** (`grep add-apt-repository` 결과는 Gazebo OSRF 1건뿐,
+그나마 `--no-sim-tools` 로 건너뛴다).
+
+⇒ 컨테이너의 컴파일러 = **Ubuntu 24.04(noble) 의 `gcc-arm-none-eabi`**.
+
+| Ubuntu suite | `gcc-arm-none-eabi` 패키지 | `__VERSION__` |
+|---|---|---|
+| jammy 22.04 | `15:10.3-2021.07-4` | `10.3.1 20210621` ← **이 WSL 의 apt 기본값(§2)** |
+| **noble 24.04** | **`15:13.2.rel1-2`** | **`13.2.1 20231009`** ← **공식 px4-dev 컨테이너** |
+| questing 25.10 / resolute 26.04 | `15:14.2.rel1-1` | `14.2.1 20241119` ← **실기체 문자열** |
+
+로컬 실측으로 이 대응표를 교차검증했다 — `apt-cache policy gcc-arm-none-eabi` →
+`Installed: 15:10.3-2021.07-4`, `arm-none-eabi-gcc --version` →
+`arm-none-eabi-gcc (15:10.3-2021.07-4) 10.3.1 20210621`. 표의 jammy 행과 정확히 일치.
+
+### 10-3. `getaddrinfo` 벽의 정체 — **GCC 14 permerror 승격, 그게 전부**
+
+**① 결함 자체는 config 문제이고 컴파일러와 무관하게 상존한다.**
+
+```c
+/* platforms/nuttx/NuttX/nuttx/include/netdb.h */
+#ifdef CONFIG_LIBC_NETDB          /* :286 */
+...
+void freeaddrinfo(FAR struct addrinfo *ai);        /* :294 */
+int  getaddrinfo(FAR const char *nodename, ...);   /* :296 */
+#endif /* CONFIG_LIBC_NETDB */                     /* :349 */
+```
+
+v6c 는 네트워킹이 없어 `CONFIG_LIBC_NETDB` 가 켜지지 않는다 — 실측:
+
+```bash
+# boards/px4/fmu-v6c/nuttx-config/nsh/defconfig 에 "NET" 문자열 0건
+# 생성된 platforms/nuttx/NuttX/nuttx/include/nuttx/config.h:
+#   CONFIG_NETDB_BUFSIZE / CONFIG_NETDB_MAX_IPADDR 는 있으나
+#   CONFIG_LIBC_NETDB 는 정의 안 됨   ← 확인
+# NuttX Kconfig: config LIBC_NETDB / bool / default n  (select 하는 항목 없음)
+```
+
+따라서 `udp_transport_posix.c:46` 의 `getaddrinfo` 는 **어느 컴파일러에서든 암시적 선언**이다.
+
+**② 그런데 이 파일에는 `-Werror` 가 붙지 않는다.** 실패 로그의 컴파일 커맨드라인 전체를 봐도
+`-Werror` 는 없다(`logs/2026-07-28_px4_flash/build_stock_gcc1421_FAILED.log:518`).
+플래그는 `-Os -DNDEBUG -Wall -Wextra -Wshadow -pedantic ... -std=gnu99` 뿐이다.
+
+경로도 확인했다 — `src/modules/uxrce_dds_client/CMakeLists.txt` 의 ExternalProject 는
+`-DCMAKE_C_FLAGS:STRING=${c_flags_with_includes}` 로 **`CMAKE_C_FLAGS` 변수만** 전파한다.
+PX4 본체의 경고 플래그는 `add_compile_options()`(디렉터리 속성)이라 여기로 넘어오지 않는다.
+그래서 `-Werror` 가 없는 것이고, **에러가 난 건 순전히 컴파일러 기본 동작**이다.
+
+**③ GCC 14 가 이 진단을 기본 에러로 승격했다.**
+GCC 14 는 `-Wimplicit-function-declaration` 등 6종을 C99 이상 모드에서 permerror 로 바꿨다.
+`-std=gnu99` 이므로 해당된다. 직전 세션 3자 실측과 정확히 일치한다:
+
+| 컴파일러 | `getaddrinfo` 진단 | 결과 |
+|---|---|---|
+| 10.3.1 20210621 (jammy apt) | warning | **성공** |
+| **13.2.1 20231009 (noble apt = 공식 컨테이너)** | **warning** | **성공** ← CI 가 통과하는 이유 |
+| 14.2.1 20241119 (Arm 14.2.Rel1 손설치) | **error** (permerror) | **실패** |
+| 14.2.1 + `-Wno-error=implicit-function-declaration` | warning | 성공 |
+
+⇒ **공식 환경에 「벽을 넘는 무언가」는 없다. 공식 환경은 GCC 13 이라 벽 자체가 없다.**
+이미지에 다른 GCC 가 있는 것도, `CMAKE_C_FLAGS` 가 다른 것도, 환경변수도 아니다.
+
+### 10-4. ⚠ 전제 뒤집힘 — 실기체 펌웨어는 공식 CI 산출물이 **아니다**
+
+10-2 와 10-3 을 합치면 모순이 드러난다.
+
+- 공식 CI(`px4-dev:v1.17.0-rc2` = ubuntu 24.04)는 이 커밋을 **13.2.1 20231009** 로 빌드한다.
+- 실기체는 **14.2.1 20241119** 라고 보고한다(`ver all`, ulog 3건 일관).
+
+`Toolchain:` 문자열은 `__VERSION__` 원문이라 위조·혼동의 여지가 없다(§9-2). 그러므로:
+
+> **`c890d9db0a` 커밋의 공식 CI 산출물은 `14.2.1` 문자열을 낼 수 없다.**
+> 실기체 펌웨어는 px4io 공식 CI 가 아니라 **Ubuntu 25.10/26.04 계열(또는 Arm 14.2.Rel1 타르볼)
+> 환경에서 누군가 손으로 빌드한 것**이다.
+
+부수 관찰: `Build uri: localhost` 는 판별에 못 쓴다. `src/lib/version/CMakeLists.txt:73` 이
+`BUILD_URI` 환경변수 미설정 시 `localhost` 를 쓰는데, PX4 워크플로 어디에도 `BUILD_URI` 설정이
+없어 **공식 CI 도 `localhost`** 로 나온다(`grep -rn BUILD_URI .github/ Tools/ci/ Makefile` → 0건).
+
+**이것이 §9-4 의 「남는 의문」에 대한 답이다.** 그 빌더는 GCC 14 를 썼으므로 **반드시**
+`-Wno-error=implicit-function-declaration` 계열 우회를 넣었어야 한다 — 소스가 동일한 이상
+다른 통과 경로가 존재하지 않는다. 즉 §9-4 가 「사용자 판단 필요」로 남겨둔 그 조치를
+원 빌더는 이미 취한 상태다.
+
+### 10-5. 도커 빌드 미수행 — 환경에 docker 가 없음
+
+**전역 설치는 정지 조건이라 시도하지 않았다.** 실측:
+
+| 확인 대상 | 결과 |
+|---|---|
+| WSL `Ubuntu-22.04` 안 `docker`/`podman`/`nerdctl`/`buildah` | 전부 **MISSING** |
+| `/usr/bin/docker*`, `/usr/local/bin/docker*` | 없음 |
+| `dpkg -l \| grep -E 'docker\|podman\|containerd\|runc'` | **0건** |
+| `/var/run/docker.sock` | 없음 |
+| `/mnt/wsl/docker-desktop*` (Desktop WSL 연동 마운트) | 없음 (`resolv.conf` 뿐) |
+| Windows `where.exe docker` | 찾을 수 없음 |
+| `C:\Program Files\Docker` | 없음 |
+| `tasklist \| grep -i docker` | 프로세스 0건 |
+| `C:\ProgramData\DockerDesktop\` | 2024-04-11 자 설치로그만 잔존 → **과거 설치 후 제거됨** |
+
+⇒ 순정 도커 빌드·패치 도커 빌드 **모두 미수행**. 세 빌드 비교표의 「공식 도커」 열은 공란이다.
+
+| 빌드 | `.bin` 크기 | FLASH | `.px4` sha256 | Toolchain 문자열 |
+|---|---|---|---|---|
+| 10.3.1 (jammy apt) | 1,939,520 B | 98.65% | `f1c16e2b…` | `10.3.1 20210621` |
+| 14.2.1 (Arm 손설치) | — | — | — | **빌드 실패** (§9-3) |
+| 공식 도커 (13.2.1) | — | — | — | **미수행** (docker 없음) |
+
+### 10-6. 중요 — 도커를 깔아도 목표는 달성되지 않는다
+
+임무의 성공 판정은 「빌드된 펌웨어의 Toolchain 문자열 = `14.2.1 20241119`」였다.
+그러나 10-2 에서 확정했듯 **공식 컨테이너는 13.2.1 을 낸다.**
+
+> **공식 도커 환경으로는 `14.2.1` 을 재현할 수 없다.** 도커 설치는 이 목표에 대해 무의미하다.
+
+`14.2.1` 재현에 필요한 것은 도커가 아니라 **(a) Arm 14.2.Rel1 툴체인**(이미 `/opt` 에 설치됨)
+**+ (b) `-Wno-error=implicit-function-declaration` 계열 플래그**(§9-4 의 미승인 조치)다.
+(b) 는 「소스·빌드설정 임의 수정 금지」에 걸리므로 **사용자 판단 사안으로 남긴다.**
+
+선택지는 셋이다.
+
+1. **10.3.1 본 그대로 플래시** — `px4_fmu-v6c_f17f4patch_20260728.px4` (현재 유일한 완성본).
+   컴파일러가 4년치 바뀌는 리스크를 안고 감.
+2. **§9-4 플래그를 승인** → 14.2.1 로 재빌드 → 실기체와 컴파일러 완전 일치.
+   플래그는 **진단 심각도만 되돌리는 것이라 코드생성 영향 0**.
+3. **원 빌더에게 확인** — 실기체 펌웨어를 만든 사람/장비의 실제 빌드 설정을 받아 그대로 재현.
+
+### 10-7. 이번 세션이 남긴 상태
+
+- `/root/PX4-vehicle`: HEAD `c890d9db0a` **불변**, 워킹트리 = **패치 7줄만**(요구된 최종 상태).
+  브랜치·커밋·서브모듈 **무변경** (`git submodule status` 전 항목 clean).
+- 빌드 **미실행** — `build/px4_sitl_default` 보존, 새 산출물 없음.
+- 10.3.1 산출물 보존 재확인: `/root/artifacts_gcc1031/px4_fmu-v6c_default.px4`
+  sha256 `f1c16e2b3799a352a73d1e9c4cfe31fb4b6775d89b1e5ccc189fc3e5c5b47dda` (§4-1 값과 일치),
+  `/mnt/c/px4_flash/px4_fmu-v6c_f17f4patch_20260728.px4` 도 그대로.
+- **시스템 전역 변경 0건** — docker/podman 설치 시도 없음, apt/pip 무변경.
+- 실기체 접속·플래시 **없음**, RPi5 접속 **없음**.
