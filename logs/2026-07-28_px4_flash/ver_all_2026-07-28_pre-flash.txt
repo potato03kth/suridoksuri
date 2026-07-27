@@ -1,0 +1,22 @@
+# `ver all` — 플래시 직전 실기체 Pixhawk 6C baseline
+# 채취: 2026-07-28 02:40 KST, RPi5 100.67.27.83 컨테이너 fc, /dev/ttyACM0
+# 방법: tools/px4_params/ver_all.py (MAVLink SERIAL_CONTROL 셸, 읽기 전용)
+
+NuttShell (NSH) NuttX-11.0.0
+nsh> ver all
+HW arch: PX4_FMU_V6C
+HW type: V6C000000
+HW version: 0x000
+HW revision: 0x000
+PX4 git-hash: c890d9db0a300795594fd5ba6c045be9ebd71c09
+PX4 version: 1.18.0 40 (17956928)
+PX4 git-branch: main
+OS: NuttX
+OS version: Release 11.0.0 (184549631)
+OS git-hash: c32297427a66cc05232988ea633417e97723d278
+Build datetime: Jul  7 2026 13:20:51
+Build uri: localhost
+Build variant: default
+Toolchain: GNU GCC, 14.2.1 20241119
+PX4GUID: 00060000000033363532333351190028002b
+MCU: STM32H7[4|5]xxx, rev. V
