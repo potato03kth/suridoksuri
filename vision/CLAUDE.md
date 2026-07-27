@@ -74,7 +74,7 @@
 | `tools/jsonl_view.py` | JSONL 블랙박스 뷰어/플롯 최소본(§7.9 항목6). `BlackBoxLogger`가 남긴 `.jsonl`을 읽어 시간축 score/latency/state 3단 플롯을 PNG로 저장(`matplotlib` Agg 백엔드, headless-safe). `python vision/tools/jsonl_view.py <jsonl> [--output out.png] [--x-axis ts\|frame_id]`. **하드웨어 의존 없음** — `rpi_capture.py`와 달리 `.venv`에 설치되고(`matplotlib` in `requirements.txt`) `tests/test_jsonl_view.py` 대상이다(tools/의 "CI/pytest 대상 아님" 규칙은 RPi 하드웨어 전용 스크립트에만 적용). |
 | `tools/calib_analyze.py` | **신설(2026-07-23)** — `calib_capture.py`가 만든 촬영 세트(`<raw_root>/<set>/<distance>m/<stem>.{png,json}`)를 캘리브레이션 아티팩트로. 그룹(set,distance_m)별 `cv2.calibrateCamera` → 사진별 재투영오차로 불량컷 색출·이상치 제외 재캘리브레이션 → **`fx`/`fy` vs `LensPosition` 직선적합으로 L=0(무한대) 외삽**(핵심 목적 — 기체 운용고도 10~40m는 사실상 무한대)·얇은렌즈 물리 일관성 검사(`b/a`→mm, IMX708급 통상 초점거리와 비교)·디옵터 가정(`LensPosition≈1/distance_m`) 직접 검정 → 세트B(2.5m, 최대커버리지)와 외삽값 대조 → fy/fx·주점·HFOV 등 정합성 검사(실패해도 크래시 없이 보고) → 진단 플롯 3종(Agg, `vision/results/`) → `vision/calibration/<camera_id>/<calib_id>.yaml` 아티팩트(그룹별 결과 전부 보존, `recommended`=fx/fy 외삽절편+세트B의 cx/cy/dist_coeffs, 근거는 yaml `note`). 모든 임계값 CLI 파라미터(매직넘버 금지, §7.3). **하드웨어 의존 없음** — `jsonl_view.py`와 동일한 예외로 `.venv` 설치 + `tests/test_calib_analyze.py` 대상. 정확성은 진짜 K/dist를 아는 합성 체스보드 투영 왕복 테스트로 담보(실촬영 사진은 이 스크립트 작성 시점에 아직 없었음 — `docs/vision_camera_bringup.md`). `recommended-source` CLI로 폴백/강제선택 가능, 그룹<2면 적합 생략 + LensPosition 최저 그룹 폴백(사유 yaml 명시, §9 견고성). |
 | `tools/h264_stream.py` | **신설(2026-07-25, ffmpeg Phase 3 "1B 도구화" — `docs/vision_camera_bringup.md` §Phase 3 완료)** — RPi H.264 라이브 디버그 스트림 정식 도구. `Picamera2.create_video_configuration(RGB888, FrameRate)` + `H264Encoder(bitrate=...)` + `FfmpegOutput("-f mpegts -listen 1 tcp://HOST:PORT")`(1A 실증 조합). `SIGTERM` 핸들러로 graceful shutdown 보장(SIGINT는 비대화형 SSH 자식에서 SIG_IGN이 될 수 있어 못 믿음, 1A 실측) + 클라이언트 연결 종료(ffmpeg 프로세스 종료) 감지 시 카메라/인코더 재시작 없이 `FfmpegOutput`만 교체하는 재기동 루프가 기본(`--once`로 단발 모드). `--af-mode continuous\|auto\|manual`(+ `--lens-position`, VCM 실가동범위 0~15.0 디옵터 검증 — 32.0 아님) 지원. **`vision/utils/stream.py`(MjpegStreamer)는 병행 운용, 폐기 아님**(용도가 다름 — 이쪽은 카메라 원본, 그쪽은 검출 오버레이). **하드웨어 의존 로직(run_server, picamera2/libcamera 지연 import)은 tools/의 "CI/pytest 대상 아님" 예외** — 단, 해상도/ffmpeg 스펙 파싱·렌즈위치 검증·AF 모드 매핑·fps/라이브니스 통계·output 사망 판정·bounded stop 안전망·SIGTERM 핸들러는 순수 로직으로 분리해 `tests/test_h264_stream.py` 대상(picamera2 지연 import 격리는 `LiveFrameSource`와 동일 패턴). **실측(RPi5)으로 확인된 핵심 함정** — 이 플랫폼(비-VC4, `Platform.PISP`)의 `H264Encoder`는 실제로는 `picamera2.encoders.LibavH264Encoder`(소프트웨어 x264)로 치환되는데, 그 `force_key_frame()`이 설치된 PyAV 버전과 안 맞아 `frame.pict_type = "I"`가 `TypeError`로 인코더 백그라운드 스레드를 크래시시킨다 — 그래서 이 도구는 `force_key_frame()`을 호출하지 않고 `iperiod` 기본값(약 1초 GOP)의 자연 키프레임 재삽입에 기대며, 재접속 후 새 클라이언트가 유효 프레임을 받기까지 실측 약 1~2초(가끔 더 걸림) 지연이 있다. 또한 `FfmpegOutput.stop()`이 `audio=False`면 무기한 대기(`timeout=None`)할 수 있어(재접속 실패로 멈춘 ffmpeg에서 실제로 재현됨) `_stop_output_with_timeout()`이 별도 스레드+bounded timeout+강제 kill로 안전망을 건다. 상세 실측 수치·경과는 `docs/vision_camera_bringup.md` §Phase 3 |
-| `tools/color_calibrate.py` | **신설(2026-07-25, §9 빌드순서 5번 — 현장 색 캘리브레이터, `docs/vision_plan.md` §5.5)**. 지오메트리 캘리브레이션(`calib_capture.py`/`calib_analyze.py`, 카메라 인트린식)과는 **완전히 다른 개념** — 렌즈/센서를 다루지 않고, 프레임 ROI(`--roi x,y,w,h`, GUI 없음·`cv2.selectROI` 미사용)의 HSV 분포에서 `ColorFilter`/`RedRingDetector` 생성자 인자를 제안한다. **백분위수(기본 p5~p95) 기반** — 평균±표준편차 대신 쓴 이유는 그림자/글레어/과노출 클리핑 같은 국소 이상치에 강해서(§5.5 "그림자·글레어·과노출 클리핑 대비", `tests/test_color_calibrate.py::test_calibrate_roi_percentile_range_ignores_minority_outlier_pixels`가 합성 글레어 이상치로 직접 증명). **빨강 Hue 랩어라운드 대응** — `--wrap-split-hue`(기본 90) 기준 저/고 두 구간의 표본 비율이 둘 다 `--wrap-min-fraction`(기본 0.05) 이상이면 랩어라운드로 판정해 `RedRingDetector` 호환 파라미터(`low_hue_max`/`high_hue_min`/`sat_min`/`val_min`)를, 아니면 `ColorFilter(mode=color)` 호환 파라미터(`hue_range`/`sat_min`/`val_min`/`val_max`)를 출력 — 어느 소비자와 호환되는지 산출물에 명시한다(`ColorFilter`는 랩어라운드 미지원 blind spot, `RedRingDetector`는 양끝 게이팅 실전례 — 이 도구가 따르는 전례). **출력은 "제안"까지** — 사람이 그대로 복붙할 yaml 조각을 stdout + `--output`으로 내고, 기존 preset yaml을 자동으로 덮어쓰지 않는다. `--diagnostic-dir`로 ROI 오버레이 이미지 + HSV 히스토그램 PNG(matplotlib Agg, `jsonl_view.py`와 동일 headless-safe 패턴) 저장. 입력은 이미지 파일 또는 녹화 폴더/영상(`utils/frame_source.py`의 `open_dir_or_bag()` 재사용 — 새 프레임 소스 미구현). 임계값·백분위수·마진 전부 CLI 파라미터(매직넘버 금지, §7.3). **하드웨어 의존 없음** — `jsonl_view.py`/`calib_analyze.py`와 동일한 예외로 `.venv` 설치 + `tests/test_color_calibrate.py` 대상. 정확성은 합성 패치 왕복 테스트(산출된 임계값을 실제 `ColorFilter`/`RedRingDetector`에 먹여 그 패치가 실제로 검출되는지까지 확인, 빨강 랩어라운드 케이스 별도 검증)로 담보 + 골든셋(`tests/golden/distress/10m/`) 실제 프레임으로 `distress_coarse.yaml` 손튜닝값(hue_range=[35,85])과 sanity 교차확인(합성 골든 프레임이 노이즈 없는 단색이라 산출 range가 손튜닝값보다 훨씬 좁게 나오는 게 정상 — 완전 일치 요구 아님) |
+| `tools/color_calibrate.py` | **신설(2026-07-25, §9 빌드순서 5번 — 현장 색 캘리브레이터, `docs/vision_plan.md` §5.5)**. 지오메트리 캘리브레이션(`calib_capture.py`/`calib_analyze.py`, 카메라 인트린식)과는 **완전히 다른 개념** — 렌즈/센서를 다루지 않고, 프레임 ROI(`--roi x,y,w,h`, GUI 없음·`cv2.selectROI` 미사용)의 HSV 분포에서 `ColorFilter`/`RedRingDetector` 생성자 인자를 제안한다. **백분위수(기본 p5~p95) 기반** — 평균±표준편차 대신 쓴 이유는 그림자/글레어/과노출 클리핑 같은 국소 이상치에 강해서(§5.5 "그림자·글레어·과노출 클리핑 대비", `tests/test_color_calibrate.py::test_calibrate_roi_percentile_range_ignores_minority_outlier_pixels`가 합성 글레어 이상치로 직접 증명). **빨강 Hue 랩어라운드 대응** — `--wrap-split-hue`(기본 90) 기준 저/고 두 구간의 표본 비율이 둘 다 `--wrap-min-fraction`(기본 0.05) 이상이면 랩어라운드로 판정해 `RedRingDetector` 호환 파라미터(`low_hue_max`/`high_hue_min`/`sat_min`/`val_min`)를, 아니면 `ColorFilter(mode=color)` 호환 파라미터(`hue_range`/`sat_min`/`val_min`/`val_max`)를 출력 — 어느 소비자와 호환되는지 산출물에 명시한다(`ColorFilter`는 랩어라운드 미지원 blind spot, `RedRingDetector`는 양끝 게이팅 실전례 — 이 도구가 따르는 전례). **출력은 "제안"까지** — 사람이 그대로 복붙할 yaml 조각을 stdout + `--output`으로 내고, 기존 preset yaml을 자동으로 덮어쓰지 않는다. `--diagnostic-dir`로 ROI 오버레이 이미지 + HSV 히스토그램 PNG(matplotlib Agg, `jsonl_view.py`와 동일 headless-safe 패턴) 저장. 입력은 이미지 파일 또는 녹화 폴더/영상(`utils/frame_source.py`의 `open_dir_or_bag()` 재사용 — 새 프레임 소스 미구현). 임계값·백분위수·마진 전부 CLI 파라미터(매직넘버 금지, §7.3). **마진 기본값은 2026-07-28에 `hue=6`/`sat=0`/`val=0`으로 정식 확정** — 백분위수(프레임 내 공간 변동)와 마진(캘리브↔비행 조건 변화)이 덮는 것이 다르다는 구분, 실측 8점 산포 1σ 도출, 이중계상 위험, S/V를 0으로 남긴 이유는 아래 "color_calibrate.py 마진 기본값 확정" 절. **하드웨어 의존 없음** — `jsonl_view.py`/`calib_analyze.py`와 동일한 예외로 `.venv` 설치 + `tests/test_color_calibrate.py` 대상. 정확성은 합성 패치 왕복 테스트(산출된 임계값을 실제 `ColorFilter`/`RedRingDetector`에 먹여 그 패치가 실제로 검출되는지까지 확인, 빨강 랩어라운드 케이스 별도 검증)로 담보 + 골든셋(`tests/golden/distress/10m/`) 실제 프레임으로 `distress_coarse.yaml` 손튜닝값(hue_range=[35,85])과 sanity 교차확인(합성 골든 프레임이 노이즈 없는 단색이라 산출 range가 손튜닝값보다 훨씬 좁게 나오는 게 정상 — 완전 일치 요구 아님) |
 | `tests/golden/` | 골든셋 회귀 픽스처(§7.9 항목7). `<타겟>/<고도>/frame_NNN.png`+`labels.json` — 구조·스키마·현재 들어있는 것·재생성법은 `tests/golden/README.md`. **⚠️ 전부 합성(synthetic) 데이터** — 실촬영 아님(카메라 브링업 전, `docs/vision_status.md`). `tests/golden/generate_synthetic.py`가 생성 소스(pytest 대상 아님, 수동 재생성 도구). **[2026-07-25]** `distress/fine/`(`white_box_detector` 캐스케이드, 실측 박스 비율 0.0667) + `no_target/distress_fine/`(오탐 회귀) 추가 — 여전히 합성 |
 
 ---
@@ -476,6 +476,76 @@ Phase 1(`nominal.yaml`)·Phase 2(`ArucoDetector`)·Phase 3(`solve_target_pose`/`
   빠지는 경향이 있다 — 안전 쪽으로 치우친 결과라 이번 세션에서 "고쳐야 할 버그"로 보진
   않았으나(state_machine.py 수정은 이번 세션 범위 밖이기도 함), 향후 실제 착륙점 오프셋
   크기와 안전 임계값(`max_drift_estimate_m`)의 관계를 재검토할 만하다.
+
+---
+
+## color_calibrate.py 마진 기본값 확정 (2026-07-28, `tools/color_calibrate.py`)
+
+`DEFAULT_HUE_MARGIN`/`DEFAULT_SAT_MARGIN`/`DEFAULT_VAL_MARGIN`이 전부 0이라 산출 임계값에
+조명 변동 쿠션이 전혀 없다는 것이 **알려진 갭으로 기록만 돼 있던 상태**(`docs/vision_status.md`
+"⚠️ 마진 기본값이 0이다")를 정식으로 닫은 작업. **결론: HUE=6, SAT=0, VAL=0.**
+(근거 전문은 `tools/color_calibrate.py` 상단 docstring "마진 정책" 절 — 여기는 요약이다.
+"라이브 스트림 어댑터 기본값"·"distress_coarse.yaml min_area/max_area 도출 근거"와 같은
+근거기록 패턴.)
+
+- **먼저 개념 분리 — 백분위수와 마진은 서로 다른 것을 덮는다(이 작업의 핵심).**
+  - **백분위수 밴드(`DEFAULT_LOW_PERCENTILE=5` ~ `DEFAULT_HIGH_PERCENTILE=95`)가 이미
+    흡수하는 것:** 캘리브레이션을 수행한 *그 한 프레임 ROI 안의 공간적 변동*(그림자·글레어·
+    재질 얼룩·과노출 클리핑 소수 픽셀). 전부 그 프레임에 실제로 찍혀 있는 정보다.
+  - **마진이 덮어야 하는 것:** 캘리브레이션 조건 ↔ *실제 비행 시점 조건의 차이*(시각·태양각·
+    구름·화이트밸런스 재수렴·노출 변화)로 인한 **분포 중심 자체의 이동**. 백분위수는 이걸
+    원리적으로 볼 수 없다(그 프레임에 없는 정보다).
+  - 이 구분 없이 "ROI 표준편차 N배"를 기본값으로 박으면 **같은 변동을 두 번 세게 된다.**
+- **`DEFAULT_HUE_MARGIN = 6`(OpenCV Hue 단위, 양쪽 각각 ±6).** 유일한 근거 데이터는 사용자가
+  초록구역을 휴대폰으로 찍은 사진에서 뽑은 랜덤 10점 중 이상치 2점 제외 8점의 Hue
+  (`136 162 169 146 169 158 146 163`, 0~360° 스케일).
+  - **스케일 판정 근거:** ÷2 → OpenCV **68~84.5**(청록 띤 초록), 초록 매트로 타당하고
+    `distress_coarse.yaml`의 독립 손튜닝값 `hue_range=[35,85]` **안에 실제로 들어온다**.
+    0~255 가정은 192~238°(파랑), 이미-OpenCV 가정은 272~338°(마젠타) — 둘 다 초록과 모순, 기각.
+  - **절대 Hue(mean 78)는 쓰지 않는다** — 카메라 기종·시각·f값·픽쳐 프로파일·WB offset 전부
+    미상이라 전이되지 않는다. 애초에 이 도구는 중심을 현장 ROI에서 다시 재므로 필요도 없다.
+    **산포만 근거로 쓴다**(사용자가 이 데이터를 준 이유). OpenCV 환산 **표본σ 6.0559 /
+    모집단σ 5.6648 → 둘 다 6으로 반올림**되어 추정량 선택과 무관하게 결론이 같다.
+  - **⚠️ 이중계상 위험에 대한 답:** 이 8점은 한 장의 사진 안에서 뽑았으므로 엄밀히는 위
+    정의상 "백분위수가 이미 덮는" 프레임 내 공간 변동이다. 그래도 마진 근거로 쓰는 이유는
+    **균질한 무광 매트 안의 Hue 산포를 만드는 원인이 국소 조명 기하**(음영각·직사광 대
+    천공광 혼합비)이고, 그건 태양각·구름 변화가 **면 전체를 이동시키는 것과 같은 물리
+    메커니즘**이기 때문 — 즉 프레임 내 8점은 서로 다른 국소 조명조건의 표본이고, 전역 조건이
+    바뀌면 면 전체가 그 분포의 한쪽 끝으로 옮겨 앉는다. **단 이건 부등식이 아니다** —
+    "프레임 내 σ ≤ 조건 간 σ"를 보장하는 정리는 없으므로 **하한이 아니라 자릿수 추정
+    (order-of-magnitude proxy)으로만** 쓴다. 그래서 **2σ·3σ가 아니라 1σ다**: ROI가 넓고
+    얼룩덜룩하면 p5~p95가 이미 이 변동의 상당 부분을 흡수한 상태라 2σ를 더 얹는 건 진짜로
+    이중계상이 된다.
+  - **왜 0을 유지하지 않는가:** 0은 중립이 아니라 이 도구의 권장 사용법에서 실제로 고장난
+    값이다 — 좁고 균일한 ROI를 주면 p5==p95라 `hue_range: [60, 60]` 같은 **폭 0짜리 밴드**가
+    나오고(이미 관측된 정상 동작) 조건이 조금만 바뀌면 타겟을 통째로 놓친다.
+  - **반대편 비용(오탐):** 밴드가 12 단위 넓어진다(Hue 원주 180의 6.7%). 위험 방향은 **아래쪽
+    (식생)** 하나뿐 — 무성한 잔디는 Hue 60~70대라 청록 띤 매트(≈78)와 가깝다. 자갈은 무채색이라
+    `sat_min`이, 그림자는 `val_min`이 거른다. 감당 가능하다고 본 근거: (a) ±6을 얹어도 산출
+    밴드 폭(≈12~25)이 **이미 운용상 받아들여지고 있는** 손튜닝값 `[35,85]`(폭 50)보다 여전히
+    훨씬 좁아 현상 대비 오탐이 늘지 않고, (b) 최종 배제는 Hue 단독이 아니라 `RectDetector`의
+    면적·형상 필터가 함께 담당한다.
+- **`DEFAULT_SAT_MARGIN = 0` / `DEFAULT_VAL_MARGIN = 0` — 근거가 없어 0을 유지한다(억지로 안 채움).**
+  표본이 **Hue 8점뿐**이라 S/V 데이터가 하나도 없고, V(조도 선형)·S(색소 반사율 대 백색광 비율)는
+  Hue와 물리 경로가 달라 6을 옮겨 쓸 근거가 없다 — 지어내면 §7.3이 금지하는 출처 없는
+  매직넘버다. 게다가 **이 두 마진이 넓히는 방향이 배경 클래스를 정확히 겨눈다**(`sat_min`↓ =
+  저채도 자갈, `val_min`↓ = 그림자, `val_max`↑ = 백분위수가 일부러 잘라낸 글레어). 비대칭성도
+  0을 지지한다 — S/V 마진 부재로 인한 미검출은 즉시 눈에 띄고 재실행으로 몇 초 만에 복구되지만,
+  자갈/그림자 오탐은 알아채기 어렵고 상태머신 커밋 게이트를 잘못 통과시킬 수 있다
+  (`core/state_machine.py`가 모호한 후보를 `HOLD`로 거절하는 것과 같은 철학). **현장에서는
+  `--diagnostic-dir` 히스토그램을 보고 `--sat-margin`/`--val-margin`을 명시할 것**
+  (`docs/vision_verification_qa_brief.md`의 `--sat-margin 20 --val-margin 20` 예시는 여전히
+  유효한 *운영자 선택값*이며, 다만 조용한 기본값이 되어선 안 된다는 것이 이 결정이다).
+- **랩어라운드 분기의 마진 방향은 반대다(부호 실수 시 실제 위험한 버그).** `low_hue_max`는
+  **키우고** `high_hue_min`은 **줄여야** `[0,low_hue_max]`∪`[high_hue_min,179]` 두 통과대역이
+  각각 넓어진다. 부호가 반대면 대역이 조용히 **좁아져** 빨강을 놓친다 — 이 방향 자체가
+  회귀테스트 대상이다(아래).
+- **파괴검증 완료:** `calibrate_roi()`의 hue 마진 부호를 뒤집으면(4곳 전부 → 7 failed,
+  랩어라운드 2곳만 → 정확히 새 랩어라운드 테스트 2건만 failed) 실제로 red가 되고 원복 시
+  green으로 돌아옴을 종료코드로 확인. **랩어라운드 부호만 뒤집는 버그를 잡는 테스트는 이번에
+  추가된 2건이 유일**했다(그 전에는 조용히 통과했다).
+- 이번 작업은 **검출 알고리즘 변경이 아니다** — 기본값 상수 1개 + 근거 문서/주석 + 회귀테스트
+  9건. `modules/*.py`, preset yaml 전부 무변경.
 
 ---
 

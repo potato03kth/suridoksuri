@@ -16,6 +16,12 @@ from vision.core.state import Detection, VisionState
 from vision.modules.color import ColorFilter
 from vision.modules.vertiport_ring import RedRingDetector
 from vision.tools.color_calibrate import (
+    CHANNEL_MAX,
+    DEFAULT_HUE_MARGIN,
+    DEFAULT_SAT_MARGIN,
+    DEFAULT_VAL_MARGIN,
+    HUE_MAX,
+    _clip_int,
     calibrate_roi,
     compute_hsv_channels,
     crop_roi,
@@ -54,6 +60,25 @@ def _noisy_wraparound_patch(
     rng = np.random.default_rng(seed)
     n = shape[0] * shape[1]
     hue = (hue_center + rng.integers(-hue_jitter, hue_jitter + 1, size=n)) % 180
+    hsv = np.zeros((n, 3), dtype=np.uint8)
+    hsv[:, 0] = hue.astype(np.uint8)
+    hsv[:, 1] = sat
+    hsv[:, 2] = val
+    hsv = hsv.reshape(*shape, 3)
+    return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+
+def _noisy_green_patch(
+    shape: tuple[int, int], hue_center: int, hue_sigma: float, sat: int, val: int, seed: int = 0
+) -> np.ndarray:
+    """초록 매트를 흉내낸 ROI — Hue만 정규분포로 흩뿌리고 sat/val은 고정한다.
+
+    sat/val을 고정하는 이유: 마진 방향 테스트에서 **hue 마진 효과만 분리**하기 위함
+    (S/V가 같이 흔들리면 미검출이 hue 때문인지 sat/val 때문인지 구분이 안 된다).
+    """
+    rng = np.random.default_rng(seed)
+    n = shape[0] * shape[1]
+    hue = np.clip(np.round(hue_center + rng.normal(0, hue_sigma, size=n)), 0, 179)
     hsv = np.zeros((n, 3), dtype=np.uint8)
     hsv[:, 0] = hue.astype(np.uint8)
     hsv[:, 1] = sat
@@ -183,7 +208,12 @@ def test_detect_hue_wraparound_minority_below_threshold_is_false():
 def test_calibrate_roi_percentile_range_ignores_minority_outlier_pixels():
     """§5.5 "그림자·글레어·과노출 클리핑 대비" 근거 — 평균±표준편차 대신 백분위수를 쓴
     이유를 직접 증명한다: 2% 글레어 이상치가 섞여도 산출된 hue/val 경계가 주 군집
-    (hue~60, val~180) 근방에 그대로 남아야 한다(이상치 쪽으로 안 끌려감)."""
+    (hue~60, val~180) 근방에 그대로 남아야 한다(이상치 쪽으로 안 끌려감).
+
+    **마진을 명시적으로 0으로 준다** — 이 테스트가 재는 것은 "백분위수가 이상치에 강한가"이지
+    "마진이 얼마인가"가 아니다. 둘은 서로 다른 것을 덮으므로(도구 docstring "마진 정책" 절)
+    여기서는 백분위수 효과만 분리해서 본다. 마진 기본값 자체의 회귀는 아래 10번 절이 맡는다.
+    """
     patch = _patch_with_glare_outliers((60, 60), outlier_fraction=0.02, seed=5)
     h, s, v = compute_hsv_channels(patch)
 
@@ -191,7 +221,7 @@ def test_calibrate_roi_percentile_range_ignores_minority_outlier_pixels():
     assert int(np.min(h)) == 0
     assert int(np.max(v)) == 255
 
-    result = calibrate_roi(patch, roi_box=(0, 0, 60, 60))
+    result = calibrate_roi(patch, roi_box=(0, 0, 60, 60), hue_margin=0, sat_margin=0, val_margin=0)
     assert not result.hue_wraparound
     lo, hi = result.params["hue_range"]
     assert 50 <= lo <= 65 and 50 <= hi <= 70  # 주 군집(hue~60) 근방에 머무름 — 이상치(0)로 안 끌려감
@@ -445,3 +475,203 @@ def test_golden_distress_mat_cross_check_is_in_reasonable_range():
         f"sat_min={result.params['sat_min']} val_min={result.params['val_min']} "
         f"val_max={result.params['val_max']} (n_pixels={result.n_pixels})"
     )
+
+
+# ===========================================================================
+# 10. 마진 기본값 정책 회귀 (2026-07-28 확정 — 도구 docstring "마진 정책" 절)
+#
+#   백분위수 밴드와 마진은 서로 다른 것을 덮는다:
+#     * 백분위수(p5~p95) = 캘리브레이션한 그 프레임 ROI 안의 공간 변동(그림자/글레어/얼룩)
+#     * 마진               = 캘리브 시점 ↔ 비행 시점의 조건 변화(태양각/구름/WB 재수렴)
+#   아래 테스트는 형상이 아니라 **실제 동작**을 본다 — 기본 마진이 없으면 놓치는 픽셀을
+#   기본 마진이 실제로 잡아내는지를 진짜 `ColorFilter`/`RedRingDetector`로 확인한다.
+# ===========================================================================
+
+
+# 사용자 제공 실측 표본(2026-07-28): 초록구역 휴대폰 사진 랜덤 10점 중 이상치 2점 제외한 8점.
+# 0~360° 스케일 — ÷2 하면 OpenCV Hue 68~84.5(청록 띤 초록)로 초록 매트에 물리적으로 타당하고
+# distress_coarse.yaml 손튜닝값 hue_range=[35,85] 안에 들어온다. 0~255 가정(→192~238°, 파랑)과
+# 이미-OpenCV 가정(→272~338°, 마젠타)은 초록과 모순이라 기각.
+_FIELD_HUE_SAMPLES_DEG360 = [136, 162, 169, 146, 169, 158, 146, 163]
+
+
+def test_default_hue_margin_matches_measured_sample_dispersion():
+    """`DEFAULT_HUE_MARGIN`이 실측 표본 산포(1σ)에서 실제로 도출된 값인지 재계산으로 확인한다.
+
+    상수를 그냥 읽어 비교하는 게 아니라 **원본 8점에서 σ를 다시 구해** 맞춰 본다 — 누가 이
+    기본값을 근거 없이 바꾸면 여기서 걸린다. 절대 Hue 위치(mean)는 카메라/화이트밸런스
+    미상이라 신뢰하지 않으므로 검증하지 않는다(산포만 근거로 쓴다는 결정 자체의 회귀).
+    """
+    samples_cv = np.array(_FIELD_HUE_SAMPLES_DEG360, dtype=np.float64) / 2.0  # 0~360° → OpenCV 0~179
+
+    sample_sigma = float(np.std(samples_cv, ddof=1))  # 표본 표준편차
+    population_sigma = float(np.std(samples_cv, ddof=0))  # 모집단 표준편차
+
+    assert round(sample_sigma, 3) == 6.056
+    assert round(population_sigma, 3) == 5.665
+    # 두 추정량이 **둘 다** 6으로 반올림된다 → 어느 쪽을 쓰든 결론이 같다.
+    assert round(sample_sigma) == DEFAULT_HUE_MARGIN
+    assert round(population_sigma) == DEFAULT_HUE_MARGIN
+
+    # 2σ 이상이 아닌 이유(이중계상 회피)의 회귀 — 기본값이 2σ 쪽으로 슬쩍 커지면 걸린다.
+    assert DEFAULT_HUE_MARGIN < round(2 * sample_sigma)
+
+
+def test_default_hue_margin_widens_band_relative_to_zero_margin():
+    """기본 마진이 실제로 임계 밴드를 **넓히는지** — 마진 0과 직접 대조."""
+    patch = _noisy_green_patch((60, 60), hue_center=78, hue_sigma=2.0, sat=200, val=180, seed=11)
+
+    zero = calibrate_roi(patch, roi_box=(0, 0, 60, 60), hue_margin=0)
+    default = calibrate_roi(patch, roi_box=(0, 0, 60, 60))  # DEFAULT_HUE_MARGIN 사용
+
+    assert default.hue_margin == DEFAULT_HUE_MARGIN
+    zero_lo, zero_hi = zero.params["hue_range"]
+    def_lo, def_hi = default.params["hue_range"]
+
+    # 양쪽 각각 정확히 DEFAULT_HUE_MARGIN만큼 벌어져야 한다(클리핑 영역에서 멀리 떨어진 표본).
+    assert def_lo == zero_lo - DEFAULT_HUE_MARGIN
+    assert def_hi == zero_hi + DEFAULT_HUE_MARGIN
+    assert (def_hi - def_lo) == (zero_hi - zero_lo) + 2 * DEFAULT_HUE_MARGIN
+
+
+def test_default_hue_margin_catches_lighting_shifted_target_that_zero_margin_misses():
+    """**핵심(형상 아님, 실제 동작).** 캘리브레이션 뒤 조명이 바뀌어 매트 Hue가 통째로 이동한
+    프레임을, 마진 0 임계값은 놓치고 기본 마진 임계값은 잡아내는지 **진짜 `ColorFilter`**로
+    확인한다 — 마진이 존재하는 이유(캘리브 시점 ↔ 비행 시점 조건 변화) 그 자체의 검증.
+
+    sat/val 마진은 양쪽 다 같은 값으로 고정해 **hue 마진 효과만 분리**한다(S/V 기본값이 0인
+    것은 별도 테스트가 담당).
+    """
+    calib_frame = _noisy_green_patch((80, 80), hue_center=78, hue_sigma=2.0, sat=200, val=180, seed=12)
+    roi = (10, 10, 60, 60)
+    roi_bgr = crop_roi(calib_frame, roi)
+
+    zero = calibrate_roi(roi_bgr, roi_box=roi, hue_margin=0, sat_margin=5, val_margin=5)
+    default = calibrate_roi(roi_bgr, roi_box=roi, sat_margin=5, val_margin=5)
+
+    # 비행 시점 프레임: 태양각/구름/WB 재수렴으로 매트 Hue 중심이 +6(=1σ)만큼 이동했다고 가정.
+    shifted = _noisy_green_patch((80, 80), hue_center=84, hue_sigma=2.0, sat=200, val=180, seed=13)
+
+    def _coverage(params: dict) -> float:
+        state = VisionState(original=shifted.copy(), current=shifted.copy())
+        state = ColorFilter(mode="color", **params)(state)
+        return float(np.count_nonzero(state.mask)) / state.mask.size
+
+    zero_cov = _coverage(zero.params)
+    default_cov = _coverage(default.params)
+
+    # 실측(cv2 5.0.0): zero_cov≈0.103, default_cov≈0.960 — 약 9배 차이. 임계는 cv2 버전별
+    # HSV 왕복 오차를 감안해 넉넉히 잡되, 두 값이 뒤섞이지 않을 만큼은 떨어뜨려 둔다.
+    assert default_cov > 0.90, f"기본 마진이 이동한 타겟을 잡지 못함 (coverage={default_cov:.3f})"
+    assert zero_cov < 0.25, f"마진 0이 이동한 타겟을 놓치지 않음 — 대조군이 무의미 (coverage={zero_cov:.3f})"
+    assert default_cov > zero_cov
+
+
+def test_default_sat_val_margins_are_zero_and_leave_thresholds_at_raw_percentiles():
+    """S/V 마진 기본값 0은 **의도된 결정**이다(표본이 Hue뿐이라 숫자를 지어내지 않는다 +
+    내리면 저채도 자갈/저휘도 그림자가 그대로 들어온다). 누가 근거 없이 S/V 기본 쿠션을
+    넣으면 여기서 걸린다 — 산출 임계값이 raw 백분위수와 **정확히** 같아야 한다."""
+    assert DEFAULT_SAT_MARGIN == 0
+    assert DEFAULT_VAL_MARGIN == 0
+
+    patch = _noisy_green_patch((60, 60), hue_center=78, hue_sigma=2.0, sat=200, val=180, seed=14)
+    _, s, v = compute_hsv_channels(patch)
+    result = calibrate_roi(patch, roi_box=(0, 0, 60, 60))
+
+    assert result.params["sat_min"] == _clip_int(np.percentile(s, 5.0), 0, CHANNEL_MAX)
+    assert result.params["val_min"] == _clip_int(np.percentile(v, 5.0), 0, CHANNEL_MAX)
+    assert result.params["val_max"] == _clip_int(np.percentile(v, 95.0), 0, CHANNEL_MAX)
+
+
+# --- 경계 클리핑 ---
+
+
+def test_clip_int_never_escapes_bounds():
+    assert _clip_int(-100.0, 0, HUE_MAX) == 0
+    assert _clip_int(1e6, 0, HUE_MAX) == HUE_MAX
+    assert _clip_int(-0.4, 0, CHANNEL_MAX) == 0
+    assert _clip_int(CHANNEL_MAX + 0.6, 0, CHANNEL_MAX) == CHANNEL_MAX
+    assert _clip_int(179.4, 0, HUE_MAX) == HUE_MAX  # 반올림 후에도 상한 초과 안 함
+    assert _clip_int(0.5, 0, HUE_MAX) in (0, 1)  # 반올림 규칙과 무관하게 범위 안
+
+
+def test_hue_margin_clipped_at_hue_bounds_near_zero_and_179():
+    """Hue 0/179 바로 옆 표본에 큰 마진을 줘도 산출값이 0~179를 벗어나면 안 된다.
+    (랩어라운드로 오판되지 않도록 한쪽 군집만 있는 표본을 쓴다.)"""
+    near_zero = _solid_hsv_patch((30, 30), hue=1, sat=200, val=180)
+    result_lo = calibrate_roi(near_zero, roi_box=(0, 0, 30, 30), hue_margin=50)
+    assert not result_lo.hue_wraparound
+    lo, hi = result_lo.params["hue_range"]
+    assert 0 <= lo <= HUE_MAX and 0 <= hi <= HUE_MAX
+    assert lo == 0  # 음수로 새지 않고 정확히 하한에 걸린다
+
+    near_max = _solid_hsv_patch((30, 30), hue=HUE_MAX, sat=200, val=180)
+    result_hi = calibrate_roi(near_max, roi_box=(0, 0, 30, 30), hue_margin=50)
+    assert not result_hi.hue_wraparound
+    lo, hi = result_hi.params["hue_range"]
+    assert 0 <= lo <= HUE_MAX and 0 <= hi <= HUE_MAX
+    assert hi == HUE_MAX  # 180 이상으로 새지 않는다
+
+
+def test_sat_val_margins_clipped_at_channel_bounds():
+    """sat/val이 0/255 근처인 표본에 큰 마진을 줘도 0~255를 벗어나면 안 된다."""
+    dark_dull = _solid_hsv_patch((30, 30), hue=78, sat=3, val=4)
+    r_low = calibrate_roi(dark_dull, roi_box=(0, 0, 30, 30), sat_margin=200, val_margin=200)
+    assert r_low.params["sat_min"] == 0
+    assert r_low.params["val_min"] == 0
+    assert 0 <= r_low.params["val_max"] <= CHANNEL_MAX
+
+    bright = _solid_hsv_patch((30, 30), hue=78, sat=CHANNEL_MAX, val=CHANNEL_MAX)
+    r_high = calibrate_roi(bright, roi_box=(0, 0, 30, 30), sat_margin=0, val_margin=200)
+    assert r_high.params["val_max"] == CHANNEL_MAX  # 255를 넘지 않는다
+    assert 0 <= r_high.params["val_min"] <= CHANNEL_MAX
+
+
+# --- 랩어라운드 분기의 마진 **방향** (부호가 반대면 통과대역이 좁아진다 — 실제 위험한 버그) ---
+
+
+def test_wraparound_margin_widens_both_passbands_not_narrows():
+    """랩어라운드(빨강)에서 마진은 `low_hue_max`를 **키우고** `high_hue_min`을 **줄여야** 한다.
+    즉 `[0, low_hue_max]` ∪ `[high_hue_min, 179]` 두 통과대역이 각각 **넓어지는** 방향.
+    부호가 반대면 대역이 좁아져 빨강을 놓친다."""
+    patch = _noisy_wraparound_patch((60, 60), hue_center=0, hue_jitter=5, sat=220, val=200, seed=21)
+
+    zero = calibrate_roi(patch, roi_box=(0, 0, 60, 60), hue_margin=0)
+    default = calibrate_roi(patch, roi_box=(0, 0, 60, 60))
+    assert zero.hue_wraparound and default.hue_wraparound
+
+    assert default.params["low_hue_max"] == zero.params["low_hue_max"] + DEFAULT_HUE_MARGIN
+    assert default.params["high_hue_min"] == zero.params["high_hue_min"] - DEFAULT_HUE_MARGIN
+    # 방향을 부등호로도 못박는다(위 등식이 값 변경으로 느슨해져도 방향은 남는다).
+    assert default.params["low_hue_max"] > zero.params["low_hue_max"]
+    assert default.params["high_hue_min"] < zero.params["high_hue_min"]
+
+
+def test_wraparound_default_margin_gates_shifted_red_that_zero_margin_rejects():
+    """**핵심(형상 아님, 실제 동작).** 위 방향 규칙을 진짜 `RedRingDetector`로 확인한다 —
+    조명 변화로 이동한 빨강(양끝 각각)을 마진 0 임계값은 게이팅하지 못하고, 기본 마진
+    임계값은 게이팅해야 한다. 부호가 뒤집히면 두 케이스 모두 실패한다."""
+    patch = _noisy_wraparound_patch((60, 60), hue_center=0, hue_jitter=5, sat=220, val=200, seed=22)
+    zero = calibrate_roi(patch, roi_box=(0, 0, 60, 60), hue_margin=0)
+    default = calibrate_roi(patch, roi_box=(0, 0, 60, 60))
+
+    # 마진 0 대역 바로 바깥, 기본 마진 대역 안쪽에 놓이는 이동된 빨강 Hue 두 개(저/고 양끝).
+    shifted_low_hue = zero.params["low_hue_max"] + DEFAULT_HUE_MARGIN // 2
+    shifted_high_hue = zero.params["high_hue_min"] - DEFAULT_HUE_MARGIN // 2
+    assert shifted_low_hue < default.params["low_hue_max"]
+    assert shifted_high_hue > default.params["high_hue_min"]
+
+    def _gated(params: dict, hue: int) -> int:
+        canvas = _solid_hsv_patch((100, 100), hue=hue, sat=240, val=230)
+        state = VisionState(
+            original=canvas, current=canvas.copy(),
+            detections=[Detection(bbox=(0, 0, 100, 100))],
+        )
+        state = RedRingDetector(**params)(state)
+        if not state.detections:
+            return 0
+        return int(state.detections[0].meta["red_ring"]["gated_points"])
+
+    for hue in (shifted_low_hue, shifted_high_hue):
+        assert _gated(zero.params, hue) == 0, f"대조군 무의미 — 마진 0이 hue={hue}를 이미 잡음"
+        assert _gated(default.params, hue) > 0, f"기본 마진이 이동한 빨강 hue={hue}를 놓침"
