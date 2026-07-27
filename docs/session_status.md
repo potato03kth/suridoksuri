@@ -2,7 +2,7 @@
 doc_type: session_status
 project: suridoksuri-1
 scope: FC 세션 유일 진입점 — 트랙 보드(병행 작업 상태) + 환경 절차
-last_updated: 2026-07-27
+last_updated: 2026-07-28
 ---
 
 # FC 세션 진입 상태 문서
@@ -79,7 +79,20 @@ last_updated: 2026-07-27
 - **주의:** 최신 코드(작업 H 포함, `000f478`까지 커밋·푸시 완료)가 RPi에 **미전파** — RPi에서 `git pull` 필요(RPi 정본=호스트 `~/drone_ws/src/suridoksuri`, potato03kth). WSL(`~/suridoksuri-1`)은 이미 pull·재빌드 완료. `waypoints` 300 m·`v_cruise 20.0` 유지 결정(2026-06-30). V2/V5는 MAVROS 중지 필요(단독 링크). **작업 H가 실기체로 검증되기 전까지** 🚁 트랙의 "transition_alt를 낮게" 임시조치를 유지할 것 — SITL은 PASS했으나 실기체 미확인. **작업 H-2(AMSL 이륙고도 수정, `9451861`)는 단위테스트만 통과 — SITL 재검증 전이라 실비행 반영 금지.** geoid 리스크(MAVROS `geo.altitude`가 ellipsoid면 이륙 과상승) SITL 로그로 판별.
 - **참조:** `fc_ros/fc_ros/nodes/offboard_node.py`(`_step_arm_takeoff`) · `fc_bridge/execution/state_logic.py`(`takeoff_request_fields`) · `fc_bridge/planning/planner_runner.py`(resolve_planner_name) · `vtol_sim/…/straight_line_planner.py`·`eta3clothoid_v3_1_planner.py`(v3.3) · `tools/flight_logs/VERIFY.md`(V1~V5) · `flight_plan.md`·`sitl_verification_log.md`(작업 H) · `docs/flight_plan.md`(작업 G)
 
-### 🛩 sitl-vtol — ▶ 활성 (SITL-7 캠페인 완료 2026-07-27, 24런. **다음: `docs/sitl_vtol_remediation_plan.md` R1~R7 — R1·R2 저위험 안전조치 우선(마감 전), A안은 R3에서 조건부 판정**)
+### 🛩 sitl-vtol — ▶ 활성 (**2026-07-28: F-17/F-4 PX4 2줄 패치 빌드+SITL 검증 통과. 다음은 실기체 플래시(사용자 승인 대기) → R5**)
+
+- **✅ 최신 (2026-07-28, PX4 패치 2단계 — 빌드·검증 완료, 플래시 미수행):** 재현절차 전문 **`docs/px4_v6c_patch_build.md`**.
+  - **패치** `tools/px4/f17_f4_offboard_nan.patch` — `FixedWingModeManager.cpp` 오프보드 변환 블록에 `current.yaw = NAN` / `current.course = NAN` 2줄. **PX4 저장소엔 커밋하지 않는다**(우리 것이 아님) — 워킹트리에만 얹고 패치파일을 우리가 보관.
+  - **빌드** `px4_fmu-v6c_default` 성공, 툴체인 `arm-none-eabi-gcc 10.3.1`(jammy universe, `ubuntu.sh --no-sim-tools`). **FLASH 98.65% = 1,939,520/1,966,080 B, 여유 25.9 KB, 패치비용 +8 B.** 경고 0건. `.px4` sha256 `f1c16e2b…`.
+  - **🚨 펌웨어가 패치 여부를 자기신고하지 않는다** — PX4 버전헤더 생성이 `--dirty` 를 안 붙여 `git_identity` 가 순정과 **완전히 동일**하다(`v1.18.0-alpha1-592-gc890d9db0a`). **구별 수단은 sha256 뿐.** 플래시 직전 반드시 재확인.
+  - **⚠ SITL 검증은 v6c 가 아니라 `px4_sitl_default` 로 돈다** — `make px4_sitl_default` 를 따로 안 하면 패치 전 바이너리로 검증하게 된다(이번에 실제로 stale 상태였음).
+  - **F-17 해소 확정.** 천이중 PX4 지령 course: 순정 C2 **−0.00~−0.04°(정북, `atan2(−E,3000)` 과 소수 셋째자리까지 일치)** → 패치 후 정북 지령 소멸. B8 **177.71°** / A1 **2.52°** / A3 **2.35°** 로 **기체 실제 헤딩 추종**(정북 예측값 0.006~0.011° 와 명확히 구분) = `:549` `_yaw` 폴백이 살아난 직접 증거. C2 는 `course=NAN` 이 규약대로 "미사용" 처리돼 **천이중 토픽 발행 자체가 사라졌다**(60.648s > 천이종료 60.080s). 천이 종료 틱의 **90.7° 순간계단도 소멸**.
+  - **C2 피해:** 북향이탈 **21.78 → 0.38 m** · 기하 cte **21.76 → 0.37 m** · yaw 최저 **43.6 → 88.2°** · 오버슈트 **129.2 → 92.2°** · 고도최저 **43.23 → 49.06 m** · 순항 고도편차 **FAIL(6.76) → PASS(2.06)**.
+  - **회귀 0건** — A1·A3·B8·C2 4런 전건 완주(exit=0), **판정항목이 PASS→FAIL 로 뒤집힌 사례 없음**. B8·C2 는 오히려 FW cte WARN→PASS.
+  - **⚠ 순수 A/B 는 아니다:** 기준선은 `3b52ac1`·`v_cruise 20`, 패치런은 `893a5eb`·`v_cruise 18`(R1·R2 포함). **A3 `node_log_cte` 7.2→14.6 은 R2 의 `_find_segment` 변경 탓**으로 본다(객관지표인 기하 cte 는 15.38→15.21 불변). **미규명 1건: MC HOLD 수직가속 상승**(A1 5.98→10.34, C2 6.71→11.73 m/s²; B8 은 불변) → R5 확인.
+  - **하니스 개선 3건:** `run_scenario.py --launch-arg KEY=VALUE`(임시 파라미터로 yaml 안 고치게) · `meta.json` 에 `px4_dirty`/`px4_diff_sha256` 기록(커밋 해시만으론 워킹트리 패치를 구별 못 함) · `tools/sitl/f17_transition_probe.py` 정식 편입(종전 임시 스크립트 `/mnt/c/sitl7_xfer/f17_probe*.py` 는 소실돼 재현 불가였음. 기준선 21.78m/43.23m/43.6°/129.2° 를 정확히 재현하는 것으로 검증).
+  - **⚠ WSL 클론 표류 원인 규명:** `/root/drone_ws/src/suridoksuri` 의 `remote.origin.fetch` 가 **mc-hw 브랜치 하나로 좁혀져** 있어 `git fetch origin` 이 조용히 성공하면서도 `origin/dev--vision-computing-module` 이 13커밋 뒤(`b1af926`)에 멈춰 있었다. 표준 refspec 으로 복구 후 `893a5eb` 정렬 완료(`.ulg` 135개 전량 보존, `git clean` 미사용).
+  - **다음:** ①**실기체 플래시 — 사용자 승인 후 별도 세션**(USB·QGC 필요) ②플래시 후 비-정북 레그 실비행(R7) ③R5 에서 MC HOLD 수직가속 확인.
 
 - **내용:** WSL SITL VTOL 검증. SITL-1~4 전부 PASS (2026-06-30) → SITL-7 전면 회귀 캠페인(`docs/sitl_vtol_campaign.md`)
 - **마지막:** **(2026-07-27, S3 — A3 6.5km 폭주 근본원인 규명 완료)** **결론: 우리 코드는 정상, PX4 상류 회귀 버그다.** `FixedWingModeManager.cpp:2107` 이 오프보드 `trajectory_setpoint`→`_pos_sp_triplet` 변환 시 구조체를 제로초기화하면서 `course` 필드에 NaN 을 넣지 않아 `course=0.0f` 가 남는다. `PositionSetpoint.msg:36` 규약은 "NaN=미사용"이므로 0.0 은 **"코스 0 rad(정북) 유지" 유효명령**으로 해석되고, `:577`/`:781` 코스 분기가 발화해 `navigateBearing` 이 **기체 현재위치를 지나는 무한직선**을 만든다(`:2782`) → lat/lon 은 한 번도 안 읽히고, 횡오차가 구조적으로 항상 0 이라 **경보·페일세이프가 안 걸린다.** A3 ulog 실측: OFFBOARD 431초 4310샘플 전부 `course_setpoint=4.371138829e-08 rad`(정북)·`signed_track_error=0.000000`, OFFBOARD 이탈 직후 t=567.3 에 진짜 오차 −6442.7m 출현. **회귀 계보 확정:** `8b3ef1cf9e`(2026-05-27 병합, 삽입) → `2e59c98b7c`(05-28, GUIDED_COURSE 가드로 차단) → **실기체 `c890d9db0a`(07-06, 가드 포함 = 안전)** → `1499238f1c`(07-17 병합, 가드 revert = 재삽입) → **SITL `9bb0d365c4`(07-23, 취약)**. 실기체가 178커밋 뒤라 우연히 무사한 것 — **PX4 업그레이드 금지.** **⚠ Phase 1 "성공" 5건 전건 무효:** A1/A2/A4/B1/B6 waypoint 가 **전부 정북 직선**이라 "정북으로만 나는" 버그가 그대로 통과했다. FW 경로추종은 한 번도 검증된 적 없다. **⚠ 실기체 FW+OFFBOARD 비행 실적 0건**(ulog 78건 전수 스캔, FW 구간 자체가 2.4초 수동 테스트 1건뿐) — "실기체에선 된다"는 소스 추론일 뿐 미검증. **✅ 우회로 실측 확보:** `setpoint_raw/local` 로 **위치+속도 동시 발행** → `FW_POSCTRL_MODE_AUTO_PATH`(`:392`) 진입해 코스 분기를 원천 회피, SITL 실측 **횡오차 0.2m·정동 90.0° 정확 추종**. 속도-only 는 기각(`FW_POSCTRL_MODE_OTHER` 로 빠져 **setpoint 발행 자체가 52.96초 정지** — 실측). 프로브 `tools/sitl/fw_offboard_probe.py`(비행코드 무수정), 궤적 `logs/2026-07-27_s3_fw_offboard_probe/`.

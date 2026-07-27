@@ -44,6 +44,7 @@ ROS2/워크스페이스 소싱은 같은 폴더의 `run_scenario.sh` 래퍼가 �
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -725,6 +726,12 @@ def main() -> int:
                          "판정이 아니라 실행 감시다 (C10 의 5.85km 이탈 실측에서 도입)")
     ap.add_argument("--keep-running", action="store_true",
                     help="종료 후 PX4/MAVROS 를 죽이지 않는다 (디버그용)")
+    ap.add_argument("--launch-arg", action="append", default=[], metavar="KEY=VALUE",
+                    help="phase2.launch.py 에 넘길 추가 launch 인자 (반복 지정 가능). "
+                         "시나리오의 launch_args 를 덮어쓴다. 테스트용 임시 파라미터는 "
+                         "fc_ros_params.yaml 을 고치지 말고 이 옵션으로만 줄 것 "
+                         "(예: --launch-arg range_limit_m=1200.0). "
+                         "적용된 값은 meta.json 의 launch_args/launch_argv 에 그대로 남는다")
     args = ap.parse_args()
 
     sc = load_scenario(args.scenario_id)
@@ -741,12 +748,23 @@ def main() -> int:
         old_ulg.unlink()
         log(f"이전 런 잔여 ulog 삭제: {old_ulg.name}")
 
-    launch_args = [f"{k}:={v}" for k, v in (sc.get("launch_args") or {}).items()]
+    # 시나리오 정의 + CLI 추가분. CLI 가 나중에 오므로 같은 키는 CLI 가 이긴다.
+    effective_launch_args = dict(sc.get("launch_args") or {})
+    for kv in args.launch_arg:
+        if "=" not in kv:
+            log(f"⚠️ --launch-arg 형식 오류(무시): {kv!r} — KEY=VALUE 여야 한다")
+            continue
+        k, v = kv.split("=", 1)
+        effective_launch_args[k.strip()] = v
+
+    launch_args = [f"{k}:={v}" for k, v in effective_launch_args.items()]
     meta = {
         "scenario_id": sc["id"],
         "desc": sc.get("desc", ""),
         "model": sc.get("model", "gz_standard_vtol"),
-        "launch_args": sc.get("launch_args") or {},
+        "launch_args": effective_launch_args,
+        "launch_args_scenario": sc.get("launch_args") or {},
+        "launch_args_cli": list(args.launch_arg),
         "launch_argv": ["ros2", "launch", "fc_ros", "phase2.launch.py", *launch_args],
         "home": sc.get("home"),
         "timeout_s": float(sc.get("timeout_s", 420)),
@@ -759,6 +777,16 @@ def main() -> int:
         #    다르다는 것이 확인됐다 — 런 결과는 PX4 커밋과 짝지어야만 해석된다.
         "px4_head": sh(["git", "-C", str(PX4_DIR),
                         "rev-parse", "HEAD"])[1].strip(),
+        # ⚠️ px4_head 만으로는 부족하다 — F-17/F-4 패치처럼 **커밋하지 않고
+        #    워킹트리에만 얹는** 변경이 있으면 커밋 해시는 순정과 똑같다.
+        #    (펌웨어 쪽도 같은 문제다: PX4 의 버전 헤더 생성은 `--dirty` 를
+        #     붙이지 않아 `git_identity` 로 패치 여부를 구별할 수 없다.
+        #     `docs/px4_v6c_patch_build.md` §4-2)
+        #    그래서 워킹트리 상태와 diff 해시를 함께 남긴다.
+        "px4_dirty": bool(sh(["git", "-C", str(PX4_DIR),
+                              "status", "--porcelain"])[1].strip()),
+        "px4_diff_sha256": hashlib.sha256(
+            sh(["git", "-C", str(PX4_DIR), "diff"])[1].encode()).hexdigest()[:16],
         "px4_bin": str(PX4_BIN),
         "px4_bin_mtime_utc": (
             datetime.fromtimestamp(PX4_BIN.stat().st_mtime, timezone.utc)

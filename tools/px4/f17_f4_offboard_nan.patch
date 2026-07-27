@@ -1,0 +1,18 @@
+diff --git a/src/modules/fw_mode_manager/FixedWingModeManager.cpp b/src/modules/fw_mode_manager/FixedWingModeManager.cpp
+index af9ffad845..f0ae666892 100644
+--- a/src/modules/fw_mode_manager/FixedWingModeManager.cpp
++++ b/src/modules/fw_mode_manager/FixedWingModeManager.cpp
+@@ -2136,6 +2136,13 @@ FixedWingModeManager::Run()
+ 				_pos_sp_triplet.current.lat = static_cast<double>(NAN);
+ 				_pos_sp_triplet.current.lon = static_cast<double>(NAN);
+ 				_pos_sp_triplet.current.alt = NAN;
++				// F-17: _pos_sp_triplet = {} 는 yaw 를 0.0f 로 제로초기화한다. 0.0f 는 finite 이므로
++				//       :549 의 PX4_ISFINITE(current_sp.yaw) ? current_sp.yaw : _yaw 폴백이 무력화되고
++				//       천이 가상 웨이포인트가 기체 실제 헤딩 대신 항상 0 rad(정북)으로 잡힌다.
++				_pos_sp_triplet.current.yaw = NAN;
++				// F-4:  course 도 같은 이유로 0.0f 가 되며, 메시지 정의상 NaN 이 "미사용"이므로
++				//       0.0f 는 "코스 0 rad(정북) 유지"라는 유효 명령으로 오독된다.
++				_pos_sp_triplet.current.course = NAN;
+ 				_pos_sp_triplet.current.gliding_enabled = false;
+ 
+ 				if (PX4_ISFINITE(trajectory_setpoint.position[0]) && PX4_ISFINITE(trajectory_setpoint.position[1])) {

@@ -26,6 +26,35 @@ python3 tools/sitl/run_scenario.py A1
 python3 tools/sitl/analyze_run.py A1
 ```
 
+### 어느 PX4 로 돌릴지 — `PX4_DIR`
+
+`run_scenario.py` 의 기본값은 **`/root/PX4-Autopilot`(취약 빌드)** 다.
+실기체와 같은 빌드로 돌리려면 **반드시 명시**한다:
+
+```bash
+export PX4_DIR=/root/PX4-vehicle
+```
+
+`meta.json` 에 `px4_dir`/`px4_head`/**`px4_dirty`**/**`px4_diff_sha256`**/`px4_bin_mtime_utc`
+가 기록된다. `px4_head` 만으로는 부족하다 — F-17/F-4 패치처럼 **커밋 없이 워킹트리에만
+얹는** 변경은 커밋 해시가 순정과 똑같기 때문이다(`docs/px4_v6c_patch_build.md` §4-2).
+
+### 임시 파라미터는 `--launch-arg` 로만
+
+테스트용 값 때문에 `fc_ros_params.yaml` 을 고치지 않는다.
+
+```bash
+python3 tools/sitl/run_scenario.py C2 \
+  --outdir logs/2026-07-28_f17_patch_verify --run-id C2_patched \
+  --launch-arg range_limit_m=1200.0
+```
+
+- 시나리오의 `launch_args` 를 덮어쓰고, 적용 결과는 `meta.json` 의
+  `launch_args`/`launch_args_scenario`/`launch_args_cli` 에 나뉘어 남는다.
+- 편도 300m 경로(A1·C2·B8)는 `range_limit_m` 기본 300.0m 에 걸려 OVERRIDE 로 끝난다.
+  검증 목적일 때만 이 옵션으로 키운다.
+- `--outdir`/`--run-id` 로 기존 캠페인 산출물을 덮어쓰지 않게 분리한다.
+
 ## 파일
 
 | 파일 | 역할 |
@@ -35,6 +64,7 @@ python3 tools/sitl/analyze_run.py A1
 | `run_scenario.sh` | 위의 소싱 래퍼 (호스트에서 부르는 진입점) |
 | `analyze_run.py` | `node.log` + `.ulg` → `metrics.json` + `verdict.md` (계획서 4장 지표 전량) |
 | `analyze_run.sh` | 분석 소싱 래퍼 |
+| `f17_transition_probe.py` | **F-17/F-4 전용 ulog 프로브.** 전방천이 구간의 PX4 횡유도 지령(`fixed_wing_lateral_setpoint.course`)이 기체 헤딩을 따르는지 「정북 3000m 가상WP」에 고정되는지 판정 + 천이 직후 피해(북/동 이탈·고도·yaw 오버슈트). 사용: `python3 tools/sitl/f17_transition_probe.py <run>.ulg` |
 | `inject_probe.py` | **장애주입 런 전용 ulog 검사기**(S7). `analyze_run.py` 와 겹치지 않는 것만: `vehicle_status.nav_state` 구간(주입이 **실제로 먹혔는지**) / `offboard_control_mode`·`trajectory_setpoint` 단절(=**setpoint 발행 중단** 여부) / `vehicle_command` DO_SET_MODE / EKF 풍속(C4). 사용: `python3 tools/sitl/inject_probe.py <run_dir>` → JSON |
 
 ## 산출물
