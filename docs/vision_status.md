@@ -51,6 +51,40 @@ last_updated: 2026-07-25
 
 ## 트랙 보드
 
+### 🗓 2026-07-28 오케스트레이션 세션 (FC 트랙과 병행 — 브랜치 공유 중)
+
+> 오케스트레이터가 **전건 직접 재현 검증**했다(세션 자기보고 수용 0건). 커밋 순서대로.
+
+- **✅ 색 캘리브레이터 마진 기본값 확정 (`1678539`)** — 알려진 갭이던 `hue/sat/val margin=0`을 **`hue=6` / `sat=0` / `val=0`** 으로 정식화. 근거: 백분위수 p5~p95(프레임 내 공간 변동)와 마진(캘리브↔비행 조건 변화)이 덮는 대상이 다르다는 분리. `hue=6`은 사용자 제공 초록구역 8점의 OpenCV 환산 산포 **1σ**(표본 6.056/모집단 5.665, 둘 다 6). **2σ가 아닌 이유는 p5~p95와의 이중계상 회피.** 절대 Hue는 카메라·WB 미상이라 미사용. 스케일은 0~360°로 판정(÷2 → 68~84.5가 독립 손튜닝값 `[35,85]` 안에 들어옴). S/V는 표본이 없어 0 유지 + 넓히는 방향이 자갈/그림자/글레어를 정확히 겨눠 현장 명시 권장. **오케스트레이터 재현:** 마진 부호 반전 → 신규 2건만 red / **기본값을 0으로 되돌리는 진짜 회귀 → 4건 red** / 원복 green.
+- **🔴 vision↔fc_ros 인터페이스 정찰 (`657721c`, `docs/vision_fc_interface.md`)** — **구현 아님, 사실확정 문서.** 두 가지 치명 사실을 실기체에서 확정했고 오케스트레이터가 전건 재현했다:
+  - **런타임 경로가 막혀 있었다.** RPi 호스트에 **ROS2 부재**(`/opt/ros/*` 없음, Ubuntu 24.04 noble / Py3.12.3), `picam-venv`에 **rclpy 없음**, `fc` 컨테이너는 `ros:humble`/Py**3.10.12**/`NetworkMode=host`. noble에 깔리는 건 Jazzy이고 **Humble↔Jazzy 교차통신 미지원** → 두 프로세스가 같은 ROS2 그래프에 못 올라간다. "패키지 하나 설치" 문제가 아니라 **배포판 선택 문제**.
+  - **`mavros_msgs/LandingTarget`의 `frame` 상수가 실제 `MAV_FRAME`과 오프바이원.** msg는 `LOCAL_NED=2`인데 실제 enum(`common.hpp:154`)은 `LOCAL_NED=1`, `MISSION=2`. **상수 이름을 믿고 짜면 MAVLink가 `MISSION`으로 읽어 조용히 `position_valid=false`로 떨어진다.** 정수 리터럴 `1`(LOCAL_NED)/`12`(BODY_FRD)를 써야 한다. 추가로 `px4_config.yaml:214` **`listen_lt: false`**.
+  - **🔵 사용자 결정(2026-07-28): localhost 소켓 + 컨테이너 shim.** vision 코어는 transport-agnostic 유지, 소켓으로 컨테이너 안 얇은 ROS2 노드에 넘긴다. 호스트 ROS2·컨테이너 교체·카메라 패스스루 전부 불필요. `vision_plan.md` §7.2가 이미 지정한 구조의 이행이다.
+- **✅ `fusion`/`tracker` 회귀망 신설 (`72f6721`) — 실행 경로 위 결함 2건 발견.** 둘 다 오케스트레이터가 독립 재현했다:
+  - **`KalmanTracker`가 numpy 2.x에서 매 프레임 크래시.** `int(pred[0])`이 4x1 배열 원소를 스칼라 변환 → `TypeError: only 0-dimensional arrays...`. **첫 검출 프레임에서 즉시** 죽어 모듈이 100% 동작 불능이었다. `int(pred[0][0])`로 수정. ⚠️ **이 저장소 numpy 2.x 비호환의 세 번째 사례**다(선례: `np.trapz` 제거로 플래너 크래시, `0785777`).
+  - **`TemporalFusion`이 구조적으로 confirmed를 만들 수 없었다** — 아래 항목에서 수정.
+  - 파괴검증 23종, pseudo 0건. 첫 17종에서 어떤 파괴에도 안 죽은 6건을 pseudo로 판정하고 겨냥한 파괴를 추가한 과정이 기록돼 있다.
+- **✅ `TemporalFusion` 구조적 결함 수정 (`8ce333e`) + 커버리지 3건 (`ce43654`)**
+  - **결함:** `_decay()`가 방금 매칭돼 `count+=1` 된 후보까지 깎아, **프레임당 검출이 1개면 순증 0 → 영원히 미확정.** `main.py:184`에 첫 detection 폴백이 있어 크래시는 안 났지만 **`video.yaml`·`default.yaml`에서 fusion의 존재 이유인 흔들림 억제가 통째로 무효인 채 조용히 돌고 있었다.**
+  - **수정:** `count = 연속 관측 프레임 수`로 복원(감쇠 제외 + 프레임당 최대 +1). 브리프가 제시한 후보 "감쇠를 확정검사 뒤로 이동"은 **결함을 전혀 못 고쳐 기각**, "감쇠 제외만"은 **깜빡임까지 승격시켜 기각** — 셋 다 구현해 실측 비교한 표가 커밋에 있다.
+  - **오케스트레이터 재현:** min_frames=5에서 정확히 5프레임째 확정 / 깜빡임 20프레임 내내 미확정 / 수정 전 코드로는 연속 20프레임도 `confirmed=None`.
+  - 결함 고정 characterization 테스트 폐기, `xfail(strict)` → 정상통과 승격, **pseudo화된 `separate_targets` 갱신**(counts 동률이라 `max`→`min` 파괴에도 통과하던 것).
+  - `registry`/`image_loader`/`video_reader` 커버리지 신설(74건). 파괴검증 29종. **`pytest vision/tests/` 462 → 579 passed, 회귀 0.**
+- **⚠️ 신규 발견 — 엣지 기반 프리셋이 매끈한 단색 타겟을 구조적으로 못 잡는다 (미수정, 판단 필요).** `morphology`의 `open`이 Canny 1px 엣지를 통째로 지운다. 오케스트레이터 실측(단색 사각형 → Canny 320px → close 320px → **open 0px → 컨투어 0**):
+
+  | 프리셋 | ops / kernel | 단색 타겟 |
+  |---|---|---|
+  | `video.yaml` | `[close, open]` k=7 | ❌ 소멸 |
+  | `single_frame.yaml` | `[close, open]` k=5 | ❌ 소멸 |
+  | `default.yaml` | `[close, open]` k=5 | ❌ 소멸 |
+  | `low_light.yaml` | `[dilate, close, open]` k=7 | ✅ 생존 (dilate가 살림) |
+
+  **🟢 대회 타겟 경로는 영향 없다** — `distress_coarse`/`distress_fine`/`vertiport_coarse`/`vertiport_fine`은 **`edge_detector`를 안 쓴다**(색 마스크 → morphology → rect). 채워진 blob에 `open(5)`는 무해하다. 따라서 2차예선 리스크가 아니며, 엣지 기반 프리셋의 존치·수정은 별도 판단 사항이다. `video.yaml`의 MOG2가 정지 타깃 마스크를 0으로 만드는 문제도 함께 관찰됨(호버링 정밀착륙 국면과 상충).
+- **🔧 프로세스 사고 (해소됨) — 오케스트레이터 지시 오류로 FC 커밋 `7929e4c`가 계보에서 이탈했다.** 원인은 worktree 세션에게 `git checkout -B dev--vision-computing-module origin/...`을 시킨 것. 이 ref는 메인 워킹트리와 공유되고 **FC 세션이 실시간 커밋 중**이라, `-B`가 ref를 되돌리며 미push 커밋을 고아로 만들었다. **내용 손실은 0**이었고(인덱스·디스크·`rescue/fc-7929e4c-orphaned-by-vision-worktree`에 3중 보존), 이후 FC 세션이 재커밋해 **브랜치 tip이 `7929e4c`의 상위집합**임을 확인했다(로그 4런 동일, 문서는 +313줄 확장) → `rescue/` 브랜치는 삭제 가능. **재발 방지:** worktree 세션에는 `checkout -B`/`reset --hard`/전역 `restore` 금지, `git fetch && git rebase origin/...` + `git push origin HEAD:dev--...` refspec 방식만 지시할 것(메모리 `feedback_worktree_base_branch`에 기록).
+- **FC 변동 확인 (사용자 요청 항목):** 기준선 `893a5eb` 이후 **`fc_ros/`·`fc_bridge/` 커밋 0건**, 인터페이스 파일 3종(`offboard_node.py`/`state_logic.py`/`rotation.py`) md5 전부 일치. 같은 기간 FC 커밋 4건은 전부 PX4 툴체인·패치빌드·파라미터 백업 작업이었다. **정밀착륙 통합 계약은 그대로 유효하다.**
+
+---
+
 ### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. **2026-07-24: ArUco 브랜치(Phase 1~4) 완료 + `LiveFrameSource` picamera2 재구현 + `main.py` 라이브 배선까지 RPi 실기체 종단간 검증 완료(picam-venv opencv 업그레이드 포함). 2026-07-24 후속: MjpegStreamer 실네트워크 검증+fps 튜닝(2→17fps) 완료. **2026-07-25 야간 오케스트레이터 세션(사용자 취침 중 자율 진행) — vision 도메인 §9 빌드순서 1~6번 전부 완료:** ① **ffmpeg Phase 3 완료**(`tools/h264_stream.py`, 30fps·지연 25~41ms, 재접속/SIGTERM 실기체 검증) ② **§9 6번 공통 상태머신 완료**(`core/state_machine.py`, JSONL `state` 필드가 드디어 실제로 채워짐) ③ **② 초록구역 fine 브랜치 완료**(`modules/distress_box.py` — 끊어져 있던 체인을 이음) ④ **§9 5번 현장 색 캘리브레이터 완료**(`tools/color_calibrate.py`) ⑤ **RPi 실기체 종단간 통합 검증 완료** — 실기체에서만 드러난 SIGTERM 무대응 버그를 잡아 고쳤고, 라이브 카메라 1205프레임 전부에 `state` 필드가 실제로 채워지는 것을 확인 ⑥ **미실시(인간개입 필요) 6항목을 트랙 보드 위에 표로 명시** — 위 "🔴 미실시 항목" 절 참조. `pytest vision/tests/` 330 → **462 passed**. 남은 §9 항목은 7번(offboard 연동, **FC 도메인 소관**)과 8번(폐루프 30cm 검증, **실측 캘리브레이션 필요 = 예선 후**)뿐이다**)
 
 - **✅ RPi 실기체 종단간 통합 검증 완료(2026-07-25 야간 마지막 세션, 커밋 `078ddea`) — 실기체에서만 드러나는 버그 1건을 잡아 고쳤다.** 오늘 밤 만든 것(상태머신·초록구역 fine·색 캘리브레이터)이 전부 **랩탑 합성 데이터로만** 검증됐던 상태라, 실카메라에서 함께 도는지를 마지막에 확인했다. 이 프로젝트엔 *"랩탑 cv2 5.0.0에선 멀쩡한데 RPi picam-venv의 cv2 4.6.0엔 `ArucoDetector` 클래스형 API가 아예 없어 실기체에서만 터진"* 전례(2026-07-24)가 있어 생략하지 않았다. 상세:
