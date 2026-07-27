@@ -9,7 +9,10 @@
 import json
 import os
 import signal
+import socket
 import sys
+import threading
+import time
 from pathlib import Path
 
 import cv2
@@ -17,7 +20,14 @@ import numpy as np
 import pytest
 
 import vision.main as main_mod
+from vision.core.wire import (
+    RECORD_TYPE_STATE_HINT,
+    RECORD_TYPE_TARGET,
+    REQUIRED_STATE_HINT_KEYS,
+    REQUIRED_TARGET_KEYS,
+)
 from vision.utils.frame_source import FrameRecord
+from vision.utils.target_sink import SocketTargetSink
 
 _DICTIONARY = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 _VERTIPORT_FINE_PRESET = str(Path(main_mod.__file__).parent / "presets" / "vertiport_fine.yaml")
@@ -624,3 +634,360 @@ def test_non_live_input_still_requires_existing_file(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         main_mod.main()
     assert exc.value.code == 1
+
+
+# ===========================================================================
+# `--target-sink` 배선 (vision↔fc 인터페이스, docs/vision_fc_interface.md §9 작업 V5)
+#
+# 배선 지점: `_run_image`/`_run_video`/`_run_live` **세 경로 전부**. 라이브가 정밀착륙의
+# 본령이지만, §7.5(기록·재생)가 "같은 파이프라인으로 오프라인 재생"을 회귀검증의 최대
+# 레버로 못박고 있어 영상 경로에도 붙어 있어야 sink 계약을 책상에서 회귀로 잡을 수 있다.
+# opt-in이라 꺼져 있으면 세 경로 모두 비용 0이다.
+#
+# 아래 테스트들은 `main_mod.SocketTargetSink`를 **진짜 클래스의 서브클래스**로 바꿔치기해
+# (진짜 소켓 bind + 진짜 레코드 조립은 그대로 두고) 발행된 레코드를 관측한다 — `_publish_to_sink`
+# 의 `isinstance(sink, SocketTargetSink)` 게이트가 서브클래스에서도 참이라 실제 경로가 돈다.
+# 진짜 바이트가 진짜 소비자에게 흐르는지는 맨 아래 `..._streams_real_jsonl_...`가 실소켓으로,
+# 소켓 계층 자체는 tests/test_target_sink.py가 담당한다.
+# ===========================================================================
+
+
+class _RecordingSocketTargetSink(SocketTargetSink):
+    """발행된 레코드를 그대로 모아두는 진짜 sink(진짜 서버가 뜬다, port=0 임시포트)."""
+
+    instances: list = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.records: list[dict] = []
+        _RecordingSocketTargetSink.instances.append(self)
+
+    def publish(self, record: dict) -> None:
+        self.records.append(record)
+        super().publish(record)
+
+
+@pytest.fixture
+def recording_sink_cls(monkeypatch):
+    _RecordingSocketTargetSink.instances = []
+    monkeypatch.setattr(main_mod, "SocketTargetSink", _RecordingSocketTargetSink)
+    return _RecordingSocketTargetSink
+
+
+def _sink_args(port: str = "0") -> list[str]:
+    return ["--target-sink", "--target-sink-port", port]
+
+
+def _write_blank_video(tmp_path, n_frames: int = 4) -> str:
+    """마커가 하나도 없는 영상 — vertiport_fine.yaml로 돌리면 매 프레임 검출 0이 된다."""
+    video_path = tmp_path / "blank_clip.mp4"
+    frame = np.full((300, 300, 3), 255, dtype=np.uint8)
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), 10, (300, 300))
+    for _ in range(n_frames):
+        writer.write(frame)
+    writer.release()
+    return str(video_path)
+
+
+def test_target_sink_is_off_by_default_and_never_binds_a_socket(tmp_path, monkeypatch):
+    """opt-in 불변식(`--display stream`과 동일): 플래그를 안 주면 소켓도 스레드도 안 뜨고
+    발행 시도조차 없다 — 기존 실행 경로가 조금도 달라지면 안 된다."""
+    started = []
+    monkeypatch.setattr(
+        main_mod.SocketTargetSink, "start", lambda self: started.append(True)
+    )
+    img_path = _write_image(tmp_path)
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(
+        sys, "argv",
+        ["vision.main", img_path, "--log-dir", str(log_dir), "--log-name", "nosink"],
+    )
+    main_mod.main()
+
+    assert started == [], "--target-sink 미지정인데 소켓 sink가 기동됐다"
+    # NullSink 경로에서 레코드 조립을 시도하면 AttributeError가 잡혀 경고가 남는다 —
+    # 그 경고가 없다는 것이 "기본 경로에서 조립 비용조차 안 든다"의 증거.
+    assert "target sink 발행 실패" not in (log_dir / "nosink.log").read_text()
+
+
+def test_target_sink_publishes_target_and_state_hint_every_frame(
+    tmp_path, monkeypatch, recording_sink_cls
+):
+    """§9 V5 핵심: 실제 ArUco 영상을 실제 파이프라인으로 돌리면 매 프레임 `target` 1건 +
+    `state_hint` 1건이 실제로 발행되고, 계약 상수(`REQUIRED_*_KEYS`)를 전부 만족해야 한다."""
+    video_path = _write_aruco_video(tmp_path, n_frames=6)
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", video_path, "--preset", _VERTIPORT_FINE_PRESET,
+            "--log-dir", str(tmp_path / "logs"), *_sink_args(),
+        ],
+    )
+    main_mod.main()
+
+    sink = recording_sink_cls.instances[-1]
+    targets = [r for r in sink.records if r["type"] == RECORD_TYPE_TARGET]
+    hints = [r for r in sink.records if r["type"] == RECORD_TYPE_STATE_HINT]
+    assert len(targets) == 6, "프레임마다 target 레코드가 정확히 1건씩 나가야 한다"
+    assert len(hints) == 6, "상태머신 힌트도 매 프레임 함께 나가야 한다(§6.3 advisory)"
+
+    for rec in targets:
+        assert all(k in rec for k in REQUIRED_TARGET_KEYS)
+    for rec in hints:
+        assert all(k in rec for k in REQUIRED_STATE_HINT_KEYS)
+
+    # 실제 검출이 실린 유효 레코드인지 — 3프레임 좌표가 다 있고 provenance가 nominal.yaml
+    assert all(r["valid"] is True for r in targets)
+    assert all(len(r["position_cam"]) == 3 for r in targets)
+    assert all(len(r["position_frd"]) == 3 for r in targets)
+    assert all(r["target_type"] == "aruco_23" for r in targets)
+    assert all(r["calib_id"].endswith("nominal.yaml") for r in targets)
+
+    # §6.3 — command는 명령이 아니다. 맨 이름 `command` 키는 있으면 안 된다.
+    assert all(h["command_is_advisory"] is True for h in hints)
+    assert all("command" not in h for h in hints)
+    assert any(h["state"] in ("LOCK", "PRECISION_SERVO") for h in hints), (
+        "상태머신 Decision이 실제로 실려야 한다(ACQUIRE에 머물면 배선이 죽은 것)"
+    )
+    # seq는 단조증가 — 소비자가 유실을 감지하는 유일한 수단
+    seqs = [r["seq"] for r in sink.records]
+    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+
+
+def test_target_sink_publishes_invalid_records_instead_of_going_silent(
+    tmp_path, monkeypatch, recording_sink_cls
+):
+    """§5.4 계약 2번(페일세이프의 핵심): 검출이 없어도 **침묵하지 않는다** — 침묵은 "노드 사망"
+    으로 예약돼 있으므로 "안 보임"은 valid=false + 사유로 명시해야 소비자가 구분할 수 있다."""
+    video_path = _write_blank_video(tmp_path, n_frames=4)
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", video_path, "--preset", _VERTIPORT_FINE_PRESET,
+            "--log-dir", str(tmp_path / "logs"), *_sink_args(),
+        ],
+    )
+    main_mod.main()
+
+    sink = recording_sink_cls.instances[-1]
+    targets = [r for r in sink.records if r["type"] == RECORD_TYPE_TARGET]
+    assert len(targets) == 4, "검출이 없다고 발행을 멈추면 안 된다(침묵=사망 신호)"
+    assert all(r["valid"] is False for r in targets)
+    assert all(r["reason"] == main_mod.SINK_REASON_NO_DETECTION for r in targets)
+    # 포즈는 0이 아니라 null이어야 한다 — 0이면 "기체 바로 아래에 타겟"이라는 최악의 거짓말
+    assert all(r["position_frd"] is None for r in targets)
+    # 검출이 없어도 상태머신 힌트는 계속 나간다(소비자가 HOLD/ABORT를 볼 수 있어야 한다)
+    assert len([r for r in sink.records if r["type"] == RECORD_TYPE_STATE_HINT]) == 4
+
+
+def test_missing_calib_makes_sink_say_no_calibration_not_go_silent(
+    tmp_path, monkeypatch, recording_sink_cls
+):
+    """calib 미로드도 침묵이 아니라 사유가 붙은 valid=false로 나가야 한다(사후분석 가능)."""
+    img_path = _write_aruco_image(tmp_path)
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", img_path, "--preset", _VERTIPORT_FINE_PRESET,
+            "--calib", str(tmp_path / "nope.yaml"),
+            "--log-dir", str(tmp_path / "logs"), *_sink_args(),
+        ],
+    )
+    main_mod.main()
+
+    targets = [r for r in recording_sink_cls.instances[-1].records if r["type"] == RECORD_TYPE_TARGET]
+    assert len(targets) == 1
+    assert targets[0]["valid"] is False
+    assert targets[0]["reason"] == main_mod.SINK_REASON_NO_CALIB
+
+
+class _ExplodingSink(_RecordingSocketTargetSink):
+    """발행 시도마다 예외를 던지는 sink — 최악의 소비자/조립 실패를 시뮬레이션."""
+
+    def publish_target(self, estimate):
+        raise RuntimeError("boom-target")
+
+    def publish_invalid(self, **kwargs):
+        raise RuntimeError("boom-invalid")
+
+    def publish_state_hint(self, decision, **kwargs):
+        raise RuntimeError("boom-hint")
+
+
+def test_sink_exceptions_never_stop_the_detection_pipeline(tmp_path, monkeypatch):
+    """🔴 절대 요구: sink가 어떤 이유로 실패해도 검출은 계속된다 — 착륙 유도보다 검출이 먼저
+    죽는 일은 없어야 한다. 매 프레임 예외가 터져도 6프레임이 전부 JSONL에 남아야 한다."""
+    _ExplodingSink.instances = []
+    monkeypatch.setattr(main_mod, "SocketTargetSink", _ExplodingSink)
+    video_path = _write_aruco_video(tmp_path, n_frames=6)
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", video_path, "--preset", _VERTIPORT_FINE_PRESET,
+            "--log-dir", str(log_dir), "--log-name", "boomrun", *_sink_args(),
+        ],
+    )
+    main_mod.main()  # 예외가 밖으로 새면 여기서 죽는다
+
+    records = [json.loads(l) for l in (log_dir / "boomrun.jsonl").read_text().splitlines()]
+    assert [r["frame_id"] for r in records] == list(range(6)), (
+        "sink 예외 때문에 검출 파이프라인이 멈췄다"
+    )
+    assert "target sink 발행 실패" in (log_dir / "boomrun.log").read_text(), (
+        "삼키되 조용히 삼키면 안 된다 — 경고 로그는 남아야 한다"
+    )
+
+
+def test_sink_bind_failure_degrades_to_nullsink_and_keeps_detecting(tmp_path, monkeypatch):
+    """기동(bind) 실패도 검출을 죽이지 않는다 — NullSink로 강등하고 계속 간다(시끄럽게)."""
+    monkeypatch.setattr(
+        main_mod.SocketTargetSink,
+        "start",
+        lambda self: (_ for _ in ()).throw(OSError("address already in use")),
+    )
+    img_path = _write_image(tmp_path)
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", img_path, "--log-dir", str(log_dir),
+            "--log-name", "bindfail", *_sink_args("8091"),
+        ],
+    )
+    main_mod.main()  # SystemExit/OSError로 죽으면 안 된다
+
+    records = [json.loads(l) for l in (log_dir / "bindfail.jsonl").read_text().splitlines()]
+    assert len(records) == 1, "sink 기동 실패로 검출 파이프라인이 죽었다"
+    assert "target sink 기동 실패" in (log_dir / "bindfail.log").read_text()
+
+
+class _FakeLiveSourceSigtermAfter2FramesWithSink(_FakeLiveSourceSigtermAfter2Frames):
+    """sink가 켜진 상태의 SIGTERM 경로 — 클래스 재사용(동작 동일)."""
+
+
+def test_sink_does_not_hijack_the_live_sigterm_handler(tmp_path, monkeypatch, recording_sink_cls):
+    """🔴 회귀: `signal.signal`은 신호당 핸들러가 하나뿐이라, sink 핸들러를 나중에 걸면
+    `_install_sigterm_handler`가 등록한 라이브 모드 graceful shutdown을 **덮어써서** 죽인다
+    (실기체에서만 드러났던 버그의 재발 경로). sink를 켠 채로도 SIGTERM 이후 프레임(frame_id=2)이
+    처리되면 안 된다."""
+    original_term = signal.getsignal(signal.SIGTERM)
+    try:
+        log_dir = tmp_path / "logs"
+        monkeypatch.setattr(
+            main_mod, "LiveFrameSource", _FakeLiveSourceSigtermAfter2FramesWithSink
+        )
+        monkeypatch.setattr(
+            sys, "argv",
+            [
+                "vision.main", "live", "--log-dir", str(log_dir),
+                "--log-name", "sigtermsink", *_sink_args(),
+            ],
+        )
+        main_mod.main()
+
+        records = [json.loads(l) for l in (log_dir / "sigtermsink.jsonl").read_text().splitlines()]
+        assert [r["frame_id"] for r in records] == [0, 1], (
+            "sink가 SIGTERM 핸들러를 가로챘다 — 라이브 graceful shutdown이 깨졌다"
+        )
+        assert "SIGTERM" in (log_dir / "sigtermsink.log").read_text()
+        # sink도 함께 정리돼야 한다(§5.4 EOF 경로)
+        assert recording_sink_cls.instances[-1].stopping is True
+    finally:
+        signal.signal(signal.SIGTERM, original_term)
+
+
+class _GatedVideoReader:
+    """소비자가 붙을 때까지 첫 프레임을 미루는 가짜 VideoReader — 실소켓 종단간 테스트를
+    타이밍에 기대지 않고 **결정론적으로** 만들기 위한 것(main.py가 서버라 소비자가 늦게
+    붙으면 레코드를 놓칠 수 있다)."""
+
+    gate: threading.Event = threading.Event()
+    n_frames = 4
+
+    def __init__(self, path):
+        self.fps = 10
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def __iter__(self):
+        _GatedVideoReader.gate.wait(20.0)
+        canvas = np.full((300, 300, 3), 255, dtype=np.uint8)
+        marker = cv2.aruco.generateImageMarker(_DICTIONARY, 23, 150)
+        canvas[50:200, 50:200] = cv2.cvtColor(marker, cv2.COLOR_GRAY2BGR)
+        for _ in range(_GatedVideoReader.n_frames):
+            yield canvas.copy()
+
+
+def test_target_sink_streams_real_jsonl_to_a_stdlib_consumer_and_eofs_on_exit(
+    tmp_path, monkeypatch
+):
+    """종단간: 순수 stdlib 소비자(`socket` + `makefile().readline()`)가 실제로 붙어 실제 JSON
+    Lines를 읽는다 — Phase 2 shim이 하게 될 그대로. main() 종료 시 **EOF**를 받는 것까지
+    확인한다(§5.4 "프로세스 사망 → 소비자가 EOF 즉시 수신"의 배선 증거)."""
+    import vision.utils.video_reader as vr_mod
+
+    _GatedVideoReader.gate = threading.Event()
+    monkeypatch.setattr(vr_mod, "VideoReader", _GatedVideoReader)
+
+    port = 18099
+    clip = tmp_path / "gated.mp4"
+    clip.write_bytes(b"")  # 내용은 안 읽힌다(_GatedVideoReader가 대체)
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", str(clip), "--preset", _VERTIPORT_FINE_PRESET,
+            "--log-dir", str(log_dir), "--log-name", "e2esink",
+            "--target-sink", "--target-sink-port", str(port),
+        ],
+    )
+
+    errors: list = []
+
+    def _run():
+        try:
+            main_mod.main()
+        except BaseException as e:      # noqa: BLE001 - 스레드 예외를 테스트로 전달
+            errors.append(e)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    try:
+        conn = None
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline and conn is None:
+            try:
+                conn = socket.create_connection(("127.0.0.1", port), timeout=5.0)
+            except OSError:
+                time.sleep(0.01)
+        assert conn is not None, "sink 서버에 접속하지 못했다"
+
+        with conn:
+            _GatedVideoReader.gate.set()      # 이제 프레임이 흐른다
+            f = conn.makefile("r", encoding="utf-8")
+            lines = [f.readline() for _ in range(4)]
+            records = [json.loads(l) for l in lines]
+
+            assert all(l.endswith("\n") for l in lines), "JSONL 프레이밍(한 줄=한 레코드) 위반"
+            types = [r["type"] for r in records]
+            assert RECORD_TYPE_TARGET in types and RECORD_TYPE_STATE_HINT in types
+            tgt = next(r for r in records if r["type"] == RECORD_TYPE_TARGET)
+            assert all(k in tgt for k in REQUIRED_TARGET_KEYS)
+            assert tgt["valid"] is True and len(tgt["position_frd"]) == 3
+
+            t.join(timeout=20.0)
+            assert not t.is_alive() and not errors, f"main()이 정상 종료하지 않음: {errors}"
+            # main() 종료 = sink.close() = 클라이언트 소켓 close → 소비자는 EOF를 받는다
+            conn.settimeout(5.0)
+            while True:
+                rest = f.readline()
+                if rest == "":
+                    break
+    finally:
+        _GatedVideoReader.gate.set()
+        t.join(timeout=10.0)

@@ -16,6 +16,12 @@ Landing zone detector — CLI 진입점.
 프레임별 JSONL 블랙박스를 --log-dir(기본 results/logs)에 남긴다. --log-name으로 파일
 basename 지정.
 
+--target-sink (vision↔fc 인터페이스, `docs/vision_fc_interface.md` §9 작업 V5): **opt-in,
+기본 꺼짐**. 켜면 `SocketTargetSink`(localhost TCP 서버, 기본 127.0.0.1:8091)를 띄우고 매
+프레임 JSON Lines 레코드를 발행한다 — `target`(TargetEstimate 또는 valid=false) 1건 +
+`state_hint`(상태머신 Decision) 1건. 끄면 `NullSink`라 레코드 조립 비용조차 들지 않는다
+(기존 실행 경로 무변경). 확인: `nc 127.0.0.1 8091`.
+
 사용 예:
   # 데스크톱에서 영상 보며 디버깅
   python -m vision.main flight.mp4 --preset presets/video.yaml --display window
@@ -27,6 +33,8 @@ basename 지정.
   python -m vision.main live --preset presets/vertiport_fine.yaml --display none
   # 라이브 모드 + 카메라 번호 지정 + 해상도 override + 영상 기록
   python -m vision.main live:1 --live-resolution 1920x1080 --output results/live.mp4
+  # 정밀착륙 인터페이스 발행 켜기(기본 꺼짐) — 소비자는 nc 127.0.0.1 8091 로 확인
+  python -m vision.main live --preset presets/vertiport_fine.yaml --target-sink
 """
 import argparse
 import signal
@@ -39,14 +47,21 @@ from typing import Optional, Tuple
 import cv2
 
 from vision.core.runner import Pipeline
-from vision.core.state_machine import LandingStateMachine, Observation
-from vision.core.target import solve_target_pose
+from vision.core.state_machine import Decision, LandingStateMachine, Observation
+from vision.core.target import TargetEstimate, solve_target_pose
 from vision.utils.blackbox import BlackBoxLogger
 from vision.utils.calibration_loader import CameraCalibration, load_camera_calibration
 from vision.utils.frame_source import LiveFrameSource
 from vision.utils.image_loader import load_image
 from vision.utils.logging import log_provenance_header, setup_dual_sink_logger
 from vision.utils.stream import MjpegStreamer
+from vision.utils.target_sink import (
+    DEFAULT_HOST as _SINK_DEFAULT_HOST,
+    DEFAULT_PORT as _SINK_DEFAULT_PORT,
+    NullSink,
+    SocketTargetSink,
+    TargetSink,
+)
 from vision.utils.visualize import save_result, draw_detections
 
 
@@ -60,6 +75,13 @@ _LIVE_INPUT_SPEC = "live"
 # --output 지정 시 라이브 모드 VideoWriter가 쓸 fps. VideoReader처럼 소스가 fps를 알려주지 않으므로
 # (무한 실시간 스트림) 고정값을 쓴다 — 정밀한 재생속도가 목적이 아니라 결과 확인용 기록이라 충분.
 _LIVE_DEFAULT_OUTPUT_FPS = 20.0
+
+# `--target-sink` 발행의 `valid=false` 사유 문자열(§5.4 계약 2번 — 침묵 대신 **사유와 함께**
+# "안 보임"을 알린다). 매직 문자열을 호출부에 흩뿌리지 않도록 상수로 모은다(§7.3).
+SINK_REASON_OK = "ok"
+SINK_REASON_NO_CALIB = "no_calibration"
+SINK_REASON_NO_DETECTION = "no_target_detection"
+SINK_REASON_SOLVE_FAILED = "pose_solve_failed"
 
 
 def _show_window(annotated, *, wait: int) -> bool:
@@ -124,17 +146,27 @@ def _target_estimate_to_dict(estimate) -> dict:
     }
 
 
-def _solve_aruco_chosen(
+def _solve_aruco_estimate(
     state, calib: Optional[CameraCalibration], frame_id: int, ts: float, logger,
-) -> Optional[dict]:
+) -> Tuple[Optional[TargetEstimate], str]:
     """확정 ArUco 검출 + 로드된 calib이 둘 다 있을 때만 solvePnP를 시도한다(§Phase4 전제 —
     코너 없으면 solvePnP 자체가 실패하므로 매 프레임 무조건 시도하지 않음). 마커가 없거나
-    calib 미로드거나 solvePnP가 수렴하지 않아도 크래시 없이 None을 돌려준다."""
+    calib 미로드거나 solvePnP가 수렴하지 않아도 크래시 없이 `(None, 사유)`를 돌려준다.
+
+    **`TargetEstimate` 객체를 그대로 돌려준다**(예전엔 여기서 곧바로 dict로 눌러 담았다) —
+    `--target-sink` 발행(`core/wire.py::build_target_record`)은 dict가 아니라 dataclass를
+    요구하기 때문이다. JSONL 블랙박스용 dict 변환은 호출부가 `_target_estimate_to_dict()`로
+    한다(기존 `chosen` 형태·내용 무변경).
+
+    **실패 사유를 함께 돌려주는 이유**(§5.4 계약 2번): 검출이 없을 때 sink가 침묵하면 소비자는
+    "노드 사망"과 구분할 수 없다. 무효 레코드에 사유를 실으려면 여기서 이미 알고 있는 구분
+    (calib 미로드 / 마커 없음 / solvePnP 실패)을 버리지 않고 밖으로 내보내야 한다.
+    """
     if calib is None:
-        return None
+        return None, SINK_REASON_NO_CALIB
     det = _find_aruco_detection(state.detections)
     if det is None:
-        return None
+        return None, SINK_REASON_NO_DETECTION
     try:
         estimate = solve_target_pose(
             image_points=det.corners,
@@ -150,8 +182,54 @@ def _solve_aruco_chosen(
         )
     except ValueError as e:
         logger.warning("frame %d: ArUco solvePnP 실패 — TargetEstimate 생략: %s", frame_id, e)
-        return None
-    return {"target_estimate": _target_estimate_to_dict(estimate)}
+        return None, SINK_REASON_SOLVE_FAILED
+    return estimate, SINK_REASON_OK
+
+
+def _merge_target_estimate_into_chosen(chosen: Optional[dict], estimate) -> Optional[dict]:
+    """ArUco Phase 4가 정한 JSONL `chosen` 형태를 그대로 유지한다 — 기존 버티포트/조난자 경로의
+    `{"bbox":..., "confidence":...}`와 키가 겹치지 않아 병합돼 공존한다."""
+    if estimate is None:
+        return chosen
+    return {**(chosen or {}), "target_estimate": _target_estimate_to_dict(estimate)}
+
+
+def _publish_to_sink(
+    sink: TargetSink,
+    *,
+    frame_id: int,
+    estimate: Optional[TargetEstimate],
+    reason: str,
+    decision: Optional[Decision],
+    logger,
+) -> None:
+    """`--target-sink` 발행 — 매 프레임 `target` 1건 + (상태머신이 있으면) `state_hint` 1건.
+
+    **§5.4 페일세이프 계약의 핵심이 여기 있다**: 검출이 없어도 **발행을 멈추지 않는다.**
+    침묵은 "노드가 죽었다"는 뜻으로 예약돼 있으므로(소비자는 EOF/타임아웃으로 사망을 잰다),
+    "안 보임"은 반드시 `valid=false` + 사유로 **명시적으로** 말해야 구분이 선다.
+
+    🔴 **어떤 예외도 파이프라인으로 새어 나가지 않는다.** 소비자가 없든/끊기든/느리든/
+    레코드 조립이 터지든 vision은 계속 돈다 — 착륙 유도보다 검출이 먼저 죽는 일은 없어야 한다.
+    그래서 `except Exception`이 의도적으로 넓다(좁히면 예상 못 한 예외가 그대로 루프를 죽인다).
+    `BaseException`(KeyboardInterrupt/SystemExit)은 **일부러 안 잡는다** — 그건 정상 종료 경로다.
+
+    `NullSink`(기본값, `--target-sink` 미지정)면 즉시 돌아온다 — 레코드 조립 비용조차 들이지
+    않아 기존 실행 경로가 조금도 달라지지 않는다(`if streamer is not None` opt-in 전례와 동일).
+    """
+    if not isinstance(sink, SocketTargetSink):
+        return
+    try:
+        if estimate is not None:
+            sink.publish_target(estimate)
+        else:
+            sink.publish_invalid(frame_id=frame_id, reason=reason)
+        if decision is not None:
+            # `command`는 `command_hint`(+`command_is_advisory`)로 나간다 — 명령이 아니라
+            # 권고다(`core/wire.py` "🔴 command는 명령이 아니다").
+            sink.publish_state_hint(decision, frame_id=frame_id)
+    except Exception as e:  # noqa: BLE001 — 비차단·무크래시 계약이 예외 종류보다 우선한다
+        logger.warning("frame %d: target sink 발행 실패(무시하고 계속): %s", frame_id, e)
 
 
 def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] = None) -> Observation:
@@ -250,7 +328,9 @@ def _run_image(
     streamer: MjpegStreamer | None = None,
     calib: Optional[CameraCalibration] = None,
     state_machine: Optional[LandingStateMachine] = None,
+    sink: Optional[TargetSink] = None,
 ) -> None:
+    sink = sink if sink is not None else NullSink()
     image = load_image(str(input_path))
     t0 = time.perf_counter()
     state = pipeline.run(image)
@@ -263,14 +343,16 @@ def _run_image(
     if state.confirmed:
         print(f"Confirmed: bbox={state.confirmed.bbox}")
 
-    chosen = _confirmed_to_dict(state.confirmed)
-    aruco_chosen = _solve_aruco_chosen(state, calib, 0, ts, logger)
-    if aruco_chosen is not None:
-        chosen = {**(chosen or {}), **aruco_chosen}
+    estimate, sink_reason = _solve_aruco_estimate(state, calib, 0, ts, logger)
+    chosen = _merge_target_estimate_into_chosen(_confirmed_to_dict(state.confirmed), estimate)
 
     decision = None
     if state_machine is not None:
         decision = state_machine.update(_build_observation(state, 0, ts))
+
+    _publish_to_sink(
+        sink, frame_id=0, estimate=estimate, reason=sink_reason, decision=decision, logger=logger,
+    )
 
     logger.info(
         "image %s: %d detections, confirmed=%s, latency=%.4fs",
@@ -309,9 +391,11 @@ def _run_video(
     streamer: MjpegStreamer | None = None,
     calib: Optional[CameraCalibration] = None,
     state_machine: Optional[LandingStateMachine] = None,
+    sink: Optional[TargetSink] = None,
 ) -> None:
     from vision.utils.video_reader import VideoReader
 
+    sink = sink if sink is not None else NullSink()
     writer = None
     frame_count = 0
     with VideoReader(str(input_path)) as reader:
@@ -322,14 +406,19 @@ def _run_video(
             ts = time.time()
             annotated = draw_detections(state.original, state.detections, state.confirmed)
 
-            chosen = _confirmed_to_dict(state.confirmed)
-            aruco_chosen = _solve_aruco_chosen(state, calib, frame_count, ts, logger)
-            if aruco_chosen is not None:
-                chosen = {**(chosen or {}), **aruco_chosen}
+            estimate, sink_reason = _solve_aruco_estimate(state, calib, frame_count, ts, logger)
+            chosen = _merge_target_estimate_into_chosen(
+                _confirmed_to_dict(state.confirmed), estimate
+            )
 
             decision = None
             if state_machine is not None:
                 decision = state_machine.update(_build_observation(state, frame_count, ts))
+
+            _publish_to_sink(
+                sink, frame_id=frame_count, estimate=estimate, reason=sink_reason,
+                decision=decision, logger=logger,
+            )
 
             blackbox.log_frame(
                 frame_id=frame_count,
@@ -393,13 +482,21 @@ def _run_live(
     streamer: MjpegStreamer | None = None,
     calib: Optional[CameraCalibration] = None,
     state_machine: Optional[LandingStateMachine] = None,
+    sink: Optional[TargetSink] = None,
 ) -> None:
     """실카메라 라이브 모드 — `_run_video`와 거의 동일한 프레임 루프(무한 이터레이터라는 점만
     다름). 헤드리스(`--display none`)에서는 무한정 도는 게 정상 동작이라 Ctrl+C(KeyboardInterrupt)와
     SIGTERM 둘 다 종료 수단이다 — `with LiveFrameSource(...)`가 예외 전파 중에도 카메라를
     release하고, 바깥 try/except가 스택트레이스 없이 조용히 종료시킨다(로그만 남김). SIGTERM은
     비대화형 배포(systemd 등) 표준 종료 신호라 별도로 `stop_event`를 두고 다음 프레임 경계에서
-    루프를 빠져나간다(§h264_stream.py와 동일 근거 — SIGINT는 비대화형 자식에서 못 믿음)."""
+    루프를 빠져나간다(§h264_stream.py와 동일 근거 — SIGINT는 비대화형 자식에서 못 믿음).
+
+    🔴 **`sink.install_signal_handlers()`를 여기서 부르면 안 된다.** `signal.signal`은 신호당
+    핸들러가 **하나**뿐이라, sink 핸들러를 나중에 걸면 바로 위 `_install_sigterm_handler`가
+    등록한 핸들러를 **덮어써서** `stop_event`가 영영 세팅되지 않는다 — 실기체에서만 드러났던
+    SIGTERM graceful shutdown 버그가 그대로 재발한다. sink 정리는 `main()`의 `finally`에서
+    `sink.close()`로 하면 충분하다(루프를 빠져나오면 반드시 거기로 간다)."""
+    sink = sink if sink is not None else NullSink()
     live_kwargs: dict = {"camera_num": camera_num, "retries": retries, "retry_delay": retry_delay}
     if resolution is not None:
         live_kwargs["resolution"] = resolution
@@ -424,16 +521,23 @@ def _run_live(
                 ts = record.ts
                 annotated = draw_detections(state.original, state.detections, state.confirmed)
 
-                chosen = _confirmed_to_dict(state.confirmed)
-                aruco_chosen = _solve_aruco_chosen(state, calib, frame_count, ts, logger)
-                if aruco_chosen is not None:
-                    chosen = {**(chosen or {}), **aruco_chosen}
+                estimate, sink_reason = _solve_aruco_estimate(
+                    state, calib, frame_count, ts, logger
+                )
+                chosen = _merge_target_estimate_into_chosen(
+                    _confirmed_to_dict(state.confirmed), estimate
+                )
 
                 decision = None
                 if state_machine is not None:
                     decision = state_machine.update(
                         _build_observation(state, frame_count, ts, agl_m=record.telemetry.get("alt"))
                     )
+
+                _publish_to_sink(
+                    sink, frame_id=frame_count, estimate=estimate, reason=sink_reason,
+                    decision=decision, logger=logger,
+                )
 
                 blackbox.log_frame(
                     frame_id=frame_count,
@@ -473,6 +577,34 @@ def _run_live(
         logger.info("live camera_num=%s 종료: %d 프레임 처리", camera_num, frame_count)
         if display == "window":
             cv2.destroyAllWindows()
+
+
+def _make_target_sink(args, logger) -> TargetSink:
+    """`--target-sink` 미지정이면 `NullSink`, 지정이면 기동된 `SocketTargetSink`.
+
+    🔴 **기동(bind)에 실패해도 `NullSink`로 강등하고 계속 간다.** `utils/target_sink.py`의
+    `start()`는 "포트 충돌을 조용히 삼키면 안 된다"는 이유로 예외를 올리도록 설계돼 있고 그
+    판단은 옳지만, `main.py` 레벨의 요구는 **검출 파이프라인이 sink 때문에 죽지 않는 것**이
+    더 강하다(착륙 유도보다 검출이 먼저 죽을 수는 없다). 그래서 "조용히"가 아니라 **시끄럽게**
+    — ERROR 로그 + stderr 출력 — 알린 뒤 강등한다. `--display stream`(MjpegStreamer)은 반대로
+    예외를 그대로 올리는데, 그건 디버그용 스트림이라 실패가 곧 운용 중단 사유이기 때문이다.
+    """
+    if not args.target_sink:
+        return NullSink()
+    sink = SocketTargetSink(host=args.target_sink_host, port=args.target_sink_port)
+    try:
+        sink.start()
+    except OSError as e:
+        msg = (
+            f"target sink 기동 실패 ({args.target_sink_host}:{args.target_sink_port}) — "
+            f"발행 없이 검출만 계속합니다: {e}"
+        )
+        logger.error(msg)
+        print(f"Error: {msg}", file=sys.stderr)
+        return NullSink()
+    logger.info("target sink 시작: %s:%d (JSON Lines)", sink.host, sink.port)
+    print(f"target sink: {sink.host}:{sink.port}")
+    return sink
 
 
 def main() -> None:
@@ -523,6 +655,27 @@ def main() -> None:
         help="이중싱크 사람로그(.log)+JSONL 블랙박스 출력 디렉터리 (§7.4/§7.9)",
     )
     parser.add_argument("--log-name", default="vision", help="로그 파일 basename")
+    # vision↔fc 인터페이스(§9 작업 V5). `--display stream`과 **동일한 opt-in 관례** —
+    # 켜는 플래그 1개 + host/port 2개. 기본 꺼짐(NullSink)이라 기존 실행 경로는 무변경.
+    parser.add_argument(
+        "--target-sink",
+        action="store_true",
+        help="정밀착륙 인터페이스 발행 켜기(기본 꺼짐). localhost TCP 서버를 띄우고 매 프레임 "
+             "JSON Lines(target + state_hint)를 발행한다(docs/vision_fc_interface.md §9 V5). "
+             "확인: nc 127.0.0.1 8091",
+    )
+    parser.add_argument(
+        "--target-sink-host",
+        default=_SINK_DEFAULT_HOST,
+        help=f"--target-sink 바인딩 주소 (기본 {_SINK_DEFAULT_HOST}). ⚠️ 0.0.0.0으로 열면 "
+             "비행 중 유도 스트림이 주변 네트워크에 노출된다(utils/target_sink.py 참조).",
+    )
+    parser.add_argument(
+        "--target-sink-port",
+        type=int,
+        default=_SINK_DEFAULT_PORT,
+        help=f"--target-sink 포트 (기본 {_SINK_DEFAULT_PORT}). 0을 주면 OS가 임시 포트를 고른다.",
+    )
     parser.add_argument(
         "--calib",
         default=_DEFAULT_CALIB_PATH,
@@ -573,6 +726,10 @@ def main() -> None:
     # 통과시킨다 — 관측 1개짜리 시퀀스로 취급해도 크래시 없이 동작한다.
     state_machine = LandingStateMachine()
 
+    # vision↔fc 인터페이스(§9 V5). **기본은 NullSink** — `--target-sink`를 명시하지 않으면
+    # 소켓도 스레드도 뜨지 않고 레코드 조립도 일어나지 않는다(기존 실행 경로 완전 무변경).
+    sink: TargetSink = _make_target_sink(args, logger)
+
     streamer = None
     try:
         if args.display == "stream":
@@ -585,22 +742,29 @@ def main() -> None:
             _run_live(
                 pipeline, live_camera_num, args.live_resolution, args.live_retries,
                 args.live_retry_delay, args.output, args.display, logger, blackbox, streamer, calib,
-                state_machine,
+                state_machine, sink,
             )
         elif input_path.suffix.lower() in _VIDEO_SUFFIXES:
             _run_video(
                 pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib,
-                state_machine,
+                state_machine, sink,
             )
         else:
             _run_image(
                 pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib,
-                state_machine,
+                state_machine, sink,
             )
     finally:
         blackbox.close()
         if streamer is not None:
             streamer.stop()
+        # sink 정리 = 클라이언트 소켓 close = 소비자가 **EOF**를 받는 경로(§5.4). SIGTERM/
+        # Ctrl+C로 루프를 빠져나와도 반드시 여기를 지난다. 정리 자체가 실패해도 다른 리소스
+        # 정리를 막지 않는다.
+        try:
+            sink.close()
+        except Exception as e:  # noqa: BLE001 — 종료 경로에서 예외를 새로 만들지 않는다
+            logger.warning("target sink 종료 실패(무시): %s", e)
 
 
 if __name__ == "__main__":
