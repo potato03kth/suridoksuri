@@ -1,0 +1,82 @@
+=== host: DESKTOP-Kilogram  date: 2026-07-28T00:09:51+09:00 ===
+/usr/lib/python3/dist-packages/scipy/__init__.py:146: UserWarning: A NumPy version >=1.17.3 and <1.25.0 is required for this version of SciPy (detected version 2.2.6
+  warnings.warn(f"A NumPy version >={np_minversion} and <{np_maxversion}"
+py 3.10.12 numpy 2.2.6 scipy 1.8.0
+8
+  [A1_line v_cruise=15.0 rep0] blocking=0.004s points=301 len=300.0m
+  [A1_line v_cruise=18.0 rep0] blocking=0.002s points=301 len=300.0m
+  [A1_line v_cruise=20.0 rep0] blocking=0.002s points=301 len=300.0m
+  [B7_short v_cruise=15.0 rep0] blocking=0.001s points=41 len=40.0m
+  [B7_short v_cruise=18.0 rep0] blocking=0.000s points=41 len=40.0m
+  [B7_short v_cruise=20.0 rep0] blocking=0.000s points=41 len=40.0m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 35.632m is large. affine correction guarantees WP passage but curve may be deformed.
+  [A3_L v_cruise=15.0 rep0] blocking=0.471s points=404 len=405.59m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.019m is large. affine correction guarantees WP passage but curve may be deformed.
+  [A3_L v_cruise=18.0 rep0] blocking=20.827s points=415 len=400.02m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.057m is large. affine correction guarantees WP passage but curve may be deformed.
+  [A3_L v_cruise=20.0 rep0] blocking=21.506s points=415 len=400.02m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 8.682m is large. affine correction guarantees WP passage but curve may be deformed.
+  [B5_square v_cruise=15.0 rep0] blocking=24.612s points=798 len=788.97m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 4.976m is large. affine correction guarantees WP passage but curve may be deformed.
+  [B5_square v_cruise=18.0 rep0] blocking=87.302s points=811 len=780.06m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 4.983m is large. affine correction guarantees WP passage but curve may be deformed.
+  [B5_square v_cruise=20.0 rep0] blocking=98.835s points=811 len=780.06m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 8.738m is large. affine correction guarantees WP passage but curve may be deformed.
+  [R2_closed v_cruise=15.0 rep0] blocking=28.814s points=822 len=812.68m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.057m is large. affine correction guarantees WP passage but curve may be deformed.
+  [R2_closed v_cruise=18.0 rep0] blocking=99.426s points=827 len=800.06m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.051m is large. affine correction guarantees WP passage but curve may be deformed.
+  [R2_closed v_cruise=20.0 rep0] blocking=103.162s points=827 len=800.07m
+
+| 경로 | WP | v_cruise | 블로킹(s) | 경로점 | 전장(m) | eta 예고(s) |
+|---|---|---|---|---|---|---|
+| A1_line | 2 | 15.0 | **0.00** | 301 | 300.0 | 0 |
+| A1_line | 2 | 18.0 | **0.00** | 301 | 300.0 | 0 |
+| A1_line | 2 | 20.0 | **0.00** | 301 | 300.0 | 0 |
+| B7_short | 2 | 15.0 | **0.00** | 41 | 40.0 | 0 |
+| B7_short | 2 | 18.0 | **0.00** | 41 | 40.0 | 0 |
+| B7_short | 2 | 20.0 | **0.00** | 41 | 40.0 | 0 |
+| A3_L | 3 | 15.0 | **0.47** | 404 | 405.6 | 75 |
+| A3_L | 3 | 18.0 | **20.83** | 415 | 400.0 | 75 |
+| A3_L | 3 | 20.0 | **21.51** | 415 | 400.0 | 75 |
+| B5_square | 5 | 15.0 | **24.61** | 798 | 789.0 | 225 |
+| B5_square | 5 | 18.0 | **87.30** | 811 | 780.1 | 225 |
+| B5_square | 5 | 20.0 | **98.83** | 811 | 780.1 | 225 |
+| R2_closed | 5 | 15.0 | **28.81** | 822 | 812.7 | 225 |
+| R2_closed | 5 | 18.0 | **99.43** | 827 | 800.1 | 225 |
+| R2_closed | 5 | 20.0 | **103.16** | 827 | 800.1 | 225 |
+
+JSON 저장: /root/vc18_planner/planner_blocking.json
+=== DONE rc=0 ===
+=== 무릎 위치 탐색 (15~18 사이) ===
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 35.617m is large. affine correction guarantees WP passage but curve may be deformed.
+  [A3_L v_cruise=16.0 rep0] blocking=0.460s points=404 len=405.58m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.098m is large. affine correction guarantees WP passage but curve may be deformed.
+  [A3_L v_cruise=17.0 rep0] blocking=23.416s points=415 len=400.03m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 8.254m is large. affine correction guarantees WP passage but curve may be deformed.
+  [R2_closed v_cruise=16.0 rep0] blocking=27.376s points=816 len=809.42m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.095m is large. affine correction guarantees WP passage but curve may be deformed.
+  [R2_closed v_cruise=17.0 rep0] blocking=101.782s points=827 len=800.1m
+
+| 경로 | WP | v_cruise | 블로킹(s) | 경로점 | 전장(m) | eta 예고(s) |
+|---|---|---|---|---|---|---|
+| A3_L | 3 | 16.0 | **0.46** | 404 | 405.6 | 75 |
+| A3_L | 3 | 17.0 | **23.42** | 415 | 400.0 | 75 |
+| R2_closed | 5 | 16.0 | **27.38** | 816 | 809.4 | 225 |
+| R2_closed | 5 | 17.0 | **101.78** | 827 | 800.1 | 225 |
+
+JSON 저장: /root/vc18_planner/planner_blocking_knee.json
+=== 18.0 반복 3회 (분산) ===
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.019m is large. affine correction guarantees WP passage but curve may be deformed.
+  [A3_L v_cruise=18.0 rep0] blocking=26.861s points=415 len=400.02m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.019m is large. affine correction guarantees WP passage but curve may be deformed.
+  [A3_L v_cruise=18.0 rep1] blocking=25.571s points=415 len=400.02m
+[Eta3ClothoidPlannerV3] WARNING: NR pos residual 5.019m is large. affine correction guarantees WP passage but curve may be deformed.
+  [A3_L v_cruise=18.0 rep2] blocking=26.093s points=415 len=400.02m
+
+| 경로 | WP | v_cruise | 블로킹(s) | 경로점 | 전장(m) | eta 예고(s) |
+|---|---|---|---|---|---|---|
+| A3_L | 3 | 18.0 | **26.09** | 415 | 400.0 | 75 |
+
+JSON 저장: /root/vc18_planner/planner_blocking_rep.json
+=== DONE rc=0 ===

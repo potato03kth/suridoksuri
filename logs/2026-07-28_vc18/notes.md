@@ -41,7 +41,9 @@ px4: c890d9db0a (/root/PX4-vehicle = 실기체 탑재본, course 가드 있음)
 
 ### 2-2. 3점 비교표 — 순수 측정 (WSL Ubuntu-22.04, SITL 부하 없음)
 
-원본: `/root/vc18_planner/planner_blocking.json` · `planner_blocking_knee.json` · `planner_blocking_rep.json`
+원본: `planner_blocking_raw/planner_blocking.json` · `planner_blocking_knee.json` ·
+`planner_blocking_rep.json` · 콘솔 전문 `planner_blocking_raw/measure_console.txt`
+(WSL 안 사본은 `/root/vc18_planner/`)
 
 | 경로 | WP | **15** | 16 | 17 | **18** | **20** |
 |---|---|---|---|---|---|---|
@@ -84,7 +86,8 @@ px4: c890d9db0a (/root/PX4-vehicle = 실기체 탑재본, course 가드 있음)
 ### 3-1. 플래너 출력 직접 대조 (SITL 노이즈 0)
 
 `tools/sitl/compare_planner_paths.py`(신설). 호길이 0~1 정규화 후 2000점 균등 재표본,
-`v_cruise=20` 기준 점대점 거리. 원본: `/mnt/c/sitl7_xfer/_in_vc18/cmp_paths.log`
+`v_cruise=20` 기준 점대점 거리.
+원본: `planner_blocking_raw/compare_planner_paths.txt`
 
 | 경로 | v_cruise | 경로점 | 전장(m) | ref=20 대비 최대괴리 | 평균괴리 |
 |---|---|---|---|---|---|
@@ -210,7 +213,50 @@ R2 가 남긴 경고: `R2_closed` 는 FOLLOWING 진입 시 종점까지 13.3m �
 
 ---
 
-## 7. 남은 것 / 인계
+## 7. 실기체 배포 — **미완, 단일 사유로 막혀 있다** (2026-07-28 01:12 KST)
+
+R2 + 이번 `v_cruise` 를 실기체에 반영하려 했으나 **`git push` 가 안 되어 있다.**
+이 세션은 push 금지 지시를 받았고(브랜치는 오케스트레이터가 관리), RPi 는 origin 에서
+pull 하므로 origin 에 올라가기 전에는 배포할 방법이 없다.
+
+| 항목 | 값 (직접 조회) |
+|---|---|
+| origin `dev--vision-computing-module` | `ca8809d` (R1) |
+| 로컬 HEAD | `28a8701` — origin 보다 **4 커밋 앞** (`2fdd0d5` `2f024a7` `37774a5` `28a8701`) |
+| RPi HEAD | `ca8809da20db6704a8e19d4b1f42cea3a5baf01a` (R1) |
+| RPi 컨테이너 `fc` | `Up 24 hours` (`docker start` 불필요) |
+| RPi 소스↔install md5 (`offboard_node.py`) | `6e56445aab5313c590bf1825cd976d76` = `6e56445aab5313c590bf1825cd976d76` — **일치**. 현재 빌드는 stale 이 아니다(R1 상태로 정합) |
+| RPi 소스↔install md5 (`fc_ros_params.yaml`) | `dd4915321cb781745d7b1def8ef20c51` 양쪽 일치. install 쪽 `v_cruise: 20.0` (구값) |
+| R2 신규 순수함수 6종 | `cumulative_arclen`·`segment_search_range`·`nearest_segment_in_range`·`after_streaming_state`·`slew_setpoint`·`planner_eta_s` **전부 MISSING** — 기체는 R1 코드로 난다 |
+| 컨테이너 numpy | 1.21.5 (2.x 아님 → `np.trapz` 이슈 없음) |
+| pull 차단 위험 | `?? vision/results/logs/` 미추적이 있으나 **들어갈 4커밋 중 `vision/` 을 건드리는 것이 없어** `--ff-only` 가 막히지 않는다 |
+
+### push 후 남은 절차 (그대로 실행하면 된다)
+
+```bash
+git push origin HEAD:dev--vision-computing-module            # ← 막힌 단 한 걸음
+ssh suri@100.67.27.83 'cd ~/drone_ws/src/suridoksuri && git fetch origin && git pull --ff-only'
+ssh suri@100.67.27.83 'docker exec fc bash -lc "cd /drone_ws && source /opt/ros/humble/setup.bash && colcon build --packages-select fc_ros"'
+#   --symlink-install 금지. fc_bridge 는 pull 만으로 반영된다.
+ssh suri@100.67.27.83 'docker exec fc bash -lc "
+  source /opt/ros/humble/setup.bash; source /drone_ws/install/setup.bash
+  export PYTHONPATH=/drone_ws/src/suridoksuri:\$PYTHONPATH
+  cd /drone_ws/src/suridoksuri
+  md5sum fc_ros/fc_ros/nodes/offboard_node.py \
+         /drone_ws/install/fc_ros/lib/python3.10/site-packages/fc_ros/nodes/offboard_node.py
+  md5sum fc_ros/fc_ros/params/fc_ros_params.yaml \
+         /drone_ws/install/fc_ros/share/fc_ros/params/fc_ros_params.yaml
+  grep -n \"v_cruise: \" /drone_ws/install/fc_ros/share/fc_ros/params/fc_ros_params.yaml"'
+#   기대: 두 md5 쌍이 각각 일치 + install 쪽 v_cruise: 18.0
+```
+
+그리고 R2 순수함수 6종 import 확인(위 표의 MISSING 이 전부 OK 로 바뀌어야 한다).
+검증 스크립트는 노드를 인스턴스화하지 않는다 = **기체 무동작**(`ros2 run`/launch 금지 — ARM 을 보낸다).
+MAVROS 는 이번 세션에서 **한 번도 띄우지 않았다** → 시리얼 포트 점유 없음, ulog 자동회수 영향 없음.
+
+---
+
+## 8. 남은 것 / 인계
 
 1. **`d_end_thresh` 여유 최악 0.6m** — §4. R5 최우선 입력.
 2. **세그먼트 급변 경고는 코너마다 1건이 정상이다.** "경고 0건"을 판정 기준으로 쓰지 말고
