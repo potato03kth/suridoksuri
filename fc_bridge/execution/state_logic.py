@@ -126,6 +126,26 @@ def after_climb_state(is_mc: bool) -> str:
     return "streaming" if is_mc else "transition_fw"
 
 
+def after_streaming_state(entry_mode: str) -> str:
+    """STREAMING 에서 OFFBOARD 가 확정된 뒤 갈 상태 라벨.
+
+    `entry_mode="mid_flight"` 면 WP0 진입·헤딩 정렬을 하는 ENTRY 를 거치고,
+    기본값 `"pre_takeoff"` 면 곧장 FOLLOWING 이다.
+    반환값은 offboard_node._State 의 value 문자열과 일치한다
+    (`after_climb_state()`·`after_following_state()` 와 같은 규약).
+
+    (2026-07-27 SITL-7 F-14: 호출부가 분기는 제대로 했는데 로그는 언제나
+    `"OFFBOARD 확인 → FOLLOWING"` 이라 **실제로 ENTRY 로 갔을 때도 FOLLOWING
+    이라고 찍혔다.** 그 결과 하니스 `tools/sitl/analyze_run.py` 의 상태창
+    추정이 R1_c10_entry 런에서 ENTRY 구간을 통째로 FOLLOWING 으로 잡았고
+    (`logs/2026-07-27_r1_timeouts_range/notes.md` §3-1 인용문에 그 오로그가
+    그대로 남아 있다), ENTRY 무한대기라는 결함 자체가 로그만 봐서는
+    "FOLLOWING 이 오래 걸린다"로 읽혔다. 상태 라벨을 이 함수 하나로 만들어
+    분기와 로그가 갈라질 수 없게 한다.)
+    """
+    return "entry" if str(entry_mode) == "mid_flight" else "following"
+
+
 def after_following_state(is_mc: bool) -> str:
     """FOLLOWING 다음 상태 라벨.
 
@@ -433,6 +453,36 @@ def path_origin_ned(takeoff_pos_ned, waypoint_frame: str = "takeoff"):
         raise ValueError(
             f"waypoint_frame은 'takeoff' 또는 'local' — 받은 값: {waypoint_frame!r}")
     return np.asarray(takeoff_pos_ned, dtype=float)[:3].copy()
+
+
+def slew_setpoint(current, target, max_step: float):
+    """위치 setpoint 를 한 틱에 `max_step`(m) 이상 움직이지 않게 제한한다.
+
+    current : 직전 틱에 발행한 setpoint (NED [N, E, h_up])
+    target  : 이번 틱의 원래 목표 (같은 프레임)
+    max_step: 한 틱 최대 이동량 (m). 보통 `v_approach * dt`.
+
+    반환: 새 setpoint (np.ndarray, shape는 입력과 동일). 남은 거리가
+    `max_step` 이하면 target 을 그대로 반환해 목표에 **정확히** 안착시킨다
+    (점근 수렴으로 영원히 도달하지 못하는 것을 막는다).
+
+    (2026-07-27 SITL-7 F-6. `_step_following` 의 MC 분기가 `_mc_pos_ramp` 로
+    이미 쓰던 계산을 그대로 순수 함수로 뽑은 것이다 — 2026-07-20 실비행에서
+    OFFBOARD 확정 순간 먼 절대좌표가 그대로 발행돼 PX4 가 급격한 자세보정을
+    시도하다 제어상실·조종사 수동회수로 끝난 사고 대응으로 도입됐던 로직이다.
+    같은 계단이 **FW→MC 역천이 직후 HOLD 진입 경계에도 그대로 남아 있었다** —
+    캠페인 실측 60.2~143.6m(`logs/2026-07-27_sitl_vtol_campaign/*/metrics.json`
+    의 `setpoint_jump` 에서 state=HOLD 항목). 두 곳이 같은 함수를 쓰게 해
+    한쪽만 고쳐지는 일이 없게 한다.)
+    """
+    cur = np.asarray(current, dtype=float)
+    tgt = np.asarray(target, dtype=float)
+    delta = tgt - cur
+    dist = float(np.linalg.norm(delta))
+    step = float(max_step)
+    if step <= 0.0 or dist <= step:
+        return tgt.copy()
+    return cur + delta * (step / dist)
 
 
 def translate_path(pts, mc_wps, cruise_alt: float, origin_ned):

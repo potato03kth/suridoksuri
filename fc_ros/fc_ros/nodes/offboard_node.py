@@ -39,11 +39,13 @@ from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
     trans_mc_trigger, mc_wp_advance, vtol_is_mc, landing_done,
     override_mode, override_reached, override_fallback_due, wp1_land_ready,
-    after_climb_state, after_following_state, takeoff_request_fields,
+    after_climb_state, after_following_state, after_streaming_state,
+    takeoff_request_fields,
     home_amsl_confirmed, home_amsl_sample_fresh,
     is_pilot_takeover, path_origin_ned, translate_path,
     offboard_reacquire_allowed, state_timeout_due,
     horiz_dist_from_origin, range_limit_exceeded, path_max_range,
+    slew_setpoint,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 from fc_bridge.utils.rotation import yaw_ned_to_quat_enu
@@ -87,6 +89,19 @@ _FW_LOOKAHEAD = 70.0
 
 # WP1 착륙 홀드: 도달+안정 연속 요구 틱 수
 _HOLD_STABLE_REQ = 10
+
+# 세그먼트 인덱스 급변 경고 임계 (경로점 개수, 2026-07-27 SITL-7 R2 진단).
+# 정상 전진은 순항 20 m/s · 틱 0.1s · 경로점 간격 ~1m 라 2~3점/틱이다.
+#
+# ⚠️ 이 경고는 "버그다"가 아니라 **"진행 이외의 이유로 인덱스가 움직였다"**
+# 는 관측 신호다. 두 가지가 여기 걸린다:
+#   ①정상 — 코너 안쪽을 자르면 투영점이 원호를 따라 실제로 수십 점 전진한다
+#     (R2 실측 `R2_b5__prefix` 192→221 Δ+29 @ pos=[185.7,15.5] cte=14.4m).
+#   ②비정상 — 다른 레그를 잡아 인덱스가 **되감기거나** 창 밖으로 튄다.
+# 창 탐색 도입 후에도 ①은 그대로 나올 수 있다(창 폭 안이므로). 막히는 것은
+# ② 쪽이다 — 역행은 `_SEG_BACK_M`(5m), 전방은 창 폭(150m)으로 상한이 걸린다.
+# 그래서 판정은 "경고가 0건인가"가 아니라 **되감김 건수와 Δ의 부호·크기**로 한다.
+_SEG_JUMP_WARN = 20
 
 # OVERRIDE: manual 모드 진입 대기 후 AUTO.LOITER 안전 폴백까지의 틱 수 (10Hz → 1s).
 # headless SITL·RC 없음 시 PX4가 MANUAL/POSCTL을 거부하므로 폴백 필수.
@@ -269,7 +284,8 @@ class OffboardNode(Node):
         self._range_limit_m = float(self.get_parameter("range_limit_m").value)
 
         # ── 경로 계획 ─────────────────────────────────────────
-        from fc_bridge.planning.planner_runner import run_planner, resolve_planner_name
+        from fc_bridge.planning.planner_runner import (
+            run_planner, resolve_planner_name, planner_eta_s)
         from fc_bridge.planning.terminal_decel import apply_terminal_decel
 
         raw_wps = np.array(self.get_parameter(
@@ -284,7 +300,27 @@ class OffboardNode(Node):
         v_terminal = float(self.get_parameter("v_terminal").value)
         decel_dist = float(self.get_parameter("decel_dist").value)
 
+        # ⚠️ run_planner() 는 여기서 **동기로** 돈다 — 반환할 때까지 이 노드는
+        # 콜백을 하나도 처리하지 않는다(F-12). 폐곡선 5WP 실측 263.5초.
+        # 현장에서 "launch 가 죽었나" 싶어 재기동하면 gz·MAVROS·OFFBOARD
+        # 스트림이 두 벌 도는 중복 인스턴스가 된다. 그래서 들어가기 전에
+        # 예상 소요시간을, 나온 뒤에 실제 소요시간을 반드시 찍는다.
+        # (비동기화는 R6 담당 — 여기서는 로그만 넣는다.)
+        _eta_s = planner_eta_s(planner_name, len(raw_wps))
+        _closed = (len(raw_wps) >= 3
+                   and float(np.linalg.norm(raw_wps[0, :2] - raw_wps[-1, :2])) < 1.0)
+        self.get_logger().info(
+            f"경로 계획 시작 — planner={planner_name} WP {len(raw_wps)}개"
+            f"{' (폐회로)' if _closed else ''} v_cruise={vehicle_params['v_cruise']} "
+            f"→ 예상 약 {_eta_s:.0f}s 블로킹. "
+            f"이 동안 노드는 응답하지 않는다 — 죽은 것이 아니니 재기동 금지 "
+            f"(재기동하면 중복 인스턴스가 된다).")
+        _plan_t0 = time.monotonic()
         path = run_planner(planner_name, raw_wps, vehicle_params)
+        _plan_dt = time.monotonic() - _plan_t0
+        self.get_logger().info(
+            f"경로 계획 완료 — 소요 {_plan_dt:.1f}s (예상 {_eta_s:.0f}s), "
+            f"경로점 {len(path.points)}개, 전장 {path.total_length:.1f}m")
         path_pts = np.array([pt.pos[:2] for pt in path.points])
         v_profile = np.array([pt.v_ref for pt in path.points])
         s_arc = np.array([pt.s for pt in path.points])
@@ -339,8 +375,11 @@ class OffboardNode(Node):
         # 의미가 없고, 2026-07-25 사고 때 0.9초에 10회가 나간 원인이 이것이다.
         self._offboard_req_min_interval = 1.0
         self._last_offboard_req_t = None
-        # MC STREAMING/FOLLOWING 위치 setpoint 슬루레이트 제한용 (2026-07-20 사고 대응).
+        # MC STREAMING/FOLLOWING + HOLD 위치 setpoint 슬루레이트 제한용
+        # (2026-07-20 사고 대응, HOLD 는 2026-07-27 F-6 으로 추가).
         self._mc_pos_ramp = None
+        # 직전 틱의 L1 세그먼트 인덱스 (FW FOLLOWING 진단, 2026-07-27 R2).
+        self._last_seg = None
         # ARM_TAKEOFF 시퀀스 플래그
         self._arm_sent = False
         self._takeoff_sent = False
@@ -575,9 +614,15 @@ class OffboardNode(Node):
                     np.array([tgt[0], tgt[1], self._cruise_alt]), state.yaw)
 
             if self._current_mode == "OFFBOARD":
-                self.get_logger().info("OFFBOARD 확인 → FOLLOWING")
-                self._sm = (_State.ENTRY if self._entry_mode == "mid_flight"
-                            else _State.FOLLOWING)
+                # 실제로 가는 상태를 그대로 찍는다 (F-14). 종전엔 entry_mode 와
+                # 무관하게 항상 "→ FOLLOWING" 이라 ENTRY 로 갔을 때도 FOLLOWING
+                # 이라고 찍혀, 하니스 상태창 추정과 결함 해석이 함께 어긋났다.
+                nxt = _State(after_streaming_state(self._entry_mode))
+                self.get_logger().info(
+                    f"OFFBOARD 확인 → {nxt.name}"
+                    + (f" (entry_mode={self._entry_mode})"
+                       if nxt is _State.ENTRY else ""))
+                self._sm = nxt
                 self._follow_ticks = 0
                 self._mc_wp_idx = 0
                 return
@@ -1187,11 +1232,37 @@ class OffboardNode(Node):
 
         역천이는 FW 관성으로 WP1을 지나치므로, MC 전환 후 WP1으로 복귀해
         홀드한 뒤 그 자리에서 AUTO.LAND 하면 WP1 상공에서 수직 하강해 착륙한다.
-        MC는 근접/정지 목표를 추종할 수 있어 끝점을 직접 목표로 발행한다.
+
+        **위치 setpoint 는 슬루레이트(≤`v_approach` m/s)로 램프한다**
+        (2026-07-27 SITL-7 F-6, 2026-07-21 "수정후보 ②"로 특정된 뒤 미수정으로
+        남아 있던 항목). 종전엔 첫 틱부터 끝점을 그대로 발행했는데, 직전
+        상태(`_step_transition_mc`)가 발행하던 것은 **기체 앞 70m**
+        (`_FW_LOOKAHEAD`)의 직진 유지점이고 기체는 끝점을 이미 약 47m
+        지나쳐 있어(역천이 오버슈트 ≈ 57 − `d_end_thresh`), 두 setpoint 사이가
+        한 틱에 **110~117m** 벌어졌다 (각 런 metrics.json 의
+        `setpoint_jump`, state=HOLD: 캠페인 실측 60.2~143.6m).
+        ⚠️ 캠페인 최대 계단(214~300m)은 이것이 아니라
+        `TRANSITION_FW→STREAMING` 스냅백이며 **그건 R5 소관**이다.
+
+        램프 시작점은 **기체 현재 위치**다(직전 setpoint 가 아니다). 근거:
+          ① `_step_following` 의 MC 분기·STREAMING 의 MC 분기가 쓰는 규약과
+             같다 — "OFFBOARD 가 이어받는 setpoint 는 항상 실제 위치와
+             일치시킨다"(2026-07-20 제어상실 사고 대응).
+          ② 직전 setpoint(기체 앞 70m)에서 시작하면 램프가 117m 를
+             v_approach 5 m/s 로 걷느라 23초를 쓰는데 `hold_timeout` 이 30초다.
+             멈춰야 할 시점에 "앞으로 더 가라"를 이어받는 것이기도 하다.
+        따라서 경계 계단은 |직전 setpoint − 현재위치| = `_FW_LOOKAHEAD`(70m)
+        까지 줄고 그 뒤로는 틱당 ≤0.5m 다. **남는 70m 는 슬루레이트가 아니라
+        `_step_transition_mc` 의 목표점 정의(도망가는 캐럿) 때문이며 그건
+        R5(스냅백) 소관이다** — 여기서 건드리지 않는다.
         """
         wp1 = self._pts[-1]
-        self._publish_pos_setpoint(
-            np.array([wp1[0], wp1[1], self._cruise_alt]), state.yaw)
+        raw_target = np.array([wp1[0], wp1[1], self._cruise_alt])
+        if self._mc_pos_ramp is None:
+            self._mc_pos_ramp = np.array(state.pos_ned, dtype=float)
+        self._mc_pos_ramp = slew_setpoint(
+            self._mc_pos_ramp, raw_target, self._v_approach * self._dt)
+        self._publish_pos_setpoint(self._mc_pos_ramp, state.yaw)
 
         if self._current_mode != "OFFBOARD":
             self._request_offboard()
@@ -1276,6 +1347,37 @@ class OffboardNode(Node):
 
     # ── FOLLOWING ────────────────────────────────────────────
 
+    def _check_segment_progress(self, pos) -> str:
+        """L1 세그먼트 인덱스 진행을 감시하고 로그 꼬리표를 반환한다 (FW 전용).
+
+        `_find_segment()` 가 잡은 세그먼트는 "기체가 지금 경로의 어디를 타고
+        있는가"다. 이것이 한 틱에 `_SEG_JUMP_WARN` 점 넘게 튀면 경로를 따라
+        전진한 것이 아니라 **다른 레그를 잡은 것**이고, 그 순간
+        `_lookahead_point()` 의 목표점이 통째로 다른 곳으로 옮겨간다.
+        다만 **코너 안쪽을 자를 때의 전진 급변은 정상**이다 — 임계 상수
+        `_SEG_JUMP_WARN` 주석에 두 경우의 구분을 적어 두었다.
+
+        (2026-07-27 SITL-7 R2 진단. 종전 `_find_segment` 는 매 틱 전역 최근접
+        탐색이라 이 급변이 구조적으로 가능했고, 그런데도 **관측 수단이 전혀
+        없어** 캠페인 24런 어디에도 세그먼트 인덱스가 기록되지 않았다.
+        수정 전후를 비교하려면 먼저 볼 수 있어야 한다.)
+
+        경고는 1초 throttle 로 묶는다 — 실제 이벤트가 10Hz 로 연속 발생하면
+        로그만으로는 2026-07-25 조종사 인계 사고와 구별이 어려워진다는 F-16 의
+        교훈을 같은 방식으로 적용한 것이다.
+        """
+        seg = int(self._guidance.current_segment)
+        n_seg = max(1, len(self._pts) - 1)
+        prev = self._last_seg
+        self._last_seg = seg
+        if prev is not None and abs(seg - prev) > _SEG_JUMP_WARN:
+            self.get_logger().warn(
+                f"세그먼트 인덱스 급변 {prev}→{seg} (Δ{seg - prev:+d}, "
+                f"전체 {n_seg}) pos=[{pos[0]:.1f},{pos[1]:.1f}] "
+                f"— 경로상 전진이 아니라 다른 레그 선택일 수 있다",
+                throttle_duration_sec=1.0)
+        return f" seg={seg}/{n_seg}"
+
     def _step_following(self, state: VehicleState) -> bool:
         """경로 추종. 경로 끝 도달 시 True.
 
@@ -1323,27 +1425,24 @@ class OffboardNode(Node):
             raw_target = np.array([tgt[0], tgt[1], self._cruise_alt])
             if self._mc_pos_ramp is None:
                 self._mc_pos_ramp = np.array(pos, dtype=float)
-            delta = raw_target - self._mc_pos_ramp
-            dist = float(np.linalg.norm(delta))
-            max_step = self._v_approach * self._dt
-            if dist > max_step:
-                self._mc_pos_ramp = self._mc_pos_ramp + delta * (max_step / dist)
-            else:
-                self._mc_pos_ramp = raw_target
+            self._mc_pos_ramp = slew_setpoint(
+                self._mc_pos_ramp, raw_target, self._v_approach * self._dt)
             self._publish_pos_setpoint(self._mc_pos_ramp, state.yaw)
             cte = float(np.linalg.norm(pos[:2] - tgt))  # 진단용: 현재 목표점까지 남은 거리
+            seg_info = ""
         else:
             tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)
             chi_cmd, _, cte = self._guidance.compute(pos, state.vel_ned)
             self._publish_pos_setpoint(
                 np.array([tgt[0], tgt[1], self._cruise_alt]), chi_cmd)
+            seg_info = self._check_segment_progress(pos)
 
         # 진입 첫 틱 및 20틱마다 진단 로그 (경로 추종 / OFFBOARD 유지 확인)
         if self._follow_ticks == 0:
             self.get_logger().info(
                 f"FOLLOWING 시작 pos=[{pos[0]:.1f},{pos[1]:.1f}] "
                 f"tgt=[{tgt[0]:.1f},{tgt[1]:.1f}] cte={cte:.1f}m "
-                f"mode={self._current_mode}")
+                f"mode={self._current_mode}" + seg_info)
         self._follow_ticks += 1
         if self._follow_ticks % 20 == 0:
             settle_info = (
@@ -1355,7 +1454,7 @@ class OffboardNode(Node):
                 f"cte={cte:.1f}m "
                 f"pos=[{pos[0]:.1f},{pos[1]:.1f}] "
                 f"tgt=[{tgt[0]:.1f},{tgt[1]:.1f}]"
-                + settle_info)
+                + settle_info + seg_info)
         if self._current_mode != "OFFBOARD":
             # throttle: 실제 명령은 1Hz인데 로그만 10Hz로 나가던 것을 맞췄다 (F-16).
             self.get_logger().warn(

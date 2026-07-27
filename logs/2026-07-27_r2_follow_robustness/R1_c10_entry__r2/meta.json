@@ -1,0 +1,120 @@
+{
+  "scenario_id": "R1_c10_entry",
+  "desc": "R1 ①: C10 재현 — ENTRY 무한대기(실측 432.67s / 5.85km)가 entry_timeout 에 걸려 안전 폴백되는가. 거리 상한은 꺼서(5000) ENTRY 타임아웃만 격리",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local",
+    "entry_mode": "mid_flight",
+    "range_limit_m": "5000.0"
+  },
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame:=local",
+    "entry_mode:=mid_flight",
+    "range_limit_m:=5000.0"
+  ],
+  "home": null,
+  "timeout_s": 420.0,
+  "inject_spec": [],
+  "started_utc": "2026-07-27T14:48:01.130977+00:00",
+  "run_id": "R1_c10_entry__r2",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-26T19:05:12.934133+00:00",
+  "px4_gz_world": null,
+  "px4_gz_worlds_dir": null,
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "3f6c517",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785163694\n    nanosec: 537449057\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: AUTO.LOITER\nsystem_status: 0\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-27T14:48:28.780851+00:00",
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 1.0,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785163710.6024284,
+      "t_since_launch_s": 2.0,
+      "t_since_node_alive_s": 1.0,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785163710.9096646,
+      "t_since_launch_s": 2.2,
+      "t_since_node_alive_s": 1.2,
+      "msg": "CommandTOL 이륙 요청 alt=50.0m AMSL (지면 0.0+50.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785163740.9021235,
+      "t_since_launch_s": 30.44,
+      "t_since_node_alive_s": 29.44,
+      "msg": "운용 고도 50.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785163759.802001,
+      "t_since_launch_s": 49.26,
+      "t_since_node_alive_s": 48.26,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "OVERRIDE",
+      "ros_t": 1785163822.6030781,
+      "t_since_launch_s": 109.34,
+      "t_since_node_alive_s": 108.34,
+      "msg": "긴급 수동 전환 실행 → MANUAL 요청"
+    },
+    {
+      "state": "DONE",
+      "ros_t": 1785163824.501995,
+      "t_since_launch_s": 111.15,
+      "t_since_node_alive_s": 110.14,
+      "msg": "수동/안전 모드 진입 확인 (mode=AUTO.LOITER) -> DONE"
+    }
+  ],
+  "warn_count": 14,
+  "error_count": 1,
+  "range_guard": {
+    "enabled": true,
+    "limit_m": 1500.0,
+    "samples": 21,
+    "max_horiz_m": 935.6,
+    "max_at_local_enu": [
+      164.4,
+      921.0,
+      28.2
+    ],
+    "breach": null
+  },
+  "exit_reason": "done",
+  "exit_code": 0,
+  "ended_utc": "2026-07-27T14:50:31.025684+00:00",
+  "elapsed_s": 144.1,
+  "ulogs": [
+    "14_48_12.ulg"
+  ]
+}

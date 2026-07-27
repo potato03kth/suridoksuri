@@ -13,6 +13,7 @@ from fc_bridge.execution.state_logic import (
     is_pilot_takeover, path_origin_ned, translate_path,
     offboard_reacquire_allowed, state_timeout_due,
     horiz_dist_from_origin, range_limit_exceeded, path_max_range,
+    after_streaming_state, slew_setpoint,
 )
 
 
@@ -366,3 +367,56 @@ def test_path_max_range_default_yaml_path_exceeds_default_limit():
     # 기본 10 → +46.8m)가 붙으면 실제 비행 최원점은 상한을 넘는다.
     assert not range_limit_exceeded(far, 300.0)
     assert range_limit_exceeded(far + 46.8, 300.0)
+
+
+# ── after_streaming_state() — F-14 (2026-07-27 SITL-7 R2) ────────
+
+def test_after_streaming_state_mid_flight_goes_to_entry():
+    assert after_streaming_state("mid_flight") == "entry"
+
+
+def test_after_streaming_state_default_goes_to_following():
+    assert after_streaming_state("pre_takeoff") == "following"
+    assert after_streaming_state("") == "following"
+    assert after_streaming_state(None) == "following"
+
+
+# ── slew_setpoint() — F-6 (2026-07-27 SITL-7 R2) ────────────────
+
+def test_slew_setpoint_limits_step():
+    out = slew_setpoint([0.0, 0.0, 50.0], [100.0, 0.0, 50.0], 0.5)
+    assert out.tolist() == pytest.approx([0.5, 0.0, 50.0])
+
+
+def test_slew_setpoint_snaps_when_within_step():
+    out = slew_setpoint([0.0, 0.0, 50.0], [0.3, 0.0, 50.0], 0.5)
+    assert out.tolist() == pytest.approx([0.3, 0.0, 50.0])
+
+
+def test_slew_setpoint_moves_in_3d_including_altitude():
+    out = slew_setpoint([0.0, 0.0, 0.0], [0.0, 0.0, 100.0], 2.0)
+    assert out.tolist() == pytest.approx([0.0, 0.0, 2.0])
+
+
+def test_slew_setpoint_zero_step_snaps_to_target():
+    """max_step<=0 은 제한 없음(종전 동작)과 같다 — 램프 비활성 경로."""
+    out = slew_setpoint([0.0, 0.0, 0.0], [10.0, 0.0, 0.0], 0.0)
+    assert out.tolist() == pytest.approx([10.0, 0.0, 0.0])
+
+
+def test_slew_setpoint_does_not_mutate_input():
+    cur = np.array([0.0, 0.0, 0.0])
+    slew_setpoint(cur, [100.0, 0.0, 0.0], 1.0)
+    assert cur.tolist() == [0.0, 0.0, 0.0]
+
+
+def test_slew_setpoint_hold_entry_step_is_bounded_by_rate():
+    """HOLD 진입 계단(캠페인 실측 92~144m)이 v_approach*dt 로 제한되는지.
+
+    램프 시작점을 기체 현재 위치로 잡으므로(offboard_node._step_hold),
+    끝점이 47m 떨어져 있어도 첫 틱 이동은 0.5m 다.
+    """
+    pos = np.array([347.0, 0.0, 50.0])      # 종점을 47m 지나친 지점
+    wp1 = np.array([300.0, 0.0, 50.0])
+    out = slew_setpoint(pos, wp1, 5.0 * 0.1)
+    assert float(np.linalg.norm(out - pos)) == pytest.approx(0.5, abs=1e-9)

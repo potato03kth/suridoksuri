@@ -51,6 +51,10 @@ STATE_ENTRY_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("CLIMBING",       re.compile(r"CommandTOL 이륙 요청.*-> CLIMBING")),
     ("TRANSITION_FW",  re.compile(r"운용 고도 .* 도달 → transition_fw")),
     ("STREAMING",      re.compile(r"^(FW 전환 완료 -> STREAMING|운용 고도 .* 도달 → streaming)")),
+    # ENTRY 는 F-14 수정(2026-07-27 R2) 전까지 로그에 나타나지 않았다 —
+    # `entry_mode=mid_flight` 여도 노드가 "OFFBOARD 확인 → FOLLOWING" 만 찍어
+    # R1_c10_entry 런의 ENTRY 구간이 통째로 FOLLOWING 창으로 잡혔다.
+    ("ENTRY",          re.compile(r"^OFFBOARD 확인 → ENTRY")),
     ("FOLLOWING",      re.compile(r"^(OFFBOARD 확인 → FOLLOWING|ENTRY 완료 -> FOLLOWING)")),
     ("TRANSITION_MC",  re.compile(r"경로 추종 완료 -> transition_mc")),
     ("HOLD",           re.compile(r"MC 전환 완료 -> HOLD")),
@@ -70,6 +74,11 @@ RE_TAKEOFF_REQ = re.compile(
 RE_FOLLOW_TICK = re.compile(
     r"FOLLOWING tick=(\d+) mode=(\S*) cte=(-?[\d.]+)m "
     r"pos=\[(-?[\d.]+),(-?[\d.]+)\] tgt=\[(-?[\d.]+),(-?[\d.]+)\]")
+# L1 세그먼트 인덱스 (FW 전용, 2026-07-27 R2 신설). 종전 런에는 없으므로
+# **선택적**으로 뽑는다 — 없으면 None 이고 기존 런 재분석이 깨지지 않는다.
+RE_FOLLOW_SEG = re.compile(r"\bseg=(\d+)/(\d+)")
+RE_SEG_JUMP = re.compile(
+    r"세그먼트 인덱스 급변 (\d+)→(\d+) \(Δ([+-]?\d+), 전체 (\d+)\)")
 RE_FOLLOW_START = re.compile(
     r"FOLLOWING 시작 pos=\[(-?[\d.]+),(-?[\d.]+)\] tgt=\[(-?[\d.]+),(-?[\d.]+)\] "
     r"cte=(-?[\d.]+)m mode=(\S*)")
@@ -114,6 +123,16 @@ def null(reason: str) -> dict:
     return {"value": None, "reason": reason}
 
 
+def _seg_of(msg: str):
+    """FOLLOWING 로그 줄에서 `seg=<i>/<n>` 의 i 를 뽑는다. 없으면 None.
+
+    2026-07-27 R2 이전 런에는 이 꼬리표가 없다 — 그 런들을 다시 분석해도
+    깨지지 않아야 하므로 선택적으로 취급한다.
+    """
+    m = RE_FOLLOW_SEG.search(msg)
+    return int(m.group(1)) if m else None
+
+
 # ── node.log 파싱 ──────────────────────────────────────────────────────────
 
 def parse_node_log(path: Path) -> dict:
@@ -131,6 +150,7 @@ def parse_node_log(path: Path) -> dict:
         "offboard_reacquire": [],
         "timeouts": [],
         "planner_nr_residual_m": [],
+        "segment_jumps": [],      # 세그먼트 인덱스 급변 경고 (2026-07-27 R2)
         "line_count": 0,
         "t_first": None,
         "t_last": None,
@@ -220,14 +240,21 @@ def parse_node_log(path: Path) -> dict:
                     "t": t, "tick": int(mm.group(1)), "mode": mm.group(2),
                     "cte": float(mm.group(3)),
                     "pos": [float(mm.group(4)), float(mm.group(5))],
-                    "tgt": [float(mm.group(6)), float(mm.group(7))]})
+                    "tgt": [float(mm.group(6)), float(mm.group(7))],
+                    "seg": _seg_of(msg)})
             mm = RE_FOLLOW_START.search(msg)
             if mm:
                 out["cte_samples"].append({
                     "t": t, "tick": 0, "mode": mm.group(6),
                     "cte": float(mm.group(5)),
                     "pos": [float(mm.group(1)), float(mm.group(2))],
-                    "tgt": [float(mm.group(3)), float(mm.group(4))]})
+                    "tgt": [float(mm.group(3)), float(mm.group(4))],
+                    "seg": _seg_of(msg)})
+            mm = RE_SEG_JUMP.search(msg)
+            if mm:
+                out["segment_jumps"].append({
+                    "t": t, "from": int(mm.group(1)), "to": int(mm.group(2)),
+                    "delta": int(mm.group(3)), "n_seg": int(mm.group(4))})
             mm = RE_HOLD_TICK.search(msg)
             if mm:
                 out["hold_samples"].append(
@@ -590,6 +617,45 @@ def metric_setpoint_jump(ulog, win: dict, params: dict) -> dict:
         "n_resumption_gaps": int(np.count_nonzero(gaps)),
         "reason": None,
         "boundary_windows_available": bool(win),
+    }
+
+
+def metric_segment_index(nodelog) -> dict:
+    """L1 세그먼트 인덱스 시계열 요약 (2026-07-27 SITL-7 R2).
+
+    `_find_segment()` 가 잡은 "지금 경로의 어디를 타고 있는가"의 시계열이다.
+    보고 싶은 것은 값 자체가 아니라 **되감김(backward)과 급변(jump)** 이다 —
+    종전 전역 최근접 탐색은 폐회로·U턴에서 다른 레그를 잡을 수 있었고 그
+    순간 인덱스가 불연속으로 튄다.
+
+    ⚠️ 표본은 node.log 의 2초 간격 진단 로그다(10Hz 제어틱 전부가 아니다).
+    따라서 `max_forward_step` 을 "한 틱 전진량"으로 읽으면 안 된다 —
+    2초 동안의 전진량이다. 틱 단위 급변은 노드가 직접 찍는
+    `segment_jumps`(임계 20점, 1s throttle)로 본다.
+    """
+    samples = [s for s in nodelog.get("cte_samples", [])
+               if s.get("seg") is not None]
+    jumps = nodelog.get("segment_jumps", [])
+    if not samples:
+        return null("node.log 에 seg= 꼬리표가 없음 "
+                    "(2026-07-27 R2 이전 런이거나 MC 런)")
+    seq = [int(s["seg"]) for s in samples]
+    d = [b - a for a, b in zip(seq[:-1], seq[1:])]
+    back = [{"t": samples[i + 1]["t"], "from": seq[i], "to": seq[i + 1],
+             "delta": d[i]} for i in range(len(d)) if d[i] < 0]
+    return {
+        "n_samples": len(seq),
+        "series": seq,
+        "t_series": [_f(s["t"]) for s in samples],
+        "first": seq[0], "last": seq[-1],
+        "monotonic_nondecreasing": all(x >= 0 for x in d),
+        "n_backward": len(back),
+        "backward_events": back[:20],
+        "max_backward_step": (min(d) if d else 0),
+        "max_forward_step": (max(d) if d else 0),
+        "n_tick_jump_warnings": len(jumps),
+        "tick_jump_warnings": jumps[:20],
+        "reason": None,
     }
 
 
@@ -1369,6 +1435,7 @@ def main() -> int:
     if nodelog.get("path_origin"):
         po = (nodelog["path_origin"]["n"], nodelog["path_origin"]["e"])
     metrics["cte"] = metric_cte(nodelog, ulog, win, params["_waypoints"], po)
+    metrics["segment_index"] = metric_segment_index(nodelog)
 
     nl = dict(nodelog)
     nl.pop("_raw_msgs", None)

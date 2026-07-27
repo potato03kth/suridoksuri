@@ -36,6 +36,33 @@ def resolve_planner_name(planner_param: str, vehicle_type: str) -> str:
     return "straight" if vt == "mc" else "eta3"
 
 
+def planner_eta_s(planner_name: str, n_waypoints: int,
+                  per_corner_s: float = 75.0) -> float:
+    """경로 생성 블로킹 예상 소요시간 (s). 어림값이고 정밀도를 주장하지 않는다.
+
+    `run_planner()` 는 `OffboardNode.__init__` 에서 **동기로** 돌아 그 동안
+    노드가 콜백을 하나도 처리하지 못한다. 캠페인 실측(§1-4):
+
+        2WP 즉시 · L자(3WP) 50~69s · U턴(3WP) 45~73s · 폐곡선(5WP) **263.5s**
+
+    즉 비용은 **내부 코너 수(N-2)** 에 거의 비례한다 —
+    3WP(코너 1개) 45~73s, 5WP(코너 3개) 263.5s → 코너당 약 63~88s.
+    가운데를 잡아 코너당 75s 로 어림한다. `straight` 플래너와 2WP 이하는 0.
+
+    **이 값의 용도는 오직 "지금 멈춘 게 아니라 계산 중"을 현장에 알리는
+    것**이다(F-12). 현장에서 launch 가 죽은 줄 알고 재기동하면 중복 인스턴스가
+    되고, 그건 gz·MAVROS·OFFBOARD 스트림이 두 벌 도는 상태다.
+    ⚠️ 소요시간은 `v_cruise` 에 160배까지 민감하므로(캠페인 실측) 이 어림은
+    코너 수만 보는 하한선에 가깝다 — 표시할 때 "약"을 붙일 것.
+    """
+    if str(planner_name).strip().lower() == "straight":
+        return 0.0
+    n = int(n_waypoints)
+    if n <= 2:
+        return 0.0
+    return float(per_corner_s) * (n - 2)
+
+
 def run_planner(
     planner_name: str,
     waypoints_ned: np.ndarray,

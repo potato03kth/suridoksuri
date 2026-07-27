@@ -400,3 +400,78 @@ scenarios:
         delay_s: 8.0
         action: set_mode
         mode: POSCTL
+
+  # ── R2 (2026-07-27) — 추종 견고성(_find_segment 창 탐색) + _step_hold 슬루 ──
+  #
+  # 기존 A*/B* 를 건드리지 않고 복제하는 이유는 R1 블록과 같다 — 원본은 캠페인
+  # 기준선이라 그대로 둬야 재현 비교가 되고, R1 이 넣은 `range_limit_m`(기본
+  # 300.0)이 편도 300m·200×200m 경로에서는 종점 부근에 걸리기 때문이다.
+  # **1500.0 은 하니스 RangeGuard 기본값과 같은 값**이라 캠페인 기준선과 동일한
+  # 조건이 된다(즉 이 블록의 런은 §1-4 표와 나란히 비교할 수 있다).
+  #
+  # 판정에서 볼 것: ①전 런 완주(회귀 없음) ②`seg=` 시계열의 되감김/급변
+  # ③`setpoint_jump` 의 state=HOLD 경계 점프(기준선 92~144m 대비).
+
+  - id: R2_a1
+    desc: "R2 회귀: A1 직선 300m — 창 탐색이 단순 직선을 깨지 않는가"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 300.0,0.0,50.0]"
+      waypoint_frame: "local"
+      range_limit_m: "1500.0"
+    timeout_s: 420
+
+  - id: R2_a3
+    desc: "R2 회귀: A3 L자(90° 1회)"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 200.0,0.0,50.0, 200.0,200.0,50.0]"
+      range_limit_m: "1500.0"
+    timeout_s: 480
+
+  - id: R2_b3
+    desc: "R2 회귀: B3 직각 코너(90°) — 코너 오버슈트 구간의 세그먼트 선택"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 250.0,0.0,50.0, 250.0,250.0,50.0]"
+      range_limit_m: "1500.0"
+    timeout_s: 540
+
+  - id: R2_b4
+    desc: "R2 핵심: B4 U턴(135°) — 두 레그가 서로 가까워지는 구간. 전역탐색이 반대 레그를 잡을 수 있던 조건"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 250.0,0.0,50.0, 100.0,150.0,50.0]"
+      range_limit_m: "1500.0"
+    timeout_s: 540
+
+  - id: R2_b5
+    desc: "R2 핵심: B5 사각 폐곡선(시점≈종점, 20m 마진) — _find_segment 회귀 검증의 핵심"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 200.0,0.0,50.0, 200.0,200.0,50.0, 0.0,200.0,50.0, 0.0,20.0,50.0]"
+      range_limit_m: "1500.0"
+    timeout_s: 660
+
+  - id: R2_b7
+    desc: "R2 회귀: B7 단거리 40m — 경로 전장 < lookahead(70m) < 창 폭(150m). 창이 짧은 경로를 깨지 않는가"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 40.0,0.0,50.0]"
+      range_limit_m: "1500.0"
+    timeout_s: 420
+
+  - id: R2_closed
+    desc: "R2 신설: **완전 폐회로**(종점 = 시점 = 이륙지점). 대회 경로 형상이 폐회로로 확정됐는데(2026-07-27 사용자) 캠페인에는 완전 폐회로가 없었다 — B5 는 종점을 20m 남겨 일부러 벌려 놓은 것이다. 마지막 레그가 첫 레그의 시작점으로 돌아오므로 전역 최근접 탐색이 인덱스를 0 근처로 되감을 수 있는 유일한 시나리오다"
+    launch_args:
+      transition_alt: "50.0"
+      waypoints: "[0.0,0.0,50.0, 200.0,0.0,50.0, 200.0,200.0,50.0, 0.0,200.0,50.0, 0.0,0.0,50.0]"
+      range_limit_m: "1500.0"
+    timeout_s: 660
+    # ⚠️ 이 시나리오는 `d_end_thresh`(기본 10m) 와도 맞물린다 — 종점이 곧
+    #    경로 시작점이라, FOLLOWING 진입 시점에 기체가 시작점 10m 안에 있으면
+    #    `trans_mc_trigger` 가 **출발하자마자** 경로 완료로 판정한다.
+    #    캠페인 실측상 FOLLOWING 은 경로 시작점에서 약 48m 전진한 지점에서
+    #    시작하므로(B5 tick=20 pos=[47.6,0.0]) 정상적으로는 걸리지 않지만,
+    #    걸린다면 그 자체가 폐회로에서 새로 드러난 결함이다(R5 `d_end_thresh` 소관).
+

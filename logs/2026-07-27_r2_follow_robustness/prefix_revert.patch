@@ -1,0 +1,72 @@
+--- a/fc_bridge/guidance/l1_guidance.py
++++ b/fc_bridge/guidance/l1_guidance.py
+@@ -311,24 +311,35 @@
+     # ── 내부 유틸리티 ────────────────────────────────────────
+ 
+     def _find_segment(self, p2: np.ndarray) -> int:
+-        """직전 세그먼트 근방(창) 안에서 가장 가까운 세그먼트 인덱스 반환.
++        """[PRE-FIX 재현용] 2026-07-27 이전 구현 — 매 틱 경로 전역 최근접 탐색.
+ 
+-        **2026-07-27 (SITL-7 R2) 이전에는 매 틱 경로 전체를 훑었다.** 캐시
+-        `_seg_idx` 를 갱신만 하고 탐색에는 쓰지 않아, 선택이 경로상 진행도가
+-        아니라 순간 거리로만 정해졌다 — 폐회로·U턴에서 엉뚱한 레그를 잡을 수
+-        있는 구조였다. 창 폭·역행 규칙과 그 근거는 `segment_search_range()`
+-        독스트링에 있다.
+-
+-        ⚠️ 이 함수는 상태를 읽기만 한다. `_seg_idx` 갱신은 호출부
+-        (`compute()` / `target_point_ned()`)가 한다 — 종전과 동일한 규약이라
+-        호출 순서에 대한 가정이 바뀌지 않는다.
++        ⚠️ 이 코드는 R2 게이트의 "수정 전" 비행 A/B 를 위해 SITL 클론에만
++        일시적으로 되돌려 넣는 것이다. 저장소 HEAD 에는 존재하지 않는다.
+         """
+-        if len(self._pts) < 2:
++        N = len(self._pts)
++        if N < 2:
+             return 0
+-        lo, hi = segment_search_range(
+-            self._cum_len, self._seg_idx,
+-            self._seg_window_m, self._seg_back_m)
+-        return nearest_segment_in_range(self._pts, p2, lo, hi)
++
++        best_d2 = np.inf
++        best_i  = max(0, self._seg_idx - 2)   # 캐시 기반 로컬 탐색
++
++        # 전체 탐색 (간단 구현; 경로가 매우 길 경우 최적화 가능)
++        for i in range(N - 1):
++            a = self._pts[i]
++            b = self._pts[i + 1]
++            ab = b - a
++            ab2 = float(ab @ ab)
++            if ab2 < 1e-12:
++                proj = a
++            else:
++                t = float(np.clip((p2 - a) @ ab / ab2, 0.0, 1.0))
++                proj = a + t * ab
++            d2 = float((p2 - proj) @ (p2 - proj))
++            if d2 < best_d2:
++                best_d2 = d2
++                best_i  = i
++
++        return best_i
+ 
+     def _lookahead_point(self,
+                          p2: np.ndarray,
+--- a/fc_ros/fc_ros/nodes/offboard_node.py
++++ b/fc_ros/fc_ros/nodes/offboard_node.py
+@@ -1256,13 +1256,10 @@
+         `_step_transition_mc` 의 목표점 정의(도망가는 캐럿) 때문이며 그건
+         R5(스냅백) 소관이다** — 여기서 건드리지 않는다.
+         """
++        # [PRE-FIX 재현용] 2026-07-27 이전 구현 — 슬루레이트 없이 끝점 직접 발행.
+         wp1 = self._pts[-1]
+-        raw_target = np.array([wp1[0], wp1[1], self._cruise_alt])
+-        if self._mc_pos_ramp is None:
+-            self._mc_pos_ramp = np.array(state.pos_ned, dtype=float)
+-        self._mc_pos_ramp = slew_setpoint(
+-            self._mc_pos_ramp, raw_target, self._v_approach * self._dt)
+-        self._publish_pos_setpoint(self._mc_pos_ramp, state.yaw)
++        self._publish_pos_setpoint(
++            np.array([wp1[0], wp1[1], self._cruise_alt]), state.yaw)
+ 
+         if self._current_mode != "OFFBOARD":
+             self._request_offboard()

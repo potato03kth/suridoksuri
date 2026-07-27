@@ -703,3 +703,67 @@ def test_range_guard_reference_is_takeoff_position_not_path_origin():
     src = _ast.get_source_segment(_NODE_SRC, _func("_range_guard_breached"))
     assert "_takeoff_pos_ned" in src
     assert "_path_origin" not in src
+
+
+# ── R2 (2026-07-27 SITL-7) — 추종 견고성 + 진단 ──────────────────
+
+def test_f6_hold_setpoint_is_slew_limited():
+    """F-6: HOLD 진입 계단(캠페인 실측 92~144m, 전 런의 최대 상태경계 점프).
+
+    `_step_hold` 가 끝점을 그대로 발행하면 직전 상태(`_step_transition_mc`)가
+    발행하던 "기체 앞 70m" 와 한 틱에 110m 넘게 벌어진다. MC 분기가 쓰는
+    `slew_setpoint` 를 같이 써야 한다 — 2026-07-21 "수정후보 ②" 로 특정된 뒤
+    미수정으로 남아 있던 항목이다."""
+    assert "slew_setpoint" in _calls_in(_func("_step_hold")), \
+        "_step_hold 가 슬루레이트 없이 끝점을 그대로 발행합니다 (F-6 회귀)"
+
+
+def test_f6_hold_ramp_starts_from_vehicle_position():
+    """램프 시작점은 직전 setpoint 가 아니라 **기체 현재 위치**여야 한다.
+
+    직전 setpoint(기체 앞 70m)에서 시작하면 117m 를 v_approach 5m/s 로 걷느라
+    23초가 걸리는데 `hold_timeout` 이 30초다 — 멈춰야 할 시점에 "더 앞으로"를
+    이어받는 것이기도 하다. MC STREAMING 분기와 같은 규약(2026-07-20 사고 대응:
+    "OFFBOARD 가 이어받는 setpoint 는 항상 실제 위치와 일치")."""
+    src = _ast.get_source_segment(_NODE_SRC, _func("_step_hold"))
+    assert "state.pos_ned" in src, \
+        "_step_hold 램프가 기체 현재 위치에서 시작하지 않습니다"
+
+
+def test_f6_mc_following_and_hold_share_one_slew_implementation():
+    """같은 계단 문제를 두 곳이 각자 구현하면 한쪽만 고쳐진다 — 실제로
+    `_step_following` 만 고쳐져 있고 `_step_hold` 는 5일간 방치됐다."""
+    assert "slew_setpoint" in _calls_in(_func("_step_following"))
+    assert "slew_setpoint" in _calls_in(_func("_step_hold"))
+
+
+def test_f14_streaming_exit_label_comes_from_pure_function():
+    """F-14: `entry_mode=mid_flight` 인데도 로그는 항상 "→ FOLLOWING" 이었다.
+
+    분기와 로그가 갈라질 수 없도록 라벨을 `after_streaming_state()` 하나에서
+    받아야 한다(`after_climb_state` 와 같은 규약)."""
+    calls = _calls_in(_func("_control_callback"))
+    assert "after_streaming_state" in calls, \
+        "STREAMING 종료 라벨이 순수 함수에서 오지 않습니다 (F-14 회귀)"
+    src = _ast.get_source_segment(_NODE_SRC, _func("_control_callback"))
+    assert "OFFBOARD 확인 → FOLLOWING" not in src, \
+        "STREAMING 종료 로그가 여전히 FOLLOWING 으로 고정돼 있습니다 (F-14 회귀)"
+
+
+def test_r2_following_records_segment_index():
+    """`_find_segment` 수정 전후를 비교하려면 세그먼트 인덱스가 로그에 남아야
+    한다 — 캠페인 24런 어디에도 기록이 없어 관측 자체가 불가능했다."""
+    assert "_check_segment_progress" in _calls_in(_func("_step_following"))
+    seg = _calls_in(_func("_check_segment_progress"))
+    assert "warn" in seg, "세그먼트 급변 경고가 없습니다"
+
+
+def test_f12_planner_blocking_is_announced_before_and_after():
+    """F-12: `run_planner()` 는 `__init__` 동기 실행이라 폐곡선에서 263.5초
+    노드가 응답하지 않는다. 현장에서 죽은 줄 알고 재기동하면 중복 인스턴스가
+    된다 — 들어가기 전 예상시간, 나온 뒤 실제 소요를 반드시 찍는다.
+    (비동기화는 R6 담당이라 여기서는 로그만 본다.)"""
+    init = _calls_in(_func("__init__"))
+    assert "planner_eta_s" in init, "블로킹 예상시간 안내가 없습니다 (F-12)"
+    src = _ast.get_source_segment(_NODE_SRC, _func("__init__"))
+    assert "경로 계획 시작" in src and "경로 계획 완료" in src
