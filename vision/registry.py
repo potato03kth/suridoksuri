@@ -13,6 +13,7 @@ from vision.modules import (
     RedRingDetector,
     ArucoDetector,
     WhiteBoxDetector,
+    DistressMatGeometry,
 )
 
 # 이름 → 클래스 매핑. 새 모듈 추가 시 이 dict에만 등록하면 된다.
@@ -31,4 +32,5 @@ MODULES: dict[str, type] = {
     "red_ring_detector":     RedRingDetector,
     "aruco_detector":        ArucoDetector,
     "white_box_detector":    WhiteBoxDetector,
+    "distress_mat_geometry": DistressMatGeometry,
 }

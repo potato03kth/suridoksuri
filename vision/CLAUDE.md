@@ -26,7 +26,7 @@
 |---|---|---|
 | `core/state.py` | `VisionState`, `Detection` 데이터 계약 | 낮음 — 필드 추가 시 신중 |
 | `core/runner.py` | `Pipeline` 클래스: `from_config()`, `partial()` | 낮음 |
-| `core/target.py` | **ArUco 브랜치 Phase 3(`docs/vision_aruco_branch.md`)** — `TargetEstimate` dataclass(상대 pose+신뢰도+타입+frame_id+timestamp+uncertainty(항상 None, 자리만)+calib provenance(`calib_accuracy`/`not_for_closed_loop_30cm`/`calib_id`)) + `solve_target_pose()`(`cv2.solvePnP`→rvec/tvec→`cv2.Rodrigues`→quaternion) + `marker_object_points()`(50cm 정사각 4코너, `ARUCO_TARGET_SIZE_M`) + `rotation_matrix_to_quaternion()`(scipy 미의존 순수 numpy, 표준 Shepperd's method — `vision/requirements.txt`에 scipy 없어 직접 구현). **순수 기하 계산만(파일 I/O 없음)** — import 규칙("core/ ← numpy, opencv만 허용")대로 yaml 로드는 `utils/calibration_loader.py`에 분리. 좌표계=카메라 광학 프레임, 단위=미터, orientation=quaternion(x,y,z,w) — 전부 `docs/vision_aruco_branch.md` §1 확정 전제, 재논의 대상 아님. **Phase 4(파이프라인 통합) 완료** — `main.py`/`replay.py`가 `state.detections`에서 확정 ArUco 검출을 찾아 `solve_target_pose()`를 호출하고 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절) | 낮음 |
+| `core/target.py` | **ArUco 브랜치 Phase 3(`docs/vision_aruco_branch.md`)** — `TargetEstimate` dataclass(상대 pose+신뢰도+타입+frame_id+timestamp+uncertainty(항상 None, 자리만)+calib provenance(`calib_accuracy`/`not_for_closed_loop_30cm`/`calib_id`)) + `solve_target_pose()`(`cv2.solvePnP`→rvec/tvec→`cv2.Rodrigues`→quaternion) + `marker_object_points()`(50cm 정사각 4코너, `ARUCO_TARGET_SIZE_M`) + **[2026-07-28] 초록구역(② 조난자) 확장** — `DISTRESS_MAT_SIZE_M`(3.0)/`DISTRESS_MAT_PLATFORM_HEIGHT_M`(0.105)/`MAT_PLANE_REFERENCE` + `order_quad_corners_clockwise()`(approxPolyDP의 보장 없는 코너 순서를 solvePnP 대응 순서로 정규화) + `project_pixel_onto_target_plane()`(착륙점 픽셀 -> 타겟 평면 역투영) + `solve_target_pose(position_at_pixel=...)`(주면 position이 tvec 대신 그 평면상 점 — **None이면 ArUco 경로 무변경**). 아래 "초록구역 상대 pose 산출" 절 참조. `rotation_matrix_to_quaternion()`(scipy 미의존 순수 numpy, 표준 Shepperd's method — `vision/requirements.txt`에 scipy 없어 직접 구현). **순수 기하 계산만(파일 I/O 없음)** — import 규칙("core/ ← numpy, opencv만 허용")대로 yaml 로드는 `utils/calibration_loader.py`에 분리. 좌표계=카메라 광학 프레임, 단위=미터, orientation=quaternion(x,y,z,w) — 전부 `docs/vision_aruco_branch.md` §1 확정 전제, 재논의 대상 아님. **Phase 4(파이프라인 통합) 완료** — `main.py`/`replay.py`가 `state.detections`에서 확정 ArUco 검출을 찾아 `solve_target_pose()`를 호출하고 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절) | 낮음 |
 | `core/state_machine.py` | **신설(§9 빌드순서 6번, `docs/vision_plan.md` §5.1)** — 공통 상태머신 + 안전 폴백. `LandingState`(str Enum: `ACQUIRE`/`CENTER_DESCEND`/`LOCK`/`PRECISION_SERVO`/`TERMINAL`/`HOLD`/`ABORT_ASCEND`) + `Observation`(프레임 단위 관측: `ts`/`frame_id`/`n_candidates`/`center_error_norm`/`fine_locked`/`agl_m`/`target_estimate`/`scale_source`) + `Decision`(`state`/`command`/`reason`/`blind_duration_s`/`scale_source`) + `LandingSMConfig`(매직넘버 금지, §7.3 — `max_blind_duration_s`/`max_drift_estimate_m`/`lock_confirm_frames`/`loss_tolerance_frames`/`center_tolerance_norm`/`max_candidates_for_lock`/`terminal_agl_m`) + `LandingStateMachine.update(obs)->Decision`. **순수 로직(파일 I/O·wall-clock·난수 없음)** — `core/target.py`와 동일 패턴, `Observation.ts`를 그대로 쓰므로 같은 관측열은 항상 같은 상태열(§7.5 결정론). **타겟 종류 무관 공통 골격** — 버티포트/조난자/십자 전용 분기 없음, 타겟별 특수성은 호출자가 `Observation` 필드를 어떻게 채우는지로만 표현된다. **커밋 게이트가 구조적으로 강제됨** — `PRECISION_SERVO`/`TERMINAL`은 오직 `LOCK`의 `_consecutive_fine_locked >= lock_confirm_frames` 통과를 거쳐야만 도달 가능(코드상 다른 진입 경로 없음), 후보가 모호(`n_candidates > max_candidates_for_lock`)한 채 락을 시도하면 `HOLD`로 거절. **안전 폴백 두 갈래** — (a) `CENTER_DESCEND`/`PRECISION_SERVO`에서 검출 상실이 `loss_tolerance_frames`를 넘으면 `HOLD`(재포착 시 `CENTER_DESCEND`로 복귀 가능, 막다른 상태 아님), (b) `TERMINAL`에서 블라인드 지속시간이 `max_blind_duration_s`를 넘거나 근사 이탈추정(마지막 유효 정규화 중심오차×마지막 유효 AGL)이 `max_drift_estimate_m`을 넘으면 `ABORT_ASCEND`(§5.1 "안 보이는데 계속 내려간다" 금지). `TERMINAL` 진입은 `PRECISION_SERVO`에서 `agl_m<=terminal_agl_m`일 때만(AGL이 항상 None이면 구조적으로 절대 진입 못 함 — 크래시 없이 안전하게 폐루프 서보에 계속 머무는 축퇴 동작). `modules/`가 아니다(`__call__(VisionState)->VisionState` 인터페이스 아님, `registry.py` 미등록, preset yaml 미사용) — 프레임 단위 관측을 시간축으로 누적하는 상위 레이어 | 낮음 |
 | `core/frames.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 1 — `docs/vision_fc_interface.md` §4.3 작업 V3)** — 좌표 프레임 체인 `카메라 광학(cam) → 기체 body FLU → 기체 body FRD`. `R_frd_cam(psi_m)`/`R_flu_cam(psi_m)` + `cam_to_frd`/`cam_to_flu`/`flu_to_frd`와 각각의 역변환 + 쿼터니언 성분순서 어댑터(`quat_xyzw_to_wxyz`/`quat_wxyz_to_xyzw`). **순수 numpy 회전 계산만**(파일 I/O·wall-clock·난수 없음 — `core/target.py`/`core/state_machine.py`와 동일 패턴). `R_flu_cam`은 `R_frd_cam`에서 `R_flu_frd`를 곱해 **유도**한다(두 행렬을 각각 손으로 적어두면 한쪽만 고쳤을 때 조용히 어긋나므로). 🔴 **마운트 요각 `psi_m`은 미측정(§7 U3)** — 저장소 어디에도 값이 없고 물리 측정이 필요해 `MOUNT_YAW_PSI_M_RAD_DEFAULT=0.0` + `MOUNT_YAW_PSI_M_MEASURED=False`로 **값을 지어내지 않고** 파라미터로 뺐다. 그 "미측정" 플래그는 와이어 레코드를 타고 소비자까지 전파된다. **ENU/NED 변환은 의도적으로 구현하지 않았다**(§4.4 — body 프레임 경로가 기체 자세 구독·시간 동기를 통째로 없애므로. 안 쓰는 경로를 만들면 누군가 쓴다). 나디르 하드마운트 가정과 고무마운트 잔차 리스크(§4.5, `지상오차=고도×tan(θ_잔차)`)는 파일 docstring에 정량 수치까지 기록 | 낮음 |
 | `core/wire.py` | **신설(2026-07-28, 같은 Phase 1 — 작업 V2 + §5 페일세이프 계약)** — vision→fc 인터페이스 **와이어 포맷(JSON Lines)** + 페일세이프 계약. `SCHEMA_VERSION`/`REQUIRED_TARGET_KEYS`/`REQUIRED_STATE_HINT_KEYS` 상수 + `FailsafeContract`(매직넘버 금지, §7.3) + `gate_confidence()`/`closed_loop_floor_agl_m()` + 레코드 조립 3종(`build_target_record`/`build_invalid_target_record`/`build_state_hint_record`) + `encode_line`/`decode_line` + 왕복 복원(`target_estimate_from_record`/`decision_from_record`) + `validate_record`. **transport-agnostic 순수 로직** — 소켓도 파일도 **클록도** 모른다(타임스탬프를 전부 인자로 받아 같은 입력이면 같은 바이트, §7.5. 실제 클록 샘플링은 어댑터 `utils/target_sink.py::sample_clocks()`). 레코드 타입 2종: `"target"`(TargetEstimate **전량 무손실** + 3프레임 위치 + provenance + 페일세이프 필드)과 `"state_hint"`(상태머신 `Decision`). 🔴 **`command`는 `command_hint` + `command_is_advisory:true` + 타입명 `state_hint` 세 겹으로 "명령 아님"을 형식에 박았다**(§6.3 거부권 권고). 🔴 **위치 필드는 프레임을 이름에 박는다**(`position_cam`/`position_flu`/`position_frd`) — 이 저장소는 `pos_ned`/`vel_ned`가 같은 접미사로 반대 부호 규약을 쓰는 사고 이력이 있다(§4.2). 시계는 **두 클록을 다 싣는다**(`stamp_monotonic_ns` stale판정용 / `stamp_wall_ns` 로그상관용 / `clock_offset_ns` 환산용 / `timestamp` 원본 무손실) — 근거·미검증 2건은 파일 docstring "시계(clock) 계약" 절 | 낮음 |
@@ -50,6 +50,7 @@
 | `vertiport_v.py` | `BlackVMatcher` | `original`, `detections` | `detections`, `meta` |
 | `vertiport_ring.py` | `RedRingDetector` | `original`, `detections` | `detections`, `meta` |
 | `distress_box.py` | `WhiteBoxDetector` | `original`, `detections` | `detections`, `meta` |
+| `distress_mat.py` | `DistressMatGeometry` | `detections`(코너+`white_box_detector` meta) | `detections`(meta만), `meta` |
 
 ### 그 외
 
@@ -61,6 +62,7 @@
 | `presets/distress_coarse.yaml` | ② 조난자 구역 coarse(§5.3) — 전용 모듈 없이 기존 `ColorFilter(mode=color)`+`RectDetector` 조합. §7.9 항목7 골든셋용으로 신규 추가(신규 검출 로직 아님). `min_area`/`max_area`는 실측 스펙 기반 도출값 — 근거는 아래 "distress_coarse.yaml min_area/max_area 도출 근거" 절 |
 | `presets/vertiport_fine.yaml` | **신설(ArUco 브랜치 Phase 4)** — `aruco_detector` 단일 스텝. `vertiport_coarse.yaml`의 3단 캐스케이드 **뒤에 이어붙이지 않고 완전히 독립 실행**한다 — `ArucoDetector`(Phase 2)가 ROI 인자 없이 `state.original` 전체 프레임에서 찾고 `state.detections`를 덮어쓰므로, coarse 뒤에 이어붙이면 coarse가 확정한 결과가 조용히 사라진다(설계 판단 근거는 yaml 파일 헤더 주석 참조). ArUco 피덕셜은 스케일/회전에 견고해 ROI 없이도 전체 프레임 탐색이 실용적 |
 | `presets/distress_fine.yaml` | **신설(2026-07-25, §9 "끊어진 체인을 잇는 작업")** — `distress_coarse.yaml`(초록 HSV+`RectDetector`) 뒤에 `white_box_detector`(`modules/distress_box.py`)를 잇는 **캐스케이드**(vertiport_fine.yaml과 반대 판단 — 근거는 이 yaml 헤더 주석과 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절 참조). `rect_detector`의 `min_area`/`max_area`(14000/2,200,000)는 `distress_coarse.yaml` 값을 복사하지 않고 fine 대역(≤~15m, 상한은 `state_machine.py`의 `terminal_agl_m` 기본값 3m 근방)에 맞게 동일 공식으로 재도출(근거는 yaml 헤더 주석) |
+| `presets/distress_coarse.yaml` / `presets/distress_fine.yaml` 공통 신규 스텝 `distress_mat_geometry` | **[2026-07-28]** `modules/distress_mat.py` — 초록구역 상대 pose 산출용 기하 태깅. **이 스텝의 존재 자체가 "초록구역 pose 산출기를 쓰라"는 프리셋 주도 신호**(`main.py`가 preset 경로 문자열을 파싱하지 않는다). `distress_fine.yaml`에서는 반드시 `white_box_detector` **뒤**에 와야 한다(앞에 두면 착륙점이 매트 중심으로 조용히 degrade). 아래 "초록구역 상대 pose 산출" 절 참조 |
 | `utils/image_loader.py` | 파일 경로 → BGR numpy 배열 |
 | `utils/calibration_loader.py` | **신설(ArUco 브랜치 Phase 3)** — `vision/calibration/<camera_id>/nominal.yaml` 로드 어댑터. `CameraCalibration`(camera_matrix/dist_coeffs/image_size/accuracy/not_for_closed_loop_30cm/calib_id 등) 반환, `core/target.py::solve_target_pose()` 입력으로 바로 연결. `compute_nominal_intrinsics.py`가 만드는 `nominal.yaml` 스키마 전용(`calib_analyze.py`의 `<calib_id>.yaml`은 스키마가 달라 별개 — 과설계 금지, 필요해지면 그때 확장). `calib_id`는 로드에 쓴 파일 경로 문자열(§7.3 provenance echo) |
 | `utils/video_reader.py` | 영상 파일 → 프레임 이터레이터 |
@@ -641,6 +643,126 @@ Phase 1(`core/wire.py`/`core/frames.py`/`utils/target_sink.py`)이 만들어 놓
 
 ---
 
+## 초록구역(② 조난자) 상대 pose 산출 (2026-07-28, `docs/vision_plan.md` §5.3 / `docs/vision_fc_interface.md`)
+
+정밀착륙 인터페이스(`--target-sink`)가 배선된 직후(`b45fdc4`) 종단간 실행에서 드러난 갭을 메운
+작업이다: **초록구역은 상태머신이 `CENTER_DESCEND`/`descend`를 내는데 정작 기체에 보낼 상대
+pose는 항상 `null`이었다.** pose 산출 경로(`main.py::_solve_aruco_estimate`)가 ArUco 전용이라,
+피듀셜이 없는 초록 매트에는 `solvePnP`도 `TargetEstimate` 산출도 한 줄도 없었기 때문이다.
+초록구역이 현재 우선 타겟이므로(2차예선) 이 빈칸이 "전체 프로세스 유기적 동작"의 마지막 구멍이었다.
+
+### 고른 접근: 매트 4코너 + 알려진 실측 크기(3.0m) -> `solvePnP` (버린 안 포함)
+
+- ✅ **채택.** `core/target.py::marker_object_points(size_m)`가 애초에 크기를 인자로 받으므로
+  (ArUco는 0.50) ArUco와 **똑같은 기계장치**를 그대로 재사용한다 — 새 pose 파이프라인을
+  발명하지 않았고 산출물도 완전히 같은 `TargetEstimate` 형식이다. 결정적 이점: **AGL(라이다
+  고도)이 필요 없다.** 알려진 크기가 스케일을 준다.
+- ❌ **"픽셀 -> AGL로 역투영"**(고도를 알면 GSD가 나오니 픽셀 오프셋을 미터로 환산): `main.py`는
+  지금 AGL을 **받는 경로 자체가 없다**(`_build_observation(agl_m=None)`; `replay.py`만
+  telemetry에서 읽는다). 라이브에서 항상 None이라 산출이 아예 불가능해 기각.
+- ❌ **호모그래피로 평면만 풀고 자세 포기**: `solvePnP`가 같은 입력에서 회전까지 주는데 정보를
+  일부러 버릴 이유가 없고, 산출물 형식이 quaternion 자리를 이미 요구한다.
+
+### 배선 구조 — 왜 모듈 하나 + main/replay 두 레벨로 쪼갰나
+
+`solve_target_pose()`를 부르려면 `utils/calibration_loader.py`가 필요한데 import 규칙이
+**`modules/ <- vision.core 만`** 이라 위반이 된다(ArUco Phase 4가 같은 이유로 배선을 `main.py`
+레벨에 둔 전례). 그래서 역할을 쪼갰다:
+
+    modules/distress_mat.py  : 프레임 안에서 끝나는 순수 기하(코너 정규화 + 착륙점 픽셀 확정)
+    main.py / replay.py      : calib 로드 + solvePnP 호출 + TargetEstimate 조립 (각자 얇게 중복)
+
+**pose 산출기 선택은 preset 경로 문자열 파싱이 아니라 파이프라인이 남긴 meta로 한다.** ArUco는
+`meta["aruco_id"]`, 초록구역은 `meta["distress_mat"]`(= `distress_mat_geometry` 스텝이 있을
+때만 생김)이다. 경로 문자열 관례는 깨지기 쉽고, 같은 `rect_detector`를 쓰는 범용 프리셋
+(`video.yaml`)에 3m 매트 크기가 실수로 적용되는 것도 막아야 한다(파괴검증 D7로 회귀 고정).
+🔴 **ArUco 경로는 조금도 달라지지 않는다** — 초록 매트는 ArUco 검출이 없을 때만 시도되고,
+`position_at_pixel=None`이면 `position`은 예전 그대로 `solvePnP`의 tvec **비트 단위로 동일**하다
+(파괴검증 D5/D5b/R3으로 회귀 고정).
+
+### 코너 순서 — 조용한 오작동 1순위 (실측 근거)
+
+`cv2.aruco.detectMarkers()`와 달리 `cv2.approxPolyDP()`는 **코너 순서를 보장하지 않는다.**
+골든셋 `distress/10m`에서 `RectDetector`가 실제로 낸 순서는 `[(80,80),(80,380),(380,380),(380,80)]`
+= **TL->BL->BR->TR(반시계)** 였고, `marker_object_points()`는 시계방향이라 그대로 넣으면
+**감김이 반대인 거울상 대응**이 된다. `order_quad_corners_clockwise()`가 무게중심 기준
+`atan2` 정렬(이미지 좌표는 y가 아래로 증가하므로 각도 증가 = 화면상 시계방향) 후 `x+y` 최소
+코너를 맨 앞으로 회전시켜 감김과 시작점을 결정론적으로 고정한다.
+
+⚠️ **평면·정면·완전 대칭인 합성 프레임에서는 감김 오류가 거리(z)에 안 나타난다** — 정사각형이
+그 대각선에 대해 자기대칭이라 position이 보존되기 때문. 실측(파괴검증 D1)에서 `main.py` 레벨
+거리 테스트는 통과하고 `core` 단위테스트(감김/정규화)만 red가 됐다. 원근이 있는 실촬영에서는
+position까지 깨지므로, **이 정규화가 "합성에서 안 보이지만 실기체에서 터지는" 종류의 문제**임을
+기록해 둔다.
+
+### 회전 4중 모호성 — 구조적으로 해소됨 (흰 박스 단서 불필요)
+
+정사각 매트는 90° 회전 4겹 자기대칭이라 코너 라벨링이 4가지, `solvePnP` 해도 4개다. 그런데
+**착륙점 좌표는 4개 해 전부에서 동일하다**: 착륙점은 `project_pixel_onto_target_plane()`로
+광선-평면 교점을 구하는데, 자기 법선축 회전은 평면을 자기 자신으로 보내므로 4개 해가 **전부
+같은 평면**을 준다. 즉 모호성이 유도 좌표로 새지 않는다(회귀테스트로 고정). 남는 모호성은
+`orientation` 쿼터니언뿐이고 정사각형에 대해 물리적으로 무의미한 자유도다.
+**흰 박스로 회전을 깨는 방법은 애초에 불가능하다** — 실측 스펙상 박스가 매트 **정중앙**이라
+비대칭 단서가 되지 못한다(`vision_plan.md` §2).
+
+### 착륙점 — 매트 중심이 아니다, 그리고 규칙을 재구현하지 않는다
+
+착륙 목표는 "박스 옆 빈 초록면"이고 그 픽셀은 `modules/distress_box.py`가 이미
+`meta["white_box_detector"]["landing_point_px"]`로 확정한다. `DistressMatGeometry`는 **그 값을
+그대로 소비**한다 — 규칙("가장 먼 모서리를 안쪽으로 당기기")이나 `interior_margin_ratio`
+기본값을 두 곳에 복사하면 한쪽만 고쳐졌을 때 조용히 어긋난다. 부수 효과로 이 픽셀은
+`_build_observation()`이 `center_error_norm`을 재는 픽셀과 **같아서**, 상태머신이 "중앙에
+맞췄다"고 판단한 점과 기체에 보내는 좌표가 어긋나지 않는다.
+
+- fine(`distress_fine.yaml`) -> `landing_point_px` 사용, `target_type="distress_landing_point"`
+- coarse(`distress_coarse.yaml`, 흰 박스 단계 없음) -> **매트 중심**으로 degrade,
+  `target_type="distress_mat_center"` + `landing_point_source="mat_center"`.
+  coarse 대역(40~15m)에선 박스가 해상되지 않으므로 물리적으로 옳고, 상태머신도
+  `fine_locked=False`라 `CENTER_DESCEND` 위로 못 올라간다. **소비자가 "coarse 중심"과 "fine
+  착륙점"을 구분할 수 있어야** 하므로 `target_type`을 다르게 붙였다.
+
+### 🔴 z=0 평면은 지면이 아니라 **매트 윗면**이다 (0.105m 라이즈드)
+
+검출되는 4코너는 위에서 본 초록 면의 윤곽 = 라이즈드 플랫폼의 **윗면 가장자리**다(초록색은
+윗면에만 있고, 라이저 측면은 근-나디르에서 거의 안 보인다). 따라서 산출 거리는 **윗면까지의
+거리**다.
+
+**착륙 고도 해석 결론: 윗면 기준이 맞다.** 기체는 매트 윗면에 내려앉으므로 접지 목표면이 곧 이
+평면이고 착륙 자체엔 보정이 필요 없다. ⚠️ **단 소비자가 이 z를 라이다 AGL(주변 지면 기준)과
+섞으면 정확히 0.105m 어긋난다**(비전 z가 라이다 AGL보다 0.105m 작게 나온다). 그래서
+`plane_reference="mat_top_surface"` + `platform_height_m`을 `TargetEstimate.meta`에 실어
+와이어 레코드까지 전파한다.
+
+### 실패 사유를 뭉개지 않는다 (§5.4)
+
+`no_target_detection` 하나로 합치면 현장에서 원인을 못 가린다. 초록구역 경로는
+`mat_geometry_unavailable`(매트는 봤는데 4코너가 못 씀) / `landing_point_unprojectable`(착륙점
+역투영 실패) / `pose_solve_failed` / `no_calibration`을 각각 다른 문자열로 내보낸다.
+
+### ⚠️ 캘리브레이션 해상도 불일치는 조용히 보정하지 않는다
+
+`solvePnP`의 focal은 **픽셀 단위**라 프레임 크기가 캘리브레이션 해상도와 다르면 거리가 그
+비율만큼 통째로 틀린다. 실측: 4608px 기준 `nominal.yaml`을 460px 골든 프레임에 그대로 쓰면
+거리가 정확히 **3.00배**(=4608/1536) 나온다. **자동 재스케일은 하지 않았다** — 프레임이
+다운스케일인지 크롭인지 코드가 알 수 없고, 잘못된 가정으로 조용히 보정하면 진짜 불일치가
+숨는다. 대신 `frame_size_px`/`calib_image_size_px`를 `meta`에 실어 사후 진단이 가능하게 했다.
+실기체 라이브 경로는 `LiveFrameSource` 기본 해상도가 `nominal.yaml`의 `image_size`와 같아
+불일치가 없다.
+
+### 골든셋 합성 카메라 픽스처 (`vision/tests/golden/distress/synthetic_calib/`)
+
+골든 프레임은 카메라 모델로 렌더링된 것이 아니라 GSD 표에서 가져온 픽셀 크기로 그린 것이다.
+그 전제(HFOV 75°, 폭 1536px 다운스케일 프레임)를 만족하는 초점거리는 하나뿐이므로
+(`fx = 1536/(2·tan(37.5°)) = 1000.877086`) 그걸 역산해 캔버스별(460/320/200) 가상 카메라 yaml
+3개를 만들어 뒀다. `accuracy: unverified` / `not_for_closed_loop_30cm: true`는 **일부러
+nominal.yaml과 같은 보수적 값**을 유지한다 — 합성이라고 해금하면 테스트가 "폐루프 30cm 가능"
+이라는 거짓 신호를 흘린다.
+
+**거리 정확도 실측(2026-07-28):** 10m 라벨 -> 10.0088m(+0.09%) / 20m -> 20.0175m(+0.09%) /
+40m -> 40.576m(+1.44%, `min_area`만 낮춘 임시 프리셋. 75px 매트라 1px 오차가 1.3%다).
+40m는 `distress_coarse.yaml`이 `min_area=8000`으로 **의도적으로 배제**하므로 정규 경로에서는
+`no_target_detection`이 정상이다(프리셋 헤더 주석 참조).
+
 ## VisionState 필드 사용 규칙
 
 ```
@@ -779,6 +901,7 @@ pytest vision/tests/ -q -k main # 특정만
 |---|---|---|
 | core/runner `Pipeline` | from_config 로드·실행순서·`partial(N)`·unknown module→ValueError | ✅ test_pipeline |
 | core/target `solve_target_pose`/`TargetEstimate`(ArUco Phase 3) | **★합성 왕복(핵심, calib_analyze.py 패턴 재사용):** 알려진 실제 pose로 50cm 정사각 4코너를 합성투영(우선 임의 K, 이어서 실제 nominal.yaml intrinsics로도) → solvePnP 복원 pose가 원래 position/quaternion(부호 이중성 고려)과 허용오차 내 일치 · `rotation_matrix_to_quaternion` 다양한 회전에서 단위quaternion+독립 공식으로 재구성한 R과 일치 · provenance echo(calib_accuracy/not_for_closed_loop_30cm/calib_id)가 호출자 값 그대로 반영 · `uncertainty` 항상 None · 코너 순서 오배열 회귀(순환 오배열=position 보존·orientation 붕괴, 비순환 오배열=position 자체 붕괴 — 정사각형 90도 자기대칭 때문, 둘 다 실측 확인) | ✅ test_target |
+| core/target 초록구역 확장(2026-07-28) | 3.0m 상수가 ArUco 0.50과 구분됨 · `marker_object_points(3.0)` 재사용이 z=0 시계방향 4코너를 줌 · **알려진 크기만으로 알려진 거리 복원**(10/20/40m, AGL 없음) · 크기 상수를 0.5로 오용하면 정확히 6배 틀림(수치 고정) · `position_at_pixel=None`이 **solvePnP 자신의 tvec과 비트 동일**(ArUco 회귀) · 타겟 중심 픽셀 역투영이 tvec 재현(자기검증 불변식) · 착륙점 픽셀이 실제로 오프셋 좌표를 줌 · **90° 회전 4중 라벨링 전부에서 착륙점 동일**(모호성이 유도로 안 샘) · 감김 뒤집으면 자세가 실제로 깨짐 · 평면과 평행한 시선 거절. **파괴검증 D1/D1b/D2/D5b로 red 확인** | ✅ test_target |
 | core/state_machine `LandingStateMachine`(§9 6번) | 정상 시퀀스 전이 ACQUIRE→CENTER_DESCEND→LOCK→PRECISION_SERVO→TERMINAL(순서 단조증가까지 확인) · **안전 폴백 핵심**: 검출 상실이 `loss_tolerance_frames` 초과 시 HOLD(허용치 이내는 유지) + HOLD가 재포착 시 CENTER_DESCEND로 복귀(막다른 상태 아님) · **TERMINAL 블라인드 지속시간 초과 → ABORT_ASCEND**(§5.1 "핵심") + 재포착 시 블라인드 타이머 리셋 회귀 + 근사 이탈추정(중심오차×AGL) 초과도 별도로 ABORT_ASCEND 트리거 · **커밋 게이트**: 후보 모호(fine_locked 시도 중 n_candidates>max_candidates_for_lock) → HOLD로 거절, LOCK 확정 카운트 도중 모호해져도 거절 · **불변식**: fine_locked=False가 지속되면 agl_m이 아무리 낮아도 LOCK/PRECISION_SERVO/TERMINAL 절대 도달 불가(구조적 게이팅, 우회 경로 없음) · agl_m 전부 None이어도 크래시 없이 동작 + TERMINAL 미도달(폐루프 서보 유지, 안전한 축퇴) · 결정론(같은 관측열 → 같은 상태/명령/사유열) · config 필드(`LandingSMConfig`)로 임계값 override 가능 · `scale_source`가 Decision에 그대로 에코 | ✅ test_state_machine |
 | ArUco Phase 4 파이프라인 배선(위 "ArUco Phase 4 파이프라인 배선" 절) | main.py/replay.py 각각: 합성 ID=23 마커 이미지/녹화폴더 실행 → JSONL `chosen.target_estimate`에 position/orientation/calib_accuracy/not_for_closed_loop_30cm/calib_id 실제 기록 · 마커 없는 프레임은 크래시 없이 `chosen=None` · calib 파일 없음(`--calib`/`calib_path` 오지정)도 크래시 없이 target_estimate만 생략+경고 로그 | ✅ test_main(아루코 3개)·test_replay(아루코 3개) |
 | utils/calibration_loader `load_camera_calibration`(ArUco Phase 3) | 실제 커밋된 `nominal.yaml` 로드(camera_matrix/dist_coeffs/image_size/accuracy/not_for_closed_loop_30cm/calib_id) · 합성 yaml round-trip(값이 실측/미검증 어느 쪽이든 하드코딩 없이 그대로 반영) · 파일 없음→`FileNotFoundError` | ✅ test_calibration_loader |
@@ -801,6 +924,7 @@ pytest vision/tests/ -q -k main # 특정만
 | 버티포트 coarse 캐스케이드 통합(`presets/vertiport_coarse.yaml`) | 3단 전체 파이프라인 end-to-end·단계별 meta 기록·빈 이미지 0검출 | ✅ test_vertiport_cascade |
 | ArUco fine 프리셋 통합(`presets/vertiport_fine.yaml`, ArUco Phase 4) | `Pipeline.from_config` 실로드·ID 23 검출+코너·다른 ID 거절·빈 이미지 0검출(coarse와 독립 실행) | ✅ test_vertiport_fine |
 | distress_box `WhiteBoxDetector`(§5.3 fine, 2026-07-25) | 매트 내 흰 박스 확인·`landing_point_px`가 매트 bbox 내부에 있음·박스가 매트 좌상단에 치우치면 착륙점이 반대편(우하단)으로 밀림·박스 없음/너무 큼/너무 작음/종횡비 초과 각각 거절+reject_reasons 기록·detections 2개(확정1+거절1) 혼합·빈 detections·zero bbox·original/current/mask 비변형(선언 필드 계약)·결정론 | ✅ test_distress_box |
+| distress_mat `DistressMatGeometry`(초록구역 pose, 2026-07-28) | 코너 순서 정규화가 **실측 approxPolyDP 순서**(반시계)를 시계방향·TL시작으로 바꾸는지(항등이면 red) · 입력 회전/감김 8가지 조합에 불변 · 축퇴 사각형/4점 아님 거절 · coarse는 매트 중심 degrade + `landing_point_source` 명시 · fine은 `white_box_detector`의 `landing_point_px`를 **그대로 소비**(재구현 금지) · 생성자 `size_m`/`platform_height_m`이 실제로 meta에 반영(하드코딩이면 red) · `plane_reference="mat_top_surface"` · 선언 필드 계약(검출 개수 불변, original/current/mask 무변형) · meta 네임스페이스 · 빈 입력 · 결정론 · JSON 직렬화(numpy 누출 없음). **파괴검증 D1/D1b/D3b/D8로 red 확인** | ✅ test_distress_mat |
 | ② 조난자 fine 프리셋 통합(`presets/distress_fine.yaml`, 2026-07-25) | `distress_coarse.yaml` 뒤에 `white_box_detector` 캐스케이드 실로드·매트+박스 실제 확정·`Detection.meta`에 `landing_point_px` 실제 기록(`Pipeline.from_config` 경유, 클래스 직접 호출 아님) | ✅ test_replay(`test_distress_fine_preset_confirmed_detection_carries_landing_point_meta`) |
 | utils/image_loader | 경로→BGR ndarray(shape/dtype + **채널 순서가 실제로 BGR인지를 3분할 B/G/R 띠로 왕복 확인** — 여기서 RGB로 뒤집히면 뒤의 HSV 색 검출이 통째로 어긋난다)·PNG 무손실 왕복(임의 정규화 없음)·`Path` 객체 수용·1채널 원본도 3채널로 확장·결정론 · 없는 파일→`FileNotFoundError`(메시지에 경로 포함)·디렉터리/쓰레기 바이트/0바이트→조용한 None이 아니라 `ValueError`. **파괴검증 5종(I-D1~D5)으로 red 확인** | ✅ test_image_loader |
 | utils/video_reader | **실제 mp4를 써서 실제 디코딩**(몽키패치 없음, `test_frame_source.py`와 같은 원칙) — 전 프레임 이터레이트(BGR shape/dtype) · **순서 보존**(프레임마다 다른 밝기를 심어 확인 — 시간축 모듈 `fusion`/`tracker`가 전적으로 여기 기댄다) · `while True` 루프가 EOF에서 실제로 멈춤(무한루프 회귀) + 소진 후 재이터레이트는 빈 목록 · 결정론 · `fps`/`frame_count`가 인코딩값·실제 이터레이션 수와 일치(하드코딩 아님) · 컨텍스트 종료: `__enter__`가 self 반환 + `__exit__`이 실제로 `VideoCapture`를 release(본문에서 예외가 나도, 닫힌 뒤 읽어도 크래시 없이 빈 목록) · 없는 파일→`FileNotFoundError`·영상 아닌 파일→`IOError`(0프레임으로 삼키지 않음). **파괴검증 7종(V-D1~D7)으로 red 확인** | ✅ test_video_reader |

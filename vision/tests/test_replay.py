@@ -5,6 +5,7 @@ JSONL 블랙박스가 실제로 생성되고 텔레메트리·latency가 올바�
 """
 import http.client
 import json
+import math
 import sys
 import threading
 import time
@@ -534,3 +535,99 @@ def test_distress_fine_preset_confirmed_detection_carries_landing_point_meta():
     lx, ly = wb_meta["landing_point_px"]
     assert x <= lx <= x + w
     assert y <= ly <= y + h
+
+
+# ===========================================================================
+# ② 조난자 구역(초록 매트) 상대 pose 배선 — 재생 경로
+#
+# §7.5가 "같은 파이프라인으로 오프라인 재생"을 회귀검증의 최대 레버로 못박고 있어 main.py와
+# 동일한 pose 산출이 replay.py에도 붙어 있어야 한다(둘이 갈라지면 골든셋 재생으로 초록구역
+# pose 회귀를 잡을 수 없다).
+# ===========================================================================
+
+_DISTRESS_COARSE_PRESET = str(Path(replay_mod.__file__).parent / "presets" / "distress_coarse.yaml")
+_GOLDEN_DISTRESS = Path(replay_mod.__file__).parent / "tests" / "golden" / "distress"
+
+
+def _golden_distress_recording(tmp_path, tier: str, n: int = 3):
+    """골든 PNG를 그대로 복사해 만든 녹화 폴더(재인코딩 없음)."""
+    rec_dir = tmp_path / f"rec_{tier}"
+    rec_dir.mkdir()
+    src = (_GOLDEN_DISTRESS / tier / "frame_000.png").read_bytes()
+    for i in range(n):
+        (rec_dir / f"frame_{i:03d}.png").write_bytes(src)
+    return rec_dir
+
+
+def _golden_calib(canvas: int) -> str:
+    return str(_GOLDEN_DISTRESS / "synthetic_calib" / f"canvas{canvas}.yaml")
+
+
+def test_replay_distress_coarse_writes_mat_pose_into_jsonl_chosen(tmp_path):
+    """재생 경로에서도 초록구역 상대 pose가 실제로 `chosen.target_estimate`에 실려야 한다 —
+    배선 전에는 ArUco 프리셋에서만 실렸다."""
+    rec_dir = _golden_distress_recording(tmp_path, "10m", n=3)
+    log_dir = tmp_path / "logs"
+
+    replay_mod.run_replay(
+        str(rec_dir), _DISTRESS_COARSE_PRESET, display="none", output=None,
+        log_dir=str(log_dir), log_name="matpose", calib_path=_golden_calib(460),
+    )
+
+    records = [json.loads(l) for l in (log_dir / "matpose.jsonl").read_text().splitlines()
+               if json.loads(l).get("type") == "frame"]
+    assert records
+    est = records[0]["chosen"]["target_estimate"]
+    assert est["target_type"] == "distress_mat_center"
+    assert est["position"][2] == pytest.approx(10.0, rel=0.05), (
+        f"10m 골든 프레임인데 산출 거리가 {est['position'][2]:.3f}m"
+    )
+    assert est["calib_accuracy"] == "unverified"
+    assert est["not_for_closed_loop_30cm"] is True
+    assert est["meta"]["plane_reference"] == "mat_top_surface"
+
+
+def test_replay_distress_fine_pose_is_the_landing_point_not_the_mat_centre(tmp_path):
+    """§5.3: fine 재생에서 나오는 position은 매트 중심이 아니라 "박스 옆 빈 초록면"이다."""
+    log_dir = tmp_path / "logs"
+    replay_mod.run_replay(
+        str(_golden_distress_recording(tmp_path, "fine", n=2)), _DISTRESS_FINE_PRESET,
+        display="none", output=None, log_dir=str(log_dir), log_name="fpose",
+        calib_path=_golden_calib(460),
+    )
+    fine = [json.loads(l) for l in (log_dir / "fpose.jsonl").read_text().splitlines()
+            if json.loads(l).get("type") == "frame"][0]["chosen"]["target_estimate"]
+
+    log_dir2 = tmp_path / "logs2"
+    replay_mod.run_replay(
+        str(_golden_distress_recording(tmp_path, "10m", n=2)), _DISTRESS_COARSE_PRESET,
+        display="none", output=None, log_dir=str(log_dir2), log_name="cpose",
+        calib_path=_golden_calib(460),
+    )
+    centre = [json.loads(l) for l in (log_dir2 / "cpose.jsonl").read_text().splitlines()
+              if json.loads(l).get("type") == "frame"][0]["chosen"]["target_estimate"]
+
+    assert fine["target_type"] == "distress_landing_point"
+    lateral = math.hypot(fine["position"][0] - centre["position"][0],
+                         fine["position"][1] - centre["position"][1])
+    assert lateral == pytest.approx(1.05 * math.sqrt(2), rel=0.05), (
+        f"착륙점이 매트 중심에서 밀려나지 않았다(수평차 {lateral:.3f}m)"
+    )
+
+
+def test_replay_aruco_chosen_shape_is_unchanged_by_the_distress_wiring(tmp_path):
+    """ArUco 회귀: 재생 경로의 `chosen.target_estimate` 키 집합이 달라지면 안 된다."""
+    rec_dir = _make_aruco_recording_dir(tmp_path, n=2)
+    log_dir = tmp_path / "logs"
+    replay_mod.run_replay(
+        str(rec_dir), _VERTIPORT_FINE_PRESET, display="none", output=None,
+        log_dir=str(log_dir), log_name="arucorep2",
+    )
+    rec = [json.loads(l) for l in (log_dir / "arucorep2.jsonl").read_text().splitlines()
+           if json.loads(l).get("type") == "frame"][0]
+    est = rec["chosen"]["target_estimate"]
+    assert set(est) == {
+        "position", "orientation", "confidence", "target_type",
+        "calib_accuracy", "not_for_closed_loop_30cm", "calib_id",
+    }, f"ArUco chosen 형태가 달라졌다: {sorted(est)}"
+    assert est["target_type"] == "aruco_23"

@@ -64,3 +64,12 @@ pipeline:
     max_aspect_ratio: 1.4
     roi_margin: 0.05
     interior_margin_ratio: 0.3
+
+  # 상대 pose 산출용 기하 태깅 (modules/distress_mat.py) — distress_coarse.yaml과 같은 스텝이지만
+  # **반드시 white_box_detector 뒤**에 와야 한다. 앞에 두면 아직 meta["white_box_detector"]가
+  # 없어 착륙점이 매트 중심으로 degrade되고, fine의 존재 이유("박스 옆 빈 초록면")가 조용히
+  # 사라진다. 이 스텝은 착륙점 규칙을 재구현하지 않고 white_box_detector의 landing_point_px를
+  # 그대로 소비한다(규칙이 두 곳에 복사되는 것 방지 — modules/distress_mat.py docstring 참조).
+  distress_mat_geometry:
+    size_m: 3.0
+    platform_height_m: 0.105

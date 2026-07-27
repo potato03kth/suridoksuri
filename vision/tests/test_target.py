@@ -15,8 +15,12 @@ import pytest
 
 from vision.core.target import (
     ARUCO_TARGET_SIZE_M,
+    DISTRESS_MAT_PLATFORM_HEIGHT_M,
+    DISTRESS_MAT_SIZE_M,
     TargetEstimate,
     marker_object_points,
+    order_quad_corners_clockwise,
+    project_pixel_onto_target_plane,
     rotation_matrix_to_quaternion,
     solve_target_pose,
 )
@@ -283,3 +287,205 @@ def test_corner_order_mismatch_breaks_round_trip():
     )
     pos_error = np.linalg.norm(np.array(swapped_estimate.position) - np.array(true_position))
     assert pos_error > 0.05, f"코너를 맞바꿨는데도 원래 위치와 거의 일치함(오차 {pos_error}m) - 순서 무관 회귀 우려"
+
+
+# ===========================================================================
+# ② 조난자 구역(초록 매트) — 코너 순서 정규화 + 착륙점 역투영
+# (`modules/distress_mat.py` / `main.py::_solve_distress_mat_estimate`가 쓰는 코어 기하)
+# ===========================================================================
+
+
+def _project_points(rvec, tvec, camera_matrix, dist_coeffs, object_points) -> np.ndarray:
+    img, _ = cv2.projectPoints(
+        np.asarray(object_points, dtype=np.float64).reshape(-1, 1, 3),
+        rvec, tvec, camera_matrix, dist_coeffs,
+    )
+    return img.reshape(-1, 2).astype(np.float64)
+
+
+_MAT_K = np.array([[1000.877086342046, 0.0, 230.0],
+                   [0.0, 1000.877086342046, 230.0],
+                   [0.0, 0.0, 1.0]])
+_MAT_DIST = np.zeros(5)
+
+
+def test_distress_mat_size_constant_is_the_measured_3m_spec():
+    """실측 확정 스펙(3.0m×3.0m×0.105m 라이즈드 플랫폼). ArUco의 0.50과 혼동되면 산출 거리가
+    정확히 6배 틀린다 — 상수 자체를 회귀로 박아 둔다."""
+    assert DISTRESS_MAT_SIZE_M == 3.0
+    assert DISTRESS_MAT_PLATFORM_HEIGHT_M == 0.105
+    assert DISTRESS_MAT_SIZE_M != ARUCO_TARGET_SIZE_M
+
+
+def test_mat_object_points_reuse_marker_object_points_with_3m_size():
+    pts = marker_object_points(DISTRESS_MAT_SIZE_M)
+    assert pts.shape == (4, 3)
+    assert np.allclose(pts[:, 2], 0.0), "z=0 평면 가정이 깨졌다"
+    # 시계방향, top-left부터 (marker_object_points 계약)
+    assert np.allclose(pts, [[-1.5, -1.5, 0.0], [1.5, -1.5, 0.0], [1.5, 1.5, 0.0], [-1.5, 1.5, 0.0]])
+
+
+def test_order_quad_corners_normalizes_the_real_approxpolydp_order():
+    """🔴 실측 회귀: `RectDetector`(cv2.approxPolyDP)가 골든셋 distress/10m에서 실제로 낸 순서는
+    `TL->BL->BR->TR`(**반시계**)였다. `marker_object_points()`는 시계방향이므로 그대로 넣으면
+    감김이 반대(거울상 대응)가 된다. 정규화 후에는 시계방향·top-left 시작이어야 한다."""
+    observed = np.array([[80, 80], [80, 380], [380, 380], [380, 80]], dtype=np.float64)
+    ordered = order_quad_corners_clockwise(observed)
+    assert np.allclose(ordered, [[80, 80], [380, 80], [380, 380], [80, 380]])
+
+
+@pytest.mark.parametrize("shift", [0, 1, 2, 3])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_order_quad_corners_is_invariant_to_input_rotation_and_winding(shift, reverse):
+    """approxPolyDP의 시작점/추적 방향이 어떻든 같은 정규화 결과가 나와야 한다 —
+    "가끔 맞고 가끔 틀리는" pose의 원인을 구조적으로 없앤다."""
+    base = np.array([[80, 80], [380, 80], [380, 380], [80, 380]], dtype=np.float64)
+    perturbed = np.roll(base[::-1] if reverse else base, shift, axis=0)
+    assert np.allclose(order_quad_corners_clockwise(perturbed), base)
+
+
+def test_order_quad_corners_rejects_degenerate_quad():
+    collapsed = np.array([[10, 10], [10, 10], [10, 10], [10, 10]], dtype=np.float64)
+    with pytest.raises(ValueError):
+        order_quad_corners_clockwise(collapsed)
+    collinear = np.array([[0, 0], [10, 0], [20, 0], [30, 0]], dtype=np.float64)
+    with pytest.raises(ValueError):
+        order_quad_corners_clockwise(collinear)
+
+
+def test_order_quad_corners_requires_exactly_four_points():
+    with pytest.raises(ValueError):
+        order_quad_corners_clockwise(np.array([[0, 0], [1, 0], [1, 1]], dtype=np.float64))
+
+
+def test_known_mat_size_recovers_known_distance_without_agl():
+    """★핵심: **알려진 실측 크기가 스케일을 준다** — AGL(라이다) 없이 거리가 나온다는 것이
+    이 접근을 고른 이유다. 3.0m 매트를 알려진 거리에 합성 투영 -> 복원 z가 그 거리와 일치."""
+    obj = marker_object_points(DISTRESS_MAT_SIZE_M)
+    for true_z in (10.0, 20.0, 40.0):
+        tvec = np.array([[0.0], [0.0], [true_z]])
+        img = _project_points(np.zeros(3), tvec, _MAT_K, _MAT_DIST, obj)
+        est = solve_target_pose(
+            img, _MAT_K, _MAT_DIST, object_points=obj,
+            target_type="distress_mat_center", frame_id=0, timestamp=0.0,
+        )
+        assert est.position[2] == pytest.approx(true_z, rel=1e-6)
+
+
+def test_using_the_aruco_size_constant_for_the_mat_gives_a_6x_wrong_distance():
+    """크기 상수 오용(3.0 대신 ArUco의 0.50)이 조용히 넘어가지 않는다는 것을 수치로 고정 —
+    거리가 정확히 6배 짧게 나온다(0.5/3.0)."""
+    obj = marker_object_points(DISTRESS_MAT_SIZE_M)
+    tvec = np.array([[0.0], [0.0], [10.0]])
+    img = _project_points(np.zeros(3), tvec, _MAT_K, _MAT_DIST, obj)
+    wrong = solve_target_pose(
+        img, _MAT_K, _MAT_DIST, object_points=marker_object_points(ARUCO_TARGET_SIZE_M),
+        target_type="x", frame_id=0, timestamp=0.0,
+    )
+    assert wrong.position[2] == pytest.approx(10.0 * ARUCO_TARGET_SIZE_M / DISTRESS_MAT_SIZE_M, rel=1e-6)
+
+
+def test_position_at_pixel_none_is_bit_identical_to_the_aruco_tvec_path():
+    """🔴 ArUco 회귀: 새 `position_at_pixel` 인자를 안 주면 position은 예전 그대로 tvec이다."""
+    obj = marker_object_points(ARUCO_TARGET_SIZE_M)
+    rvec, tvec = np.array([0.1, -0.2, 0.05]), np.array([[0.3], [-0.1], [4.0]])
+    img = _project_points(rvec, tvec, _MAT_K, _MAT_DIST, obj)
+    est = solve_target_pose(img, _MAT_K, _MAT_DIST, object_points=obj,
+                            target_type="aruco_23", frame_id=0, timestamp=0.0)
+    # 진짜 pose가 아니라 **solvePnP 자신의 tvec**과 비트 단위로 같아야 한다 — 새 분기가
+    # 기본 경로에 어떤 후처리도 끼워 넣지 않았다는 뜻(허용오차 비교로는 못 잡는다).
+    ok, _, solver_tvec = cv2.solvePnP(
+        obj.reshape(-1, 1, 3), np.asarray(img, dtype=np.float64).reshape(-1, 1, 2),
+        _MAT_K, _MAT_DIST,
+    )
+    assert ok
+    assert est.position == (
+        float(solver_tvec[0, 0]), float(solver_tvec[1, 0]), float(solver_tvec[2, 0])
+    )
+
+
+def test_projecting_the_target_centre_pixel_reproduces_tvec_exactly():
+    """역투영 경로의 자기검증 불변식: 타겟 원점이 찍힌 픽셀을 다시 평면으로 쏘면 tvec이 나온다."""
+    obj = marker_object_points(DISTRESS_MAT_SIZE_M)
+    rvec, tvec = np.array([0.08, -0.12, 0.03]), np.array([[0.6], [-0.4], [12.0]])
+    img = _project_points(rvec, tvec, _MAT_K, _MAT_DIST, obj)
+    centre_px = _project_points(rvec, tvec, _MAT_K, _MAT_DIST, np.zeros((1, 3)))[0]
+
+    est = solve_target_pose(
+        img, _MAT_K, _MAT_DIST, object_points=obj, position_at_pixel=tuple(centre_px),
+        target_type="distress_mat_center", frame_id=0, timestamp=0.0,
+    )
+    assert est.position == pytest.approx(tuple(tvec.reshape(-1)), abs=1e-6)
+
+
+def test_landing_pixel_gives_the_offset_point_not_the_mat_centre():
+    """★핵심(§5.3): 착륙 목표는 매트 중심이 아니라 "박스 옆 빈 초록면"이다. 착륙점 픽셀을 주면
+    position이 실제로 그 오프셋만큼 매트 중심에서 떨어져 나와야 한다."""
+    obj = marker_object_points(DISTRESS_MAT_SIZE_M)
+    tvec = np.array([[0.0], [0.0], [10.0]])
+    img = _project_points(np.zeros(3), tvec, _MAT_K, _MAT_DIST, obj)
+    # interior_margin_ratio=0.3 -> top-left 코너(-1.5,-1.5)를 중심 쪽으로 30% 당긴 점
+    landing_obj = np.array([[-1.05, -1.05, 0.0]])
+    landing_px = _project_points(np.zeros(3), tvec, _MAT_K, _MAT_DIST, landing_obj)[0]
+
+    est = solve_target_pose(
+        img, _MAT_K, _MAT_DIST, object_points=obj, position_at_pixel=tuple(landing_px),
+        target_type="distress_landing_point", frame_id=0, timestamp=0.0,
+    )
+    assert est.position == pytest.approx((-1.05, -1.05, 10.0), abs=1e-6)
+    assert np.linalg.norm(np.array(est.position[:2])) > 1.0, "착륙점이 매트 중심으로 되돌아갔다"
+
+
+def test_square_90deg_rotation_ambiguity_does_not_move_the_landing_point():
+    """🔴 정사각형은 90° 회전 4중 대칭이라 코너 라벨링이 4가지고 solvePnP 해도 4개다. 그런데도
+    **착륙점 좌표는 4개 라벨링 전부에서 동일**해야 한다 — 광선-평면 교점은 평면에만 의존하고,
+    자기 법선축 회전은 평면을 자기 자신으로 보내기 때문. 이게 성립하지 않으면 회전 모호성이
+    유도 좌표로 새어나간다(피듀셜이 없어 회전을 풀 방법이 아예 없으므로 치명적)."""
+    obj = marker_object_points(DISTRESS_MAT_SIZE_M)
+    rvec, tvec = np.array([0.05, -0.09, 0.4]), np.array([[0.5], [0.2], [11.0]])
+    img = _project_points(rvec, tvec, _MAT_K, _MAT_DIST, obj)
+    landing_px = tuple(_project_points(rvec, tvec, _MAT_K, _MAT_DIST, np.array([[-1.05, -1.05, 0.0]]))[0])
+
+    positions = []
+    for shift in range(4):
+        est = solve_target_pose(
+            np.roll(img, shift, axis=0), _MAT_K, _MAT_DIST, object_points=obj,
+            position_at_pixel=landing_px, target_type="distress_landing_point",
+            frame_id=0, timestamp=0.0,
+        )
+        positions.append(est.position)
+    for p in positions[1:]:
+        assert p == pytest.approx(positions[0], abs=1e-6), (
+            f"90° 회전 라벨링에 따라 착륙점이 움직였다: {positions}"
+        )
+
+
+def test_mirrored_corner_winding_produces_a_wrong_pose():
+    """감김 방향이 반대(거울상 대응)면 pose가 조용히 틀린다 — `order_quad_corners_clockwise()`가
+    필요한 이유 그 자체. 이 테스트가 green이면 정규화를 빼도 아무도 모른다."""
+    obj = marker_object_points(DISTRESS_MAT_SIZE_M)
+    rvec, tvec = np.array([0.2, -0.15, 0.1]), np.array([[0.4], [-0.3], [10.0]])
+    img = _project_points(rvec, tvec, _MAT_K, _MAT_DIST, obj)
+
+    good = solve_target_pose(img, _MAT_K, _MAT_DIST, object_points=obj,
+                             target_type="x", frame_id=0, timestamp=0.0)
+    mirrored = solve_target_pose(img[::-1], _MAT_K, _MAT_DIST, object_points=obj,
+                                 target_type="x", frame_id=0, timestamp=0.0)
+    R_true, _ = cv2.Rodrigues(rvec)
+    assert _quats_equal_up_to_sign(good.orientation, rotation_matrix_to_quaternion(R_true), atol=1e-4)
+    assert not _quats_equal_up_to_sign(
+        mirrored.orientation, rotation_matrix_to_quaternion(R_true), atol=0.05
+    ), "감김을 뒤집었는데 자세가 그대로 — 코너 순서 정규화가 무의미해진다"
+
+
+def test_backprojection_rejects_a_ray_that_cannot_hit_the_plane():
+    """수치 가드: 평면과 평행한 시선(교점 없음)은 조용히 이상한 좌표를 뱉지 말고 거절해야 한다."""
+    R = np.eye(3)
+    tvec = np.array([[0.0], [0.0], [10.0]])
+    # 법선이 (0,0,1)인 평면에 대해 시선벡터의 z성분을 0으로 만드는 K는 만들 수 없으므로
+    # 평면을 90° 눕혀 시선(0,0,1)과 평행하게 만든다.
+    R_edge, _ = cv2.Rodrigues(np.array([np.pi / 2, 0.0, 0.0]))
+    with pytest.raises(ValueError):
+        project_pixel_onto_target_plane((230.0, 230.0), R_edge, tvec, _MAT_K, _MAT_DIST)
+    # 정상 평면에서는 예외 없이 값이 나온다(가드가 항상 던지는 게 아님을 확인)
+    assert project_pixel_onto_target_plane((230.0, 230.0), R, tvec, _MAT_K, _MAT_DIST)[2] > 0

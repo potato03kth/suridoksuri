@@ -51,6 +51,32 @@ vision/tests/golden/
   "현재 파이프라인의 실제 동작"이지 "바람직한 동작"이 아님을 표시 — 회귀 테스트는 이 값을
   그대로 assert하되, 검출기를 몰래 고쳐서 통과시키면 안 된다(vision/CLAUDE.md 공통 규칙).
 
+## 합성 카메라 캘리브레이션 픽스처 (`distress/synthetic_calib/`, 2026-07-28 신설)
+
+`labels.json`을 갖지 않으므로 회귀 리프로 잡히지 않는다(`test_golden_regression.py`는
+`rglob("labels.json")`으로 리프를 찾는다) — **초록구역 상대 pose 테스트 전용 보조 픽스처**다.
+
+| 파일 | 대상 리프 | 용도 |
+|---|---|---|
+| `canvas460.yaml` | `distress/10m`, `distress/fine` | 460x460 캔버스 |
+| `canvas320.yaml` | `distress/20m` | 320x320 캔버스 |
+| `canvas200.yaml` | `distress/40m` | 200x200 캔버스 |
+
+🔴 **실장착 `vision/calibration/cam109-imx708af75/nominal.yaml`을 골든 프레임에 그대로 쓰면
+안 된다.** 그건 4608x2592 센서 기준이고 `solvePnP`의 focal은 픽셀 단위라, 460px 캔버스에 쓰면
+초점거리도 주점도 안 맞아 거리가 정확히 3.00배(=4608/1536) 나온다(실측 확인).
+
+**값의 출처(지어낸 값 아님):** `generate_synthetic.py`는 카메라 모델로 렌더링하지 않고
+`presets/distress_coarse.yaml` 헤더 GSD 표의 픽셀 크기를 그대로 그린다. 그 표의 전제
+(HFOV 75°, 폭 **1536px** 다운스케일 프레임)를 만족하는 초점거리는 하나뿐이다 —
+`fx = fy = 1536/(2·tan(75°/2)) = 1000.877086 px`. 검산: 3.0m 매트가 10m에서 300.3px(골든
+10m 리프가 실제로 300px). 캔버스는 그 프레임을 매트 중심 기준으로 **크롭**한 것으로 해석하며
+(크롭은 focal을 바꾸지 않는다) 주점 = 캔버스 중심이다. 각 yaml 헤더에 같은 도출이 적혀 있다.
+
+⚠️ `accuracy: unverified` / `not_for_closed_loop_30cm: true`는 **일부러 nominal.yaml과 같은
+보수적 값**을 유지한다 — 합성 카메라라고 provenance 플래그를 해금하면 이 픽스처로 돌린 테스트가
+"폐루프 30cm 가능"이라는 거짓 신호를 흘리게 된다.
+
 ## 현재 들어있는 것 (2026-07-25 갱신, 최초 2026-07-21c)
 
 | 타겟 | 고도 티어 | preset | 근거 |

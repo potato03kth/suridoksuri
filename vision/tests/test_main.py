@@ -7,6 +7,7 @@
 --log-dir 을 tmp_path 하위로 명시한다.
 """
 import json
+import math
 import os
 import signal
 import socket
@@ -991,3 +992,240 @@ def test_target_sink_streams_real_jsonl_to_a_stdlib_consumer_and_eofs_on_exit(
     finally:
         _GatedVideoReader.gate.set()
         t.join(timeout=10.0)
+
+
+# ===========================================================================
+# ② 조난자 구역(초록 매트) 상대 pose 배선 — 갭 메우기
+#
+# 배선 전에는 초록구역이 **검출은 되는데 기체에 보낼 좌표가 없었다**(`_solve_aruco_estimate`가
+# ArUco 전용이라 `position_flu`가 항상 null). 아래 테스트들은 골든셋(합성) 실프레임 +
+# 실제 프리셋 + 실제 sink 레코드 조립으로 그 빈칸이 실제로 채워졌는지 확인한다.
+#
+# 캘리브레이션은 `vision/tests/golden/distress/synthetic_calib/`(골든 프레임을 만든 전제를
+# 역산한 가상 카메라)를 쓴다 — 실장착 `nominal.yaml`은 4608px 센서 기준이라 460px 골든
+# 캔버스에 그대로 쓰면 focal도 주점도 안 맞는다.
+# ===========================================================================
+
+_GOLDEN_DISTRESS = Path(main_mod.__file__).parent / "tests" / "golden" / "distress"
+_DISTRESS_COARSE_PRESET = str(Path(main_mod.__file__).parent / "presets" / "distress_coarse.yaml")
+
+
+def _golden_calib(canvas: int) -> str:
+    return str(_GOLDEN_DISTRESS / "synthetic_calib" / f"canvas{canvas}.yaml")
+
+
+def _golden_frame_copy(tmp_path, tier: str) -> str:
+    """골든 PNG를 그대로 복사해 쓴다(재인코딩 없음 — mp4 압축이 코너를 1px 흔드는 것을 피해
+    거리 정확도를 정직하게 잰다)."""
+    dst = tmp_path / f"{tier}.png"
+    dst.write_bytes((_GOLDEN_DISTRESS / tier / "frame_000.png").read_bytes())
+    return str(dst)
+
+
+def _run_distress(tmp_path, monkeypatch, *, tier, preset, canvas, name):
+    monkeypatch.setattr(
+        sys, "argv",
+        ["vision.main", _golden_frame_copy(tmp_path, tier), "--preset", preset,
+         "--calib", _golden_calib(canvas), "--log-dir", str(tmp_path / "logs"),
+         "--log-name", name, *_sink_args()],
+    )
+    main_mod.main()
+
+
+def test_distress_coarse_preset_emits_a_valid_target_with_real_coordinates(
+    tmp_path, monkeypatch, recording_sink_cls
+):
+    """이 세션이 메운 갭 그 자체: 초록구역 coarse 프레임에서 `valid=true` + 3프레임 좌표가
+    실제 숫자로 나가야 한다(예전엔 `valid=false, position_flu=null` 뿐이었다)."""
+    _run_distress(tmp_path, monkeypatch, tier="10m", preset=_DISTRESS_COARSE_PRESET,
+                  canvas=460, name="dcoarse")
+
+    targets = [r for r in recording_sink_cls.instances[-1].records
+               if r["type"] == RECORD_TYPE_TARGET]
+    assert len(targets) == 1
+    rec = targets[0]
+    assert all(k in rec for k in REQUIRED_TARGET_KEYS)
+    assert rec["valid"] is True, f"초록구역에서 여전히 무효 레코드가 나간다: {rec['reason']}"
+    assert rec["target_type"] == "distress_mat_center"
+    for key in ("position_cam", "position_flu", "position_frd"):
+        assert rec[key] is not None and len(rec[key]) == 3
+        assert all(isinstance(v, float) for v in rec[key])
+    # coarse는 매트 중심이 목표라 화면 중앙 매트는 x,y가 0 근처, z가 실제 거리다.
+    assert abs(rec["position_cam"][0]) < 0.1 and abs(rec["position_cam"][1]) < 0.1
+    assert rec["position_cam"][2] > 1.0
+
+
+@pytest.mark.parametrize(
+    "tier, canvas, expected_z_m", [("10m", 460, 10.0), ("20m", 320, 20.0)]
+)
+def test_distress_pose_distance_matches_the_golden_altitude_label(
+    tmp_path, monkeypatch, recording_sink_cls, tier, canvas, expected_z_m
+):
+    """거리 정확도 sanity — **알려진 실측 크기(3.0m)가 스케일을 준다**는 접근의 핵심 주장.
+    크기 상수를 ArUco의 0.50으로 오용하면 거리가 6배 짧아져 즉시 red가 된다.
+
+    ⚠️ 골든셋은 합성이고 고도 라벨은 "실측 스펙에서 GSD로 역산한 픽셀 크기"라는 뜻이다
+    (`tests/golden/generate_synthetic.py`) — 실촬영 검증이 아니다. 여기서 확인하는 것은
+    "산출 거리가 그 라벨과 정합한다"까지다."""
+    _run_distress(tmp_path, monkeypatch, tier=tier, preset=_DISTRESS_COARSE_PRESET,
+                  canvas=canvas, name=f"dist{tier}")
+
+    rec = next(r for r in recording_sink_cls.instances[-1].records
+               if r["type"] == RECORD_TYPE_TARGET)
+    assert rec["valid"] is True
+    z = rec["position_cam"][2]
+    assert z == pytest.approx(expected_z_m, rel=0.05), (
+        f"{tier} 라벨인데 산출 거리가 {z:.3f}m — 크기 상수/코너 순서/캘리브 불일치를 의심"
+    )
+
+
+def test_distress_fine_landing_point_is_offset_from_the_mat_centre(
+    tmp_path, monkeypatch, recording_sink_cls
+):
+    """§5.3 핵심: 착륙 목표는 매트 중심이 아니라 "박스 옆 빈 초록면"이다. fine 프리셋의
+    position은 coarse(매트 중심)의 position과 **눈에 띄게 달라야** 한다. 착륙점을 매트 중심으로
+    되돌리는 회귀가 나면 두 값이 같아져 red."""
+    _run_distress(tmp_path, monkeypatch, tier="fine", preset=_DISTRESS_FINE_PRESET,
+                  canvas=460, name="dfine")
+    fine_rec = next(r for r in recording_sink_cls.instances[-1].records
+                    if r["type"] == RECORD_TYPE_TARGET)
+
+    _run_distress(tmp_path, monkeypatch, tier="10m", preset=_DISTRESS_COARSE_PRESET,
+                  canvas=460, name="dcentre")
+    centre_rec = next(r for r in recording_sink_cls.instances[-1].records
+                      if r["type"] == RECORD_TYPE_TARGET)
+
+    assert fine_rec["valid"] is True
+    assert fine_rec["target_type"] == "distress_landing_point"
+    assert centre_rec["target_type"] == "distress_mat_center"
+
+    lateral = math.hypot(fine_rec["position_cam"][0] - centre_rec["position_cam"][0],
+                         fine_rec["position_cam"][1] - centre_rec["position_cam"][1])
+    # 3.0m 매트 + interior_margin_ratio=0.3 -> 축당 0.7*1.5=1.05m, 대각 약 1.485m
+    assert lateral == pytest.approx(1.05 * math.sqrt(2), rel=0.05), (
+        f"착륙점이 매트 중심에서 밀려나지 않았다(수평차 {lateral:.3f}m)"
+    )
+    # 같은 매트를 보고 있으므로 거리(z)는 같아야 한다 — 오프셋이 z로 새면 안 된다.
+    assert fine_rec["position_cam"][2] == pytest.approx(centre_rec["position_cam"][2], rel=1e-3)
+    assert fine_rec["meta"]["landing_point_source"] == "white_box_landing_point"
+
+
+def test_distress_estimate_carries_the_calibration_provenance(
+    tmp_path, monkeypatch, recording_sink_cls
+):
+    """§7.3 provenance echo: nominal(미검증) intrinsics로 낸 pose라는 사실이 소비자까지
+    그대로 가야 한다 — 이게 빠지면 소비자가 30cm 폐루프에 바로 써버릴 수 있다."""
+    _run_distress(tmp_path, monkeypatch, tier="10m", preset=_DISTRESS_COARSE_PRESET,
+                  canvas=460, name="dprov")
+    rec = next(r for r in recording_sink_cls.instances[-1].records
+               if r["type"] == RECORD_TYPE_TARGET)
+
+    assert rec["calib_accuracy"] == "unverified"
+    assert rec["not_for_closed_loop_30cm"] is True
+    assert rec["calib_id"].endswith("canvas460.yaml")
+    # 플래그가 소비자용 바닥 고도로 번역돼 나가는지까지(§5.5)
+    assert rec["closed_loop_floor_agl_m"] == 3.0
+    # z=0 평면이 지면이 아니라 매트 윗면이라는 사실도 전파돼야 한다(0.105m 라이즈드)
+    assert rec["meta"]["plane_reference"] == "mat_top_surface"
+    assert rec["meta"]["platform_height_m"] == 0.105
+
+
+def test_distress_pose_uses_the_measured_3m_spec_not_the_aruco_size(
+    tmp_path, monkeypatch, recording_sink_cls
+):
+    _run_distress(tmp_path, monkeypatch, tier="10m", preset=_DISTRESS_COARSE_PRESET,
+                  canvas=460, name="dsize")
+    rec = next(r for r in recording_sink_cls.instances[-1].records
+               if r["type"] == RECORD_TYPE_TARGET)
+    assert rec["meta"]["mat_size_m"] == 3.0
+
+
+def test_mat_seen_but_pose_unsolvable_reports_its_own_reason(
+    tmp_path, monkeypatch, recording_sink_cls
+):
+    """§5.4 사유 뭉개기 금지: "매트를 아예 못 봤다"와 "매트는 봤는데 4코너가 못 쓴다"는
+    현장에서 다른 조치를 요구한다 — `no_target_detection` 하나로 합치면 원인을 못 가린다."""
+    real_run = main_mod.Pipeline.run
+
+    def _blank_corners(self, image):
+        state = real_run(self, image)
+        for d in state.detections:
+            d.corners = None
+            d.meta.pop("distress_mat", None)
+        state.meta["distress_mat_geometry"] = {"tagged": 0, "skipped": 1,
+                                               "skip_reasons": ["no_quad_corners"]}
+        return state
+
+    monkeypatch.setattr(main_mod.Pipeline, "run", _blank_corners)
+    _run_distress(tmp_path, monkeypatch, tier="10m", preset=_DISTRESS_COARSE_PRESET,
+                  canvas=460, name="dnogeom")
+
+    rec = next(r for r in recording_sink_cls.instances[-1].records
+               if r["type"] == RECORD_TYPE_TARGET)
+    assert rec["valid"] is False
+    assert rec["reason"] == main_mod.SINK_REASON_MAT_GEOMETRY_UNAVAILABLE
+    assert rec["reason"] != main_mod.SINK_REASON_NO_DETECTION
+    assert rec["position_frd"] is None, "무효 레코드의 포즈는 0이 아니라 null이어야 한다"
+
+
+def test_a_preset_without_the_mat_geometry_step_still_says_no_target_detection(
+    tmp_path, monkeypatch, recording_sink_cls
+):
+    """프리셋 주도 선택의 반대편 회귀: `distress_mat_geometry` 스텝이 없는 프리셋(범용
+    `rect_detector`를 쓰는 `video.yaml` 등)은 초록구역 경로를 타면 안 된다 — 3m 매트 크기가
+    엉뚱한 사각형에 적용되면 완전히 틀린 좌표가 유도로 나간다.
+
+    ⚠️ 픽스처가 **실제로 4코너 검출을 만들어야** 이 회귀에 이빨이 생긴다. `video.yaml`을
+    골든 프레임에 돌리면 검출이 0이라 어떤 구현이든 통과해 버린다(파괴검증 D7에서 실측).
+    그래서 `distress_coarse.yaml`에서 **`distress_mat_geometry` 스텝만 뺀** 프리셋을 만들어
+    쓴다 — 매트는 확실히 4코너로 검출되고, 다른 건 아무것도 다르지 않다."""
+    import yaml
+
+    cfg = yaml.safe_load(Path(_DISTRESS_COARSE_PRESET).read_text(encoding="utf-8"))
+    removed = cfg["pipeline"].pop("distress_mat_geometry")
+    assert removed is not None, "프리셋에 distress_mat_geometry 스텝이 없다 — 배선 자체가 빠졌다"
+    stripped = tmp_path / "coarse_without_geometry.yaml"
+    stripped.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+
+    # 이 프리셋이 매트를 4코너로 실제 검출한다는 것을 먼저 확인(픽스처가 무력하지 않다는 증거)
+    frame_path = _golden_frame_copy(tmp_path, "10m")
+    probe = main_mod.Pipeline.from_config(str(stripped)).run(cv2.imread(frame_path))
+    assert probe.detections and probe.detections[0].corners is not None
+    assert len(probe.detections[0].corners) == 4
+    assert "distress_mat" not in probe.detections[0].meta
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["vision.main", frame_path, "--preset", str(stripped),
+         "--calib", _golden_calib(460), "--log-dir", str(tmp_path / "logs"),
+         "--log-name", "generic", *_sink_args()],
+    )
+    main_mod.main()
+
+    rec = next(r for r in recording_sink_cls.instances[-1].records
+               if r["type"] == RECORD_TYPE_TARGET)
+    assert rec["valid"] is False, "매트 기하 스텝이 없는 프리셋인데 pose가 나갔다"
+    assert rec["reason"] == main_mod.SINK_REASON_NO_DETECTION
+    assert rec["target_type"] is None
+
+
+def test_aruco_path_is_untouched_by_the_distress_wiring(tmp_path, monkeypatch):
+    """ArUco 회귀: 초록구역 경로를 얹어도 ArUco JSONL `chosen.target_estimate`의 **키 집합과
+    값**이 조금도 달라지면 안 된다(특히 새 `meta` 키가 ArUco 쪽에 새어 들어가면 red)."""
+    img_path = _write_aruco_image(tmp_path)
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr(
+        sys, "argv",
+        ["vision.main", img_path, "--preset", _VERTIPORT_FINE_PRESET,
+         "--log-dir", str(log_dir), "--log-name", "arucoregress"],
+    )
+    main_mod.main()
+
+    rec = json.loads((log_dir / "arucoregress.jsonl").read_text().splitlines()[-1])
+    est = rec["chosen"]["target_estimate"]
+    assert set(est) == {
+        "position", "orientation", "confidence", "target_type",
+        "calib_accuracy", "not_for_closed_loop_30cm", "calib_id",
+    }, f"ArUco chosen 형태가 달라졌다: {sorted(est)}"
+    assert est["target_type"] == "aruco_23"
+    assert est["calib_id"].endswith("nominal.yaml")

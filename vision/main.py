@@ -45,10 +45,15 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import cv2
+import numpy as np
 
 from vision.core.runner import Pipeline
 from vision.core.state_machine import Decision, LandingStateMachine, Observation
-from vision.core.target import TargetEstimate, solve_target_pose
+from vision.core.target import (
+    TargetEstimate,
+    marker_object_points,
+    solve_target_pose,
+)
 from vision.utils.blackbox import BlackBoxLogger
 from vision.utils.calibration_loader import CameraCalibration, load_camera_calibration
 from vision.utils.frame_source import LiveFrameSource
@@ -82,6 +87,11 @@ SINK_REASON_OK = "ok"
 SINK_REASON_NO_CALIB = "no_calibration"
 SINK_REASON_NO_DETECTION = "no_target_detection"
 SINK_REASON_SOLVE_FAILED = "pose_solve_failed"
+# ② 조난자 구역(초록 매트) 전용 사유 — `no_target_detection` 하나로 뭉뚱그리면 현장에서
+# "매트를 아예 못 봤다"와 "매트는 봤는데 pose를 못 냈다"가 구분되지 않는다(§5.4 계약 2번의
+# 취지가 사유를 남기는 것인데, 사유가 뭉개지면 있으나 마나다).
+SINK_REASON_MAT_GEOMETRY_UNAVAILABLE = "mat_geometry_unavailable"
+SINK_REASON_LANDING_POINT_UNPROJECTABLE = "landing_point_unprojectable"
 
 
 def _show_window(annotated, *, wait: int) -> bool:
@@ -135,7 +145,7 @@ def _find_white_box_detection(detections):
 
 
 def _target_estimate_to_dict(estimate) -> dict:
-    return {
+    d = {
         "position": list(estimate.position),
         "orientation": list(estimate.orientation),
         "confidence": estimate.confidence,
@@ -144,6 +154,11 @@ def _target_estimate_to_dict(estimate) -> dict:
         "not_for_closed_loop_30cm": estimate.not_for_closed_loop_30cm,
         "calib_id": estimate.calib_id,
     }
+    # ArUco 경로는 meta를 안 채우므로(`solve_target_pose` 기본값 {}) 이 키가 생기지 않는다 —
+    # 기존 JSONL `chosen` 형태 무변경. 초록 매트 경로만 착륙점/평면기준을 추가로 남긴다.
+    if estimate.meta:
+        d["meta"] = dict(estimate.meta)
+    return d
 
 
 def _solve_aruco_estimate(
@@ -184,6 +199,109 @@ def _solve_aruco_estimate(
         logger.warning("frame %d: ArUco solvePnP 실패 — TargetEstimate 생략: %s", frame_id, e)
         return None, SINK_REASON_SOLVE_FAILED
     return estimate, SINK_REASON_OK
+
+
+def _find_distress_mat_detection(detections):
+    """② 조난자 구역(초록 매트) — `modules/distress_mat.py::DistressMatGeometry`가 pose 산출용
+    기하를 태깅해 둔 검출을 찾는다. 그 모듈은 코너 정규화에 성공한 것만 `meta["distress_mat"]`을
+    남기므로 첫 항목을 그대로 쓴다(ArUco와 동일 단일 타겟 전제)."""
+    for d in detections:
+        if d.meta.get("distress_mat") is not None:
+            return d
+    return None
+
+
+def _solve_distress_mat_estimate(
+    state, calib: Optional[CameraCalibration], frame_id: int, ts: float, logger,
+) -> Tuple[Optional[TargetEstimate], str]:
+    """초록 매트 4코너 + **알려진 실측 크기(3.0m)** -> `solvePnP` -> ArUco와 **완전히 같은 형식**의
+    `TargetEstimate`. 이 경로가 없으면 초록구역은 검출은 되는데 기체에 보낼 좌표가 없다.
+
+    - **objectPoints는 `marker_object_points(size_m)`을 그대로 재사용한다** — 그 함수가 애초에
+      크기를 인자로 받으므로(ArUco는 0.50) 새 기계장치가 필요 없다. 코너 순서 대응은
+      `DistressMatGeometry`가 `order_quad_corners_clockwise()`로 이미 맞춰 뒀다.
+    - **AGL이 필요 없다** — 알려진 크기가 스케일을 준다(`main.py`는 AGL을 받는 경로 자체가 없다).
+    - **position은 매트 중심이 아니라 착륙점이다**(§5.3). `position_at_pixel`로 착륙점 픽셀을
+      넘기면 `core/target.py`가 매트 평면 위로 역투영해 그 점을 `position`으로 쓴다.
+    - **provenance는 ArUco 경로와 한 글자도 다르지 않게** 붙인다(nominal intrinsics라
+      30cm 폐루프 미검증이라는 사실이 소비자까지 전파돼야 한다, §7.3).
+
+    실패 사유를 뭉개지 않는다: 매트 미검출(`no_target_detection`) / 매트는 봤지만 4코너가
+    쓸모없음(`mat_geometry_unavailable`) / 착륙점 역투영 실패(`landing_point_unprojectable`) /
+    solvePnP 미수렴(`pose_solve_failed`)을 각각 다른 문자열로 내보낸다.
+    """
+    if calib is None:
+        return None, SINK_REASON_NO_CALIB
+    det = _find_distress_mat_detection(state.detections)
+    if det is None:
+        # 매트 후보는 있었는데 기하 태깅이 전부 실패했다면 "아예 못 봤다"와 구분해 준다.
+        geom_meta = state.meta.get("distress_mat_geometry")
+        if geom_meta is not None and geom_meta.get("skipped"):
+            return None, SINK_REASON_MAT_GEOMETRY_UNAVAILABLE
+        return None, SINK_REASON_NO_DETECTION
+
+    mat = det.meta["distress_mat"]
+    coarse = mat["landing_point_source"] == "mat_center"
+    try:
+        estimate = solve_target_pose(
+            image_points=np.asarray(mat["corners_px"], dtype=np.float64),
+            camera_matrix=calib.camera_matrix,
+            dist_coeffs=calib.dist_coeffs,
+            object_points=marker_object_points(mat["size_m"]),
+            # coarse(매트 중심)는 tvec이 곧 그 점이라 역투영을 거치지 않는다 — 같은 값을
+            # 두 경로로 구해 미세한 수치차를 만들 이유가 없다.
+            position_at_pixel=None if coarse else tuple(mat["landing_point_px"]),
+            target_type="distress_mat_center" if coarse else "distress_landing_point",
+            frame_id=frame_id,
+            timestamp=ts,
+            confidence=det.confidence,
+            calib_accuracy=calib.accuracy,
+            not_for_closed_loop_30cm=calib.not_for_closed_loop_30cm,
+            calib_id=calib.calib_id,
+            meta={
+                "mat_size_m": mat["size_m"],
+                "landing_point_px": mat["landing_point_px"],
+                "landing_point_source": mat["landing_point_source"],
+                # 🔴 z=0 평면이 지면이 아니라 매트 윗면(0.105m 라이즈드)이라는 사실 —
+                # 소비자가 라이다 AGL과 섞을 때 이 차이를 알아야 한다.
+                "plane_reference": mat["plane_reference"],
+                "platform_height_m": mat["platform_height_m"],
+                # 프레임 크기 ↔ 캘리브레이션 해상도 불일치는 pose를 그 비율만큼 통째로
+                # 틀리게 한다(스케일이 focal에 그대로 실리므로). 조용히 재스케일하지 않고
+                # (다운스케일인지 크롭인지 알 수 없다) 사실만 실어 보낸다.
+                "frame_size_px": [int(state.original.shape[1]), int(state.original.shape[0])],
+                "calib_image_size_px": [int(calib.image_size[0]), int(calib.image_size[1])],
+            },
+        )
+    except ValueError as e:
+        # `project_pixel_onto_target_plane()`(역투영)과 `cv2.solvePnP` 실패가 둘 다 ValueError로
+        # 온다 — 메시지가 아니라 "착륙점을 넘겼는가"로 갈라야 사유가 안전하게 구분된다.
+        reason = SINK_REASON_SOLVE_FAILED if coarse else SINK_REASON_LANDING_POINT_UNPROJECTABLE
+        logger.warning(
+            "frame %d: 초록 매트 pose 산출 실패(%s) — TargetEstimate 생략: %s", frame_id, reason, e
+        )
+        return None, reason
+    return estimate, SINK_REASON_OK
+
+
+def _solve_target_estimate(
+    state, calib: Optional[CameraCalibration], frame_id: int, ts: float, logger,
+) -> Tuple[Optional[TargetEstimate], str]:
+    """프레임 하나에서 상대 pose를 산출한다 — **어느 산출기를 쓸지는 프리셋이 정한다.**
+
+    선택 기전은 preset 경로 문자열 파싱이 아니라 **파이프라인이 남긴 meta**다: ArUco 프리셋은
+    `meta["aruco_id"]`를, 초록구역 프리셋은 `meta["distress_mat"]`(=`distress_mat_geometry`
+    스텝이 있을 때만 생김)을 남긴다. 경로 문자열 관례는 깨지기 쉽고, 같은 `rect_detector`를
+    쓰는 범용 프리셋(`video.yaml`)에 3m 매트 크기가 실수로 적용되는 것도 막아야 한다.
+
+    🔴 **ArUco 경로는 조금도 달라지지 않는다.** ArUco가 `no_target_detection` 이외의 사유를
+    내면(성공/calib 없음/solvePnP 실패) 그대로 돌려주고, 초록 매트 경로는 **ArUco 검출이
+    없을 때만** 시도된다. 초록 매트도 없으면 `no_target_detection` — 배선 전과 같은 값이다.
+    """
+    estimate, reason = _solve_aruco_estimate(state, calib, frame_id, ts, logger)
+    if reason != SINK_REASON_NO_DETECTION:
+        return estimate, reason
+    return _solve_distress_mat_estimate(state, calib, frame_id, ts, logger)
 
 
 def _merge_target_estimate_into_chosen(chosen: Optional[dict], estimate) -> Optional[dict]:
@@ -343,7 +461,7 @@ def _run_image(
     if state.confirmed:
         print(f"Confirmed: bbox={state.confirmed.bbox}")
 
-    estimate, sink_reason = _solve_aruco_estimate(state, calib, 0, ts, logger)
+    estimate, sink_reason = _solve_target_estimate(state, calib, 0, ts, logger)
     chosen = _merge_target_estimate_into_chosen(_confirmed_to_dict(state.confirmed), estimate)
 
     decision = None
@@ -406,7 +524,7 @@ def _run_video(
             ts = time.time()
             annotated = draw_detections(state.original, state.detections, state.confirmed)
 
-            estimate, sink_reason = _solve_aruco_estimate(state, calib, frame_count, ts, logger)
+            estimate, sink_reason = _solve_target_estimate(state, calib, frame_count, ts, logger)
             chosen = _merge_target_estimate_into_chosen(
                 _confirmed_to_dict(state.confirmed), estimate
             )
@@ -521,7 +639,7 @@ def _run_live(
                 ts = record.ts
                 annotated = draw_detections(state.original, state.detections, state.confirmed)
 
-                estimate, sink_reason = _solve_aruco_estimate(
+                estimate, sink_reason = _solve_target_estimate(
                     state, calib, frame_count, ts, logger
                 )
                 chosen = _merge_target_estimate_into_chosen(

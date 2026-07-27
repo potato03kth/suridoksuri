@@ -1,0 +1,51 @@
+# 골든셋 합성 프레임(`vision/tests/golden/distress/`) 전용 **가상 카메라** 인트린식.
+#
+# 🔴 실제 카메라가 아니다. `vision/calibration/cam109-imx708af75/nominal.yaml`(실장착 카메라)을
+#    골든 프레임에 그대로 쓰면 pose가 통째로 틀린다 — 그 파일은 4608x2592 센서 기준인데 골든
+#    프레임은 460x460 캔버스이고, focal(px)은 해상도에 비례하는 값이라 초점거리와
+#    주점이 둘 다 안 맞기 때문이다. 이 파일은 `--calib`로 그 불일치를 없앤다.
+#
+# --- 도출 (지어낸 값 아님, 골든 생성기의 전제를 그대로 역산) ---
+# `generate_synthetic.py`는 카메라 모델로 렌더링하지 않는다. 대신 매트 한 변의 픽셀 크기를
+# `vision/presets/distress_coarse.yaml` 헤더의 GSD 표에서 가져와 그린다. 그 표의 전제는:
+#     실측 화각 HFOV=75°, coarse 다운스케일 **폭 1536px** 전체프레임
+# 이 전제를 만족하는 카메라의 초점거리는 하나뿐이다:
+#     fx = fy = 1536 / (2·tan(75°/2)) = 1000.877086 px
+# 검산: 3.0m 매트가 10m에서 fx·3.0/10 = 300.3px  (골든 10m 리프가 실제로 300px)
+#
+# 골든 캔버스는 그 1536px 프레임을 매트 중심 기준으로 **크롭**한 것으로 해석한다(크롭은
+# focal을 바꾸지 않는다). 매트가 캔버스 정중앙에 그려지므로 주점 = 캔버스 중심:
+#     cx = cy = 460/2 = 230
+# dist_coeffs는 전부 0 — 합성 프레임은 원근/왜곡 없이 그려진 축평행 사각형이라 이게 정확하다.
+#
+# accuracy/not_for_closed_loop_30cm는 **일부러 nominal.yaml과 같은 보수적 값**을 유지한다.
+# 합성 카메라라고 provenance 플래그를 해금하면, 이 파일로 돌린 테스트가 "폐루프 30cm 가능"
+# 이라는 거짓 신호를 흘리게 된다.
+schema_version: 1
+camera_id: synthetic-golden-460
+source: synthetic_golden_fixture
+accuracy: unverified
+not_for_closed_loop_30cm: true
+image_size:
+- 460
+- 460
+camera_matrix:
+- - 1000.8770863420
+  - 0.0
+  - 230
+- - 0.0
+  - 1000.8770863420
+  - 230
+- - 0.0
+  - 0.0
+  - 1.0
+dist_coeffs:
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+hfov_assumption:
+  axis: horizontal
+  hfov_deg: 75.0
+  note: 합성 골든 프레임의 생성 전제(1536px 폭 다운스케일 프레임 기준 HFOV 75°)를 역산한 값. 실측 캘리브레이션이 아니다.

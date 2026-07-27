@@ -20,10 +20,11 @@ from pathlib import Path
 from typing import Optional
 
 import cv2
+import numpy as np
 
 from vision.core.runner import Pipeline
 from vision.core.state_machine import LandingStateMachine, Observation
-from vision.core.target import solve_target_pose
+from vision.core.target import marker_object_points, solve_target_pose
 from vision.utils.blackbox import BlackBoxLogger
 from vision.utils.calibration_loader import CameraCalibration, load_camera_calibration
 from vision.utils.frame_source import open_dir_or_bag
@@ -80,8 +81,17 @@ def _find_white_box_detection(detections):
     return None
 
 
+def _find_distress_mat_detection(detections):
+    """② 조난자 구역(초록 매트) — `modules/distress_mat.py::DistressMatGeometry`가 pose 산출용
+    기하를 태깅해 둔 검출을 찾는다(main.py와 동일 로직, 얇게 중복)."""
+    for d in detections:
+        if d.meta.get("distress_mat") is not None:
+            return d
+    return None
+
+
 def _target_estimate_to_dict(estimate) -> dict:
-    return {
+    d = {
         "position": list(estimate.position),
         "orientation": list(estimate.orientation),
         "confidence": estimate.confidence,
@@ -90,6 +100,10 @@ def _target_estimate_to_dict(estimate) -> dict:
         "not_for_closed_loop_30cm": estimate.not_for_closed_loop_30cm,
         "calib_id": estimate.calib_id,
     }
+    # ArUco 경로는 meta를 안 채우므로 이 키가 생기지 않는다 — 기존 JSONL `chosen` 형태 무변경.
+    if estimate.meta:
+        d["meta"] = dict(estimate.meta)
+    return d
 
 
 def _solve_aruco_chosen(
@@ -119,6 +133,63 @@ def _solve_aruco_chosen(
         logger.warning("frame %d: ArUco solvePnP 실패 — TargetEstimate 생략: %s", frame_id, e)
         return None
     return {"target_estimate": _target_estimate_to_dict(estimate)}
+
+
+def _solve_distress_mat_chosen(
+    state, calib: Optional[CameraCalibration], frame_id: int, ts: float, logger,
+) -> Optional[dict]:
+    """초록 매트 4코너 + 알려진 실측 크기(3.0m) -> solvePnP -> ArUco와 같은 형식의
+    `TargetEstimate`(main.py `_solve_distress_mat_estimate`와 동일 로직, 얇게 중복).
+
+    §7.5가 "같은 파이프라인으로 오프라인 재생"을 회귀검증의 최대 레버로 못박고 있어, 재생
+    경로에도 붙어 있어야 초록구역 pose 계약을 책상에서 회귀로 잡을 수 있다.
+    **position은 매트 중심이 아니라 착륙점**(§5.3 "박스 옆 빈 초록면")이다."""
+    if calib is None:
+        return None
+    det = _find_distress_mat_detection(state.detections)
+    if det is None:
+        return None
+    mat = det.meta["distress_mat"]
+    coarse = mat["landing_point_source"] == "mat_center"
+    try:
+        estimate = solve_target_pose(
+            image_points=np.asarray(mat["corners_px"], dtype=np.float64),
+            camera_matrix=calib.camera_matrix,
+            dist_coeffs=calib.dist_coeffs,
+            object_points=marker_object_points(mat["size_m"]),
+            position_at_pixel=None if coarse else tuple(mat["landing_point_px"]),
+            target_type="distress_mat_center" if coarse else "distress_landing_point",
+            frame_id=frame_id,
+            timestamp=ts,
+            confidence=det.confidence,
+            calib_accuracy=calib.accuracy,
+            not_for_closed_loop_30cm=calib.not_for_closed_loop_30cm,
+            calib_id=calib.calib_id,
+            meta={
+                "mat_size_m": mat["size_m"],
+                "landing_point_px": mat["landing_point_px"],
+                "landing_point_source": mat["landing_point_source"],
+                "plane_reference": mat["plane_reference"],
+                "platform_height_m": mat["platform_height_m"],
+                "frame_size_px": [int(state.original.shape[1]), int(state.original.shape[0])],
+                "calib_image_size_px": [int(calib.image_size[0]), int(calib.image_size[1])],
+            },
+        )
+    except ValueError as e:
+        logger.warning("frame %d: 초록 매트 pose 산출 실패 — TargetEstimate 생략: %s", frame_id, e)
+        return None
+    return {"target_estimate": _target_estimate_to_dict(estimate)}
+
+
+def _solve_target_chosen(
+    state, calib: Optional[CameraCalibration], frame_id: int, ts: float, logger,
+) -> Optional[dict]:
+    """어느 pose 산출기를 쓸지는 **프리셋이 남긴 meta**가 정한다(main.py와 동일 판단).
+    🔴 ArUco 검출이 있으면 그 결과가 그대로 나가고, 초록 매트는 ArUco가 없을 때만 시도된다."""
+    aruco_chosen = _solve_aruco_chosen(state, calib, frame_id, ts, logger)
+    if aruco_chosen is not None or _find_aruco_detection(state.detections) is not None:
+        return aruco_chosen
+    return _solve_distress_mat_chosen(state, calib, frame_id, ts, logger)
 
 
 def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] = None) -> Observation:
@@ -229,7 +300,7 @@ def run_replay(
                 frame_count += 1
 
                 chosen = _confirmed_to_dict(state.confirmed)
-                aruco_chosen = _solve_aruco_chosen(state, calib, record.frame_id, record.ts, logger)
+                aruco_chosen = _solve_target_chosen(state, calib, record.frame_id, record.ts, logger)
                 if aruco_chosen is not None:
                     chosen = {**(chosen or {}), **aruco_chosen}
 

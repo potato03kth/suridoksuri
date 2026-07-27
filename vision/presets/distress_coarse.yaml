@@ -45,3 +45,14 @@ pipeline:
     max_area: 200000
     approx_epsilon: 0.04
     min_solidity: 0.7
+
+  # 상대 pose 산출용 기하 태깅 (modules/distress_mat.py). 검출을 더하거나 빼지 않는다 —
+  # rect_detector가 낸 매트 후보의 4코너를 solvePnP 대응 순서로 정규화해 meta에 싣는다.
+  # **이 스텝이 있다는 것 자체가 "초록구역 pose 산출기를 쓰라"는 신호**다(main.py가 preset
+  # 경로 문자열을 파싱하지 않고 meta["distress_mat"] 존재 여부로 경로를 고른다) — 같은
+  # rect_detector를 쓰는 범용 video.yaml이 3m 매트 크기를 실수로 적용받는 일이 없다.
+  # coarse에는 white_box_detector가 없으므로 착륙점은 매트 중심으로 degrade한다(그 사실은
+  # landing_point_source="mat_center" + target_type="distress_mat_center"로 소비자에게 전파).
+  distress_mat_geometry:
+    size_m: 3.0
+    platform_height_m: 0.105
