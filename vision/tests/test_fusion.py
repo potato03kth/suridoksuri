@@ -3,20 +3,18 @@
 검증 대상은 이 모듈이 존재하는 이유 — **시간축 확정과 흔들림 억제**다.
 (`vision/CLAUDE.md` 테스트 규칙표: "detections→confirmed 시간확정·흔들림 억제")
 
-⚠️ **알려진 결함 위에 깔린 characterization 테스트다 — 읽고 고칠 것.**
+**[2026-07-28] 구조적 결함이 수정됐다 — 이 파일은 그에 맞춰 갱신됐다.**
 
-`__call__`은 매 프레임 `_decay()`로 **모든** 후보의 count를 1씩 깎는다. 방금 매칭돼
-`count += 1` 된 후보도 예외가 아니다. 그래서 프레임당 검출이 1개뿐이면 count가
-`+1` 후 `-1` = 0이 되어 `_decay()`가 그 후보를 목록에서 통째로 제거한다 →
-**같은 자리에 몇 프레임을 연속으로 나타나든 절대 confirmed 되지 않는다.**
-docstring("같은 위치에 min_frames 회 이상 등장한 detection을 state.confirmed에 확정")과
-정면으로 어긋난다. 이 세션은 지시에 따라 로직을 고치지 않고 사실만 고정했다:
+예전 `_decay()`는 방금 매칭돼 `count += 1` 된 후보의 count까지 깎아, 프레임당 검출이
+1개뿐이면 순증이 0이 되고 후보가 목록에서 제거됐다 → 몇 프레임을 연속으로 나타나든
+절대 확정되지 않았다(클래스 docstring의 계약과 정면 충돌). 수정 갈래와 기각한 대안은
+`modules/fusion.py::_decay()`의 설계 노트 참조.
 
-- 문서화된 계약은 `test_documented_contract_*`에 `xfail(strict=True)`로 박아뒀다.
-  누가 decay를 고치면 XPASS → 실패로 뒤집혀 이 파일을 갱신하라고 알린다.
-- 나머지 테스트는 "한 프레임에 겹치는 검출 2개 이상"이라는 조건에서만 관측 가능한
-  현재 실제 산술(프레임당 순증 +1)을 고정한다. decay를 고치면 이 숫자들도 같이
-  깨지는 게 정상이다 — 고칠 때 함께 갱신하라.
+수정으로 확정된 `count`의 의미: **연속으로 관측된 프레임 수.** 관측된 프레임 +1(그
+프레임에 겹치는 검출이 몇 개든 +1), 미관측 프레임 -1. 이 파일은 그 계약을 고정한다 —
+특히 "프레임당 최대 +1"은 흔들림 억제를 지탱하는 핵심이라 별도 테스트로 못 박았다
+(`test_count_counts_frames_not_detections_per_frame`,
+`test_flickering_dense_detection_is_never_confirmed`).
 """
 
 import numpy as np
@@ -156,37 +154,59 @@ def test_iou_exact_values_for_known_boxes():
 
 
 @pytest.mark.parametrize(
-    "iou_threshold, expect_confirmed",
+    "iou_threshold, expect_shared",
     [
-        (0.30, True),   # 임계 < 실제 IoU(1/3) → 같은 후보로 병합돼 증거가 쌓인다
-        (0.90, False),  # 임계 > 실제 IoU     → 별개 후보로 흩어져 끝내 못 쌓는다
+        (0.30, True),   # 임계 < 실제 IoU(1/3) → 한 후보로 병합
+        (0.90, False),  # 임계 > 실제 IoU     → 별개 후보로 분리
     ],
 )
-def test_iou_threshold_decides_whether_boxes_share_a_candidate(iou_threshold, expect_confirmed):
-    """iou_threshold 설정값이 실제로 연관/분리를 가른다."""
+def test_iou_threshold_decides_whether_boxes_share_a_candidate(iou_threshold, expect_shared):
+    """iou_threshold 설정값이 실제로 연관/분리를 가른다.
+
+    ⚠️ 예전 버전은 임계가 높으면 "끝내 확정 못 함"을 기대했는데, 그건 계약이 아니라
+    결함(프레임당 순증 0)의 부산물이었다 — 분리된 두 박스도 매 프레임 꾸준히
+    나타나는 이상 각자 정당한 지속 타깃이므로 각자 확정되는 것이 맞다. 그래서
+    이 테스트가 실제로 겨냥하는 계약(= 몇 개의 후보로 묶이는가)을 직접 확인한다.
+    """
     partial_pair = [(100, 100, 40, 40), (120, 100, 40, 40)]  # IoU = 1/3
     assert TemporalFusion._iou(*partial_pair) == pytest.approx(1.0 / 3.0)
 
     fusion = TemporalFusion(min_frames=3, iou_threshold=iou_threshold)
-    got = _confirm_frame_index(fusion, partial_pair, n_frames=8)
-    assert (got is not None) is expect_confirmed
+    for _ in range(3):
+        state = _feed(fusion, partial_pair)
+
+    assert len(fusion._candidates) == (1 if expect_shared else 2)
+    # 병합되든 분리되든 3프레임 연속 등장했으므로 확정 자체는 된다
+    assert state.confirmed is not None
+    assert state.confirmed.bbox in partial_pair
 
 
 def test_separate_targets_accumulate_independently_and_strongest_wins():
-    """멀리 떨어진 두 타깃은 서로의 증거를 뺏지 않고, 증거가 많은 쪽이 확정된다."""
-    strong = [(100, 100, 40, 40), (102, 102, 40, 40), (101, 101, 40, 40)]  # 프레임당 3개
-    weak = TARGET_B                                                        # 프레임당 2개
+    """멀리 떨어진 두 타깃은 서로의 증거를 뺏지 않고, 증거가 많은 쪽이 확정된다.
 
-    fusion = TemporalFusion(min_frames=3, iou_threshold=0.4)
-    for _ in range(4):
-        state = _feed(fusion, strong + weak)
+    ⚠️ 비대칭은 반드시 **프레임 수**로 만든다 — count는 등장 프레임 수이지 프레임당
+    검출 개수가 아니므로, 예전 버전처럼 "프레임당 검출을 더 많이 넣는" 방식으로는
+    비대칭이 아예 생기지 않는다(둘 다 같은 count가 돼 `max()`의 목록 순서 우연으로
+    통과하는 pseudo 테스트가 된다 — 수정 직후 실제로 4:4 동률임을 확인했다).
+    그래서 **더 늦게 등록된 쪽을 더 강하게** 만들어, 순서가 아니라 count 비교가
+    승자를 가르는지 확인한다.
+    """
+    fusion = TemporalFusion(min_frames=2, iou_threshold=0.4)
 
-    # 두 후보가 별개로 살아 있다
+    for _ in range(3):                       # A가 먼저 후보로 등록된다
+        _feed(fusion, TARGET_A + TARGET_B)
+    for _ in range(2):                       # A만 사라져 감쇠 (3 → 1), B는 계속 누적
+        _feed(fusion, TARGET_B)
+    for _ in range(2):                       # A 복귀
+        state = _feed(fusion, TARGET_A + TARGET_B)
+
+    # 두 후보가 별개로 살아 있고 서로의 증거를 뺏지 않았다
     assert len(fusion._candidates) == 2
-    # 확정된 것은 증거가 많은 쪽(strong 자리)이다
+    assert sorted(c["count"] for c in fusion._candidates) == [3, 7]
+    # 목록 순서상 앞은 A(3)지만, 확정되는 것은 증거가 많은 B(7)다
     assert state.confirmed is not None
-    assert state.confirmed.bbox in strong
-    assert state.confirmed.bbox not in weak
+    assert state.confirmed.bbox in TARGET_B
+    assert state.confirmed.bbox not in TARGET_A
 
 
 # --------------------------------------------------------------------------
@@ -242,20 +262,43 @@ def test_deterministic_for_identical_input_sequence():
 # 문서화된 계약 vs 현재 구현 — 위 파일 docstring의 결함
 # --------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="결함: _decay()가 방금 매칭된 후보의 count도 깎아 프레임당 검출 1개짜리 타깃은 "
-           "영원히 승격되지 않는다. docstring('min_frames 회 이상 등장하면 확정')과 어긋남. "
-           "고치면 이 xfail이 XPASS로 뒤집히니 마커를 지우고 test_fusion.py 전체를 갱신할 것.",
-)
 def test_documented_contract_single_detection_per_frame_confirms_after_min_frames():
-    """docstring이 약속한 계약: 한 프레임에 검출이 1개여도 min_frames 연속이면 확정."""
+    """docstring이 약속한 계약: 한 프레임에 검출이 1개여도 min_frames 연속이면 확정.
+
+    2026-07-28 이전에는 `xfail(strict=True)`로 박혀 있던 결함이다 — `_decay()`가
+    방금 매칭된 후보까지 깎아 프레임당 검출 1개는 순증이 0이었다. 수정 후 정상
+    통과 테스트로 승격.
+    """
     fusion = TemporalFusion(min_frames=3, iou_threshold=0.4)
     assert _confirm_frame_index(fusion, [TARGET_A[0]], n_frames=20) == 3
 
 
-def test_current_behaviour_single_detection_per_frame_never_confirms():
-    """위 결함의 현재 동작을 못 박아 둔다 — 조용히 바뀌면 알아채기 위함."""
+def test_count_counts_frames_not_detections_per_frame():
+    """count는 "등장한 프레임 수"다 — 한 프레임에 겹치는 검출이 몇 개든 +1.
+
+    이 규칙이 없으면(감쇠 제외만 하고 프레임당 +N을 허용하면) 빈 프레임의 -1로는
+    상쇄가 안 돼 순증이 생기고, 깜빡이는 검출까지 승격돼 흔들림 억제가 무너진다.
+    """
+    dense = [(100, 100, 40, 40), (101, 101, 40, 40),
+             (102, 102, 40, 40), (103, 103, 40, 40)]  # 한 프레임에 겹치는 검출 4개
     fusion = TemporalFusion(min_frames=3, iou_threshold=0.4)
-    assert _confirm_frame_index(fusion, [TARGET_A[0]], n_frames=50) is None
-    assert fusion._candidates == []
+
+    _feed(fusion, dense)
+    assert [c["count"] for c in fusion._candidates] == [1]  # 4가 아니라 1
+
+    # 검출 밀도를 4배로 줘도 승격 시점은 min_frames "프레임" 그대로다
+    assert _feed(fusion, dense).confirmed is None       # 2프레임째
+    assert _feed(fusion, dense).confirmed is not None   # 3프레임째
+
+
+def test_flickering_dense_detection_is_never_confirmed():
+    """한 프레임에 검출이 여러 개여도 깜빡이면 승격되지 않는다.
+
+    `test_flickering_detection_is_never_confirmed`의 다중검출판 —
+    프레임당 +N을 허용하는 변형에서 실제로 승격되는 것을 확인했기에 별도로 박아둔다.
+    """
+    dense = [(100, 100, 40, 40), (101, 101, 40, 40), (102, 102, 40, 40)]
+    fusion = TemporalFusion(min_frames=5, iou_threshold=0.4)
+    for i in range(20):
+        state = _feed(fusion, dense if i % 2 == 0 else [])
+        assert state.confirmed is None, f"깜빡이는 다중검출이 프레임 {i}에서 승격됐다"
