@@ -1,0 +1,22 @@
+<3>WSL (279) ERROR: CreateProcessParseCommon:711: Failed to translate \\wsl.localhost\Ubuntu\home\suri\suridoksuri\.claude\worktrees\sitl-vtol-campaign
+[run_scenario] === R1_c7rc — R1 ④: 안전경로 회귀 — PILOT_TAKEOVER. /root/s7/run_c7_rc.sh 로 MAVLink 조이스틱을 함께 흘려야 POSCTL 이 실제로 먹는다
+[run_scenario] 기동 px4 pid=400
+[run_scenario] 기동 mavros pid=788
+[run_scenario] MAVROS connected=true 확인
+[run_scenario] 파라미터 CBRK_SUPPLY_CHK=894281 → 검증됨
+[run_scenario] 파라미터 NAV_DLL_ACT=0 → 검증됨
+[run_scenario] 기동 phase2.launch pid=1219
+[run_scenario] 거리 상한 감시 시작: 1500m (이륙지점 기준 수평)
+[run_scenario] inject: in-process ROS 클라이언트 준비됨 (CLI 폴백 불필요)
+[run_scenario] inject: /mavros/set_mode 발견=True
+[run_scenario] offboard_node 첫 로그 관측 (플래너 계산 완료) — 미션 시계 시작
+[run_scenario] 상태 진입: ARM_TAKEOFF  (ARM 요청)
+[run_scenario] 상태 진입: CLIMBING  (CommandTOL 이륙 요청 alt=50.1m AMSL (지면 0.1+50.0) -> CLIMBING)
+[run_scenario] 상태 진입: TRANSITION_FW  (운용 고도 50.0m 도달 → transition_fw)
+[run_scenario] 상태 진입: STREAMING  (FW 전환 완료 -> STREAMING)
+[run_scenario] 상태 진입: FOLLOWING  (OFFBOARD 확인 → FOLLOWING)
+[run_scenario] inject 발화 set_mode via=in-process rc=0 (+58.432s, 소요 0.003s)
+[run_scenario] 상태 진입: PILOT_TAKEOVER  (조종사 인계 감지 (mode=POSCTL) — 세트포인트 발행 중단, OFFBOARD 재요청 안 함. 기체는 조종사 것.)
+[run_scenario] ⚠️ 거리 상한 초과: 이륙지점에서 1557m (상한 1500m) — 런 강제 종료
+[run_scenario] ulog 수집 /root/PX4-vehicle/build/px4_sitl_default/rootfs/log/2026-07-27/12_56_01.ulg → 12_56_01.ulg (50.3 MB)
+[run_scenario] 산출물: /root/drone_ws/src/suridoksuri/logs/2026-07-27_sitl_vtol_campaign/R1_c7rc  (exit=6 reason=range_exceeded)

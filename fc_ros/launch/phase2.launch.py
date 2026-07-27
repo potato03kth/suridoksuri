@@ -38,7 +38,10 @@ def _make_nodes(context):
                  "mc_end_thresh", "mc_wp_settle_time",
                  # SITL-7 회귀 캠페인용 확장 (docs/sitl_vtol_campaign.md 3장)
                  "d_end_thresh", "v_approach", "l1_dist", "wp0_heading_tol",
-                 "hold_timeout", "landing_timeout", "control_hz"):
+                 "hold_timeout", "landing_timeout", "control_hz",
+                 # SITL-7 R1 — 상태 타임아웃 4종 + 거리 상한 (현장 조정은 여기로만)
+                 "climbing_timeout", "transition_fw_timeout",
+                 "transition_mc_timeout", "entry_timeout", "range_limit_m"):
         val = LaunchConfiguration(name).perform(context)
         if val:
             overrides[name] = float(val)
@@ -137,5 +140,24 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "control_hz", default_value="",
             description="제어 루프 주파수 (Hz, ≥2). 빈 값(기본)이면 YAML 값 사용"),
+        # ── SITL-7 R1 — 상태 타임아웃 4종 + 거리 상한 ────────────────────
+        # 전부 0 이하를 주면 비활성(종전 무한대기 동작). 초과 시 안전 폴백
+        # (`_request_override()` → manual 시도 → AUTO.LOITER).
+        DeclareLaunchArgument(
+            "climbing_timeout", default_value="",
+            description="CLIMBING 체류 상한 (s). 0 이하면 비활성. 빈 값(기본)이면 YAML(120.0)"),
+        DeclareLaunchArgument(
+            "transition_fw_timeout", default_value="",
+            description="TRANSITION_FW 체류 상한 (s). 0 이하면 비활성. 빈 값(기본)이면 YAML(90.0)"),
+        DeclareLaunchArgument(
+            "transition_mc_timeout", default_value="",
+            description="TRANSITION_MC 체류 상한 (s). 0 이하면 비활성. 빈 값(기본)이면 YAML(30.0)"),
+        DeclareLaunchArgument(
+            "entry_timeout", default_value="",
+            description="ENTRY 체류 상한 (s). 0 이하면 비활성. 빈 값(기본)이면 YAML(60.0)"),
+        DeclareLaunchArgument(
+            "range_limit_m", default_value="",
+            description="이륙지점 기준 수평거리 상한 (m). 0 이하면 비활성. "
+                        "빈 값(기본)이면 YAML(300.0). 300m 넘는 편도 경로를 시험할 땐 함께 키울 것"),
         OpaqueFunction(function=_make_nodes),
     ])

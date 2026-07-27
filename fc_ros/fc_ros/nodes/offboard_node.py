@@ -19,6 +19,12 @@ OffboardNode: create_timer 기반 상태머신으로 Offboard 경로 추종.
 
 MAVROS 토픽을 직접 구독해 TelemetryNode에 의존하지 않는다.
 판정 순수 함수: fc_bridge.execution.state_logic (rclpy 없이 테스트 가능).
+
+안전 감시 (2026-07-27 SITL-7 R1 — 제어법칙은 그대로, "실패 시 어디로 떨어지는지"만 정의):
+  · 상태 체류 타임아웃 4종 — CLIMBING / TRANSITION_FW / TRANSITION_MC / ENTRY
+  · 이륙지점 기준 수평거리 상한 (range_limit_m)
+  둘 다 초과 시 **강제 진행이 아니라** 이미 실증된 `_request_override()`
+  (manual 시도 → AUTO.LOITER 폴백)로 떨어진다. 전부 0 이하로 주면 비활성.
 """
 from __future__ import annotations
 from fc_ros.adapters.setpoint_publisher import SetpointPublisher
@@ -36,6 +42,8 @@ from fc_bridge.execution.state_logic import (
     after_climb_state, after_following_state, takeoff_request_fields,
     home_amsl_confirmed, home_amsl_sample_fresh,
     is_pilot_takeover, path_origin_ned, translate_path,
+    offboard_reacquire_allowed, state_timeout_due,
+    horiz_dist_from_origin, range_limit_exceeded, path_max_range,
 )
 from fc_bridge.comm.vehicle_state import VehicleState
 from fc_bridge.utils.rotation import yaw_ned_to_quat_enu
@@ -101,6 +109,17 @@ class _State(enum.Enum):
     DONE = "done"
 
 
+# 거리 상한 감시를 거는 상태 집합 (2026-07-27 SITL-7 R1).
+# 기체가 실제로 임무 지령을 받으며 날고 있는 구간만 본다.
+#  - IDLE/ARM_TAKEOFF: 아직 이륙지점을 캡처하기 전이라 기준점 자체가 없다
+#  - LANDING: 이미 내려오는 중 — 여기서 OVERRIDE를 걸면 착륙을 방해한다
+#  - OVERRIDE/PILOT_TAKEOVER/DONE: 이미 손을 뗀 상태 (재발동 방지)
+_RANGE_GUARDED_STATES = frozenset({
+    _State.CLIMBING, _State.TRANSITION_FW, _State.STREAMING, _State.ENTRY,
+    _State.FOLLOWING, _State.TRANSITION_MC, _State.HOLD,
+})
+
+
 class OffboardNode(Node):
     """
     ROS2 파라미터:
@@ -125,6 +144,13 @@ class OffboardNode(Node):
       mc_wp_settle_speed (float, 0.3)  — MC WP 정착 판정 수평속도 임계 (m/s)
       mc_wp_settle_time  (float, 1.0)  — MC WP 정착 유지 시간 (s). 0.0이면 종전 fly-by
       mc_wp_timeout      (float, 20.0) — MC WP당 정착 타임아웃 (s), 초과 시 강제 진행
+      climbing_timeout       (float, 120.0) — CLIMBING 체류 상한 (s), 초과 시 안전 폴백
+      transition_fw_timeout  (float,  90.0) — TRANSITION_FW 체류 상한 (s), 〃
+      transition_mc_timeout  (float,  30.0) — TRANSITION_MC 체류 상한 (s), 〃
+      entry_timeout          (float,  60.0) — ENTRY 체류 상한 (s), 〃
+      range_limit_m          (float, 300.0) — 이륙지점 기준 수평거리 상한 (m), 〃
+                             위 5개는 전부 0 이하이면 비활성. 초과 시 강제
+                             진행이 아니라 `_request_override()` 안전 폴백이다.
     """
 
     def __init__(self):
@@ -178,6 +204,16 @@ class OffboardNode(Node):
         self.declare_parameter("home_amsl_max_age",     1.0)
         self.declare_parameter("climb_vz_tol",          0.3)
         self.declare_parameter("waypoint_frame",   "takeoff")
+        # ── 상태 타임아웃 4종 + 거리 상한 (2026-07-27 SITL-7 R1) ──────
+        # 근거·유도과정은 fc_ros_params.yaml 의 해당 항목 주석에 전부 적혀 있다.
+        # 규약은 hold_timeout·mc_wp_timeout 과 동일(초 단위 float, 0 이하 = 비활성,
+        # 경계 strict >)이지만 **초과 시 강제 진행이 아니라 안전 폴백**이다 —
+        # 이미 실증된 `_request_override()`(manual 시도 → AUTO.LOITER)로 떨어뜨린다.
+        self.declare_parameter("climbing_timeout",      120.0)
+        self.declare_parameter("transition_fw_timeout",  90.0)
+        self.declare_parameter("transition_mc_timeout",  30.0)
+        self.declare_parameter("entry_timeout",          60.0)
+        self.declare_parameter("range_limit_m",         300.0)
 
         control_hz = self.get_parameter("control_hz").value
         self._dt = 1.0 / max(control_hz, 2.0)
@@ -223,6 +259,14 @@ class OffboardNode(Node):
             self.get_parameter("waypoint_frame").value).lower()
         # 파라미터 오타를 비행 중이 아니라 노드 기동 시점에 잡는다.
         path_origin_ned(np.zeros(3), self._waypoint_frame)
+        self._climbing_timeout = float(
+            self.get_parameter("climbing_timeout").value)
+        self._fw_trans_timeout = float(
+            self.get_parameter("transition_fw_timeout").value)
+        self._mc_trans_timeout = float(
+            self.get_parameter("transition_mc_timeout").value)
+        self._entry_timeout = float(self.get_parameter("entry_timeout").value)
+        self._range_limit_m = float(self.get_parameter("range_limit_m").value)
 
         # ── 경로 계획 ─────────────────────────────────────────
         from fc_bridge.planning.planner_runner import run_planner, resolve_planner_name
@@ -311,6 +355,14 @@ class OffboardNode(Node):
         self._home_amsl = None
         # 이륙 순간 로컬 지면 높이 (h_up). CLIMBING AGL 판정의 지면 기준(2026-07-07).
         self._takeoff_ground_h = 0.0
+        # 이륙 순간 기체 수평위치 (NED [N, E, h_up]). 거리 상한 감시의 기준점.
+        # `_path_origin` 과 값이 같아 보이지만 **같은 것이 아니다** —
+        # `waypoint_frame:="local"` 이면 `_path_origin` 은 0(EKF 로컬 원점)이 되고,
+        # EKF 로컬 원점은 이륙지점과 무관하다(2026-07-25 flight01 실측: 수평
+        # 10.94m·수직 10.55m 어긋남). 거리 상한은 프레임 설정과 무관하게 항상
+        # **이륙지점** 기준이어야 하므로 따로 캡처한다. None이면 아직 미이륙 →
+        # 감시 비활성.
+        self._takeoff_pos_ned = None
         # TRANSITION_FW 시퀀스 플래그
         self._fw_transition_sent = False
         self._fw_prime_ticks = 0     # OFFBOARD 프라이밍 틱 수
@@ -330,6 +382,12 @@ class OffboardNode(Node):
         self._override_target = "MANUAL"
         self._override_ticks = 0
         self._override_fallback_sent = False
+        # 상태별 체류시간 누적 (s). 타임아웃 4종용 — 각 상태는 한 번만 진입하므로
+        # 진입 시 리셋 없이 step 안에서 누적한다(`_hold_elapsed` 와 같은 방식).
+        self._climbing_elapsed = 0.0
+        self._fw_trans_elapsed = 0.0
+        self._mc_trans_elapsed = 0.0
+        self._entry_elapsed = 0.0
 
         # ── MAVROS 토픽 구독 ─────────────────────────────────
         self.create_subscription(
@@ -482,6 +540,12 @@ class OffboardNode(Node):
             self._enter_pilot_takeover()
             return
 
+        # 거리 상한 감시 — 조종사 인계 다음 우선순위. 상태머신이 어디서 막혔든,
+        # 어떤 이유로 캐럿이 도망갔든 "이륙지점에서 이만큼 멀어지면 손을 뗀다"는
+        # 마지막 기하학적 제동장치다. (2026-07-27 SITL-7 R1)
+        if self._range_guard_breached(state):
+            return
+
         if self._sm == _State.ARM_TAKEOFF:
             self._step_arm_takeoff(state)
 
@@ -526,9 +590,15 @@ class OffboardNode(Node):
                 self.get_logger().info("OFFBOARD 전환 요청 (폴백)")
 
         elif self._sm == _State.ENTRY:
+            self._entry_elapsed += self._dt
             if self._step_entry(state):
                 self.get_logger().info("ENTRY 완료 -> FOLLOWING")
                 self._sm = _State.FOLLOWING
+            else:
+                # C10 실측: 여기서 432.67초 동안 탈출하지 못했고 그동안 기체가
+                # 이륙지점에서 5.85km 이탈했다. 장애주입 없이 파라미터 하나로.
+                self._timeout_fallback(
+                    "ENTRY", self._entry_elapsed, self._entry_timeout)
 
         elif self._sm == _State.FOLLOWING:
             if self._step_following(state):
@@ -617,10 +687,13 @@ class OffboardNode(Node):
                 return
             # 이륙 순간 로컬 지면 높이 캡처 (로컬 원점≠지면 보정, CLIMBING AGL 판정용).
             self._takeoff_ground_h = float(state.pos_ned[2])
+            # 거리 상한 감시 기준점 — waypoint_frame 설정과 무관하게 이륙지점.
+            self._takeoff_pos_ned = np.array(state.pos_ned, dtype=float)
             # 같은 보정을 경로(수평 waypoints + 순항고도)에도 적용한다.
             # 2026-07-25 이전엔 CLIMBING 판정에만 적용돼 있어, 이륙은 정확했지만
             # OFFBOARD 진입 순간 변환 없이 EKF 로컬 프레임으로 갈아탔다.
             self._apply_path_origin(state.pos_ned)
+            self._check_path_within_range()
             req = CommandTOL.Request()
             fields = takeoff_request_fields(self._transition_alt, self._home_amsl)
             for field, value in fields.items():
@@ -668,6 +741,35 @@ class OffboardNode(Node):
             f"(frame={self._waypoint_frame}) → "
             f"WP0={wp0} 순항고도 h_up={self._cruise_alt:.2f}")
 
+    def _check_path_within_range(self) -> None:
+        """계획된 경로가 애초에 거리 상한 밖인지 **이륙 순간에** 알린다.
+
+        경로가 상한을 넘게 설계돼 있으면 그 경로는 정상 수행 자체가 불가능하다
+        (종점 부근에서 반드시 안전 폴백이 걸린다). 그걸 비행 중에 발견하는
+        것과 이륙 직전 로그에서 보는 것은 완전히 다르다 —
+        `path_origin_ned()` 오타 검사를 노드 기동 시점으로 당겨놓은 것과 같은 이유다.
+
+        ⚠️ 판정하지 않고 경고만 한다. 이륙을 막지 않는 이유: 상한은 현장에서
+        launch 인자로 조정하는 값이고, 여기서 이륙을 거부하면 "왜 안 뜨지"가
+        되어 현장에서 더 위험한 우회(감시 자체를 끄기)를 유도한다.
+        """
+        if self._range_limit_m <= 0:
+            self.get_logger().warn(
+                "거리 상한 감시 비활성 (range_limit_m <= 0) — "
+                "이륙지점 기준 이탈 제동장치가 없다")
+            return
+        far = path_max_range(self._pts, self._takeoff_pos_ned)
+        if far > self._range_limit_m:
+            self.get_logger().warn(
+                f"⚠️ 계획 경로가 거리 상한 밖이다 — 경로 최원점 {far:.0f}m > "
+                f"상한 {self._range_limit_m:.0f}m. 그대로 날면 종점 부근에서 "
+                f"안전 폴백(OVERRIDE)이 걸린다. "
+                f"range_limit_m 을 키우거나 경로를 줄일 것")
+        else:
+            self.get_logger().info(
+                f"거리 상한 감시 활성 {self._range_limit_m:.0f}m "
+                f"(이륙지점 기준 수평, 경로 최원점 {far:.0f}m)")
+
     # ── CLIMBING ─────────────────────────────────────────────
 
     def _step_climbing(self, state: VehicleState) -> None:
@@ -684,6 +786,14 @@ class OffboardNode(Node):
                 f"운용 고도 {self._transition_alt:.1f}m 도달 → {nxt.value}"
                 + (" (MC, 천이 생략)" if self._is_mc else ""))
             self._sm = nxt
+            return
+
+        # 타임아웃 — PX4가 우리가 지령한 것과 다른 고도로 이륙했거나(래치된
+        # home_amsl / MIS_TAKEOFF_ALT 폴백), 판정 허용대(±alt_tol, |vz|<=vz_tol)에
+        # 영영 들어오지 못하면 여기서 영구 대기한다.
+        self._climbing_elapsed += self._dt
+        self._timeout_fallback(
+            "CLIMBING", self._climbing_elapsed, self._climbing_timeout)
 
     # ── TRANSITION_FW ─────────────────────────────────────────
 
@@ -701,6 +811,15 @@ class OffboardNode(Node):
         if vtol_is_fw(state.vtol_state):
             self.get_logger().info("FW 전환 완료 -> STREAMING")
             self._sm = _State.STREAMING
+            return
+
+        # 타임아웃 — 이 상태의 탈출은 `vtol_state == FW` 단일 신호 하나뿐인데
+        # 그 토픽은 BEST_EFFORT·초기값 0·신선도 검사 없음이다. 천이 명령이
+        # 거부되면(1회 발행·결과 미확인) MC 상태로 종점까지 가서 영구 호버한다
+        # (F-3). 헤딩 정렬(Phase 2)이 바람에 20틱을 못 채워도 여기 갇힌다(F-7).
+        self._fw_trans_elapsed += self._dt
+        if self._timeout_fallback("TRANSITION_FW", self._fw_trans_elapsed,
+                                  self._fw_trans_timeout):
             return
 
         # 경로 시작 방향 (WP0→WP1 단위벡터, NED)
@@ -721,8 +840,13 @@ class OffboardNode(Node):
                 np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]), chi_wp)
             if self._current_mode != "OFFBOARD":
                 self._request_offboard()
+                # throttle: 실제 명령은 `_request_offboard()`가 1Hz로 조이는데
+                # 로그만 10Hz로 나가면 2026-07-25 조종사 인계 사고(0.9초에 10회
+                # 재요청)와 육안 구별이 안 된다 — C3 실측 10건/0.90s vs
+                # `vehicle_command 176 p2=6` 1건. (F-16)
                 self.get_logger().warn(
-                    f"천이 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})")
+                    f"천이 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})",
+                    throttle_duration_sec=self._offboard_req_min_interval)
             return
 
         # Phase 1: hover 세트포인트로 OFFBOARD 프라이밍 (HOLD 중에는 무시됨)
@@ -745,9 +869,33 @@ class OffboardNode(Node):
                 self.get_logger().info("천이 전 MC OFFBOARD 요청 (헤딩 정렬 대기)")
             return
 
-        # OFFBOARD 미확인: keepalive 후 대기
+        # OFFBOARD 미확인: keepalive + **재요청** 후 대기.
+        #
+        # (2026-07-27 SITL-7 F-15 수정) 종전엔 hover 세트포인트만 계속 발행하고
+        # 그대로 return 했다. Phase 1에서 `_fw_offboard_requested`가 이미 True로
+        # 잠겨 재요청 경로가 아예 없었기 때문에, 헤딩 정렬(Phase 2, 실측 13~15초)
+        # 구간에서 OFFBOARD를 잃거나 애초에 승인을 못 받으면 **복구 수단 없이
+        # 무한 대기**했다. 이제 위 TRANSITION_FW 타임아웃이 최후 방어선이지만,
+        # 그 전에 스스로 복구할 기회를 준다.
+        #
+        # ⚠️ 이 경로를 열면서 반드시 통과시켜야 하는 가드가 있다 — 조종사가
+        # POSCTL 등으로 기체를 가져간 상황이면 재요청은 **절대 금지**다.
+        # 2026-07-25 flight01에서 노드가 조종사의 POSCTL 인계를 0.9초에 10회
+        # 재요청으로 뒤집어 조종사가 KILL 스위치를 써야 했다. 그래서 여기서는
+        # 재요청이 아니라 `PILOT_TAKEOVER`(세트포인트 영구 정지)로 빠진다.
+        # 이 구간은 `_offboard_engaged_once`가 아직 False일 수 있어(한 번도
+        # OFFBOARD를 못 잡은 경우) 상단 최우선 감시가 안 걸리는 구간이기도 하다
+        # — Phase 1의 동일한 가드(`is_pilot_takeover` → `_enter_pilot_takeover`)와
+        # 같은 이유·같은 처리다.
         if self._current_mode != "OFFBOARD":
+            if not offboard_reacquire_allowed(self._current_mode):
+                self._enter_pilot_takeover()
+                return
             self._setpoint.publish(np.zeros(3))
+            self._request_offboard()
+            self.get_logger().warn(
+                f"정렬 구간 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})",
+                throttle_duration_sec=self._offboard_req_min_interval)
             return
 
         # Phase 2: MC OFFBOARD — hover + yaw rate P제어로 헤딩 정렬
@@ -905,6 +1053,54 @@ class OffboardNode(Node):
         self._sm = _State.OVERRIDE
         self.get_logger().warn(f"긴급 수동 전환 실행 → {self._override_target} 요청")
 
+    # ── 안전 폴백 (타임아웃 4종 + 거리 상한, 2026-07-27 SITL-7 R1) ────
+
+    def _safety_fallback(self, reason: str) -> None:
+        """감시에 걸렸을 때의 유일한 출구 — 검증된 `_request_override()` 재사용.
+
+        **새 폴백 경로를 만들지 않는다.** S7 장애주입에서 실증된 안전경로는
+        OVERRIDE(FW)/OVERRIDE(MC)/PILOT_TAKEOVER 3종뿐이고, 새 경로를 만들면
+        그 경로부터 다시 실증해야 한다. `_request_override()`는
+        `override_mode()`로 MC→POSCTL / FW→MANUAL을 고르고, 모드가 거부되면
+        10틱 뒤 AUTO.LOITER로 폴백하며, 그 순간부터 setpoint 발행이 멈춘다
+        (스트림이 살아 있으면 PX4 페일세이프가 안 걸린다는 것이 C10의 교훈).
+        """
+        self.get_logger().error(f"{reason} → 안전 폴백(OVERRIDE) 실행")
+        self._request_override()
+
+    def _timeout_fallback(self, label: str, elapsed_s: float,
+                          timeout_s: float) -> bool:
+        """상태 체류 타임아웃 판정 + 초과 시 안전 폴백. 초과했으면 True.
+
+        `timeout_s <= 0`이면 비활성 — 종전(무한대기) 동작으로 되돌리는 탈출구다.
+        """
+        if not state_timeout_due(elapsed_s, timeout_s):
+            return False
+        self._safety_fallback(
+            f"{label} 타임아웃 {timeout_s:.0f}s 초과 (체류 {elapsed_s:.1f}s)")
+        return True
+
+    def _range_guard_breached(self, state: VehicleState) -> bool:
+        """이륙지점 기준 수평거리 상한 감시. 초과해 폴백했으면 True.
+
+        하니스 `tools/sitl/run_scenario.py`의 `RangeGuard`와 같은 감시를 노드
+        안에 넣은 것이다(C7에서 1564m에 실제 발동해 7km 비행을 막은 전례).
+        차이는 셋: ①기준점이 EKF 로컬 원점이 아니라 **실제 이륙지점**
+        ②`ros2 topic echo` 폴링(4s 주기)이 아니라 제어 틱(10Hz)마다
+        ③런을 죽이는 게 아니라 **기체를 안전 상태로 떨어뜨린다.**
+        """
+        if self._takeoff_pos_ned is None:
+            return False          # 아직 이륙 전 — 기준점 없음
+        if self._sm not in _RANGE_GUARDED_STATES:
+            return False
+        d = horiz_dist_from_origin(state.pos_ned, self._takeoff_pos_ned)
+        if not range_limit_exceeded(d, self._range_limit_m):
+            return False
+        self._safety_fallback(
+            f"거리 상한 초과 — 이륙지점에서 {d:.0f}m "
+            f"(상한 {self._range_limit_m:.0f}m, 상태={self._sm.value})")
+        return True
+
     def _step_override(self, state: VehicleState) -> None:
         """manual 모드 진입 확인 → 미진입 시 AUTO.LOITER 안전 폴백.
 
@@ -958,10 +1154,20 @@ class OffboardNode(Node):
             self._sm = _State.HOLD
             return
 
+        # 타임아웃 — 역천이가 실패하면 FW가 `_end_dir` 방향으로 **무한 직진**한다.
+        # 목표점이 매 틱 현재위치 앞 70m로 다시 놓이는 "도망가는 캐럿"이라
+        # 스스로 멈출 조건이 없고, 스트림이 살아 있어 PX4 offboard-loss
+        # 페일세이프도 걸리지 않는다 (F-2). 거리 상한과 이중 방어.
+        self._mc_trans_elapsed += self._dt
+        if self._timeout_fallback("TRANSITION_MC", self._mc_trans_elapsed,
+                                  self._mc_trans_timeout):
+            return
+
         if self._current_mode != "OFFBOARD":
             self._request_offboard()
             self.get_logger().warn(
-                f"역천이 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})")
+                f"역천이 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})",
+                throttle_duration_sec=self._offboard_req_min_interval)
 
         if not self._mc_transition_sent:
             if not self._cmd_cli.service_is_ready():
@@ -1151,8 +1357,10 @@ class OffboardNode(Node):
                 f"tgt=[{tgt[0]:.1f},{tgt[1]:.1f}]"
                 + settle_info)
         if self._current_mode != "OFFBOARD":
+            # throttle: 실제 명령은 1Hz인데 로그만 10Hz로 나가던 것을 맞췄다 (F-16).
             self.get_logger().warn(
-                f"FOLLOWING 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})")
+                f"FOLLOWING 중 OFFBOARD 이탈 → 재요청 (mode={self._current_mode})",
+                throttle_duration_sec=self._offboard_req_min_interval)
             self._request_offboard()
 
         if not self._is_mc:

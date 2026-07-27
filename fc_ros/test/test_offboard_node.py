@@ -563,3 +563,143 @@ def test_after_following_vtol():
 def test_after_following_mc():
     # MC: FOLLOWING → HOLD (역천이 생략, 마지막 WP 복귀·착륙)
     assert after_following_state(True) == "hold"
+
+
+# ── SITL-7 R1: 노드 배선 회귀 방지 (F-15 / F-16 / 안전 폴백) ────────────────
+#
+# 이 저장소 테스트는 rclpy 를 쓰지 않는다(Windows/WSL 에서 그냥 돌아야 함).
+# 순수 함수는 test_state_logic.py 가 검증하지만, **그 함수가 실제로 호출되는지**
+# 는 순수 함수 테스트로 잡히지 않는다 — F-15/F-16 은 정확히 그 "배선"의 결함
+# 이었으므로 소스 구조를 직접 고정한다. (SITL 실측이 최종 근거이고, 이 테스트는
+# 그 사이 조용한 회귀를 막는 그물이다.)
+import ast as _ast
+from pathlib import Path as _Path
+
+_NODE_SRC_PATH = (_Path(__file__).parent.parent / "fc_ros" / "nodes"
+                  / "offboard_node.py")
+_NODE_SRC = _NODE_SRC_PATH.read_text(encoding="utf-8")
+_NODE_AST = _ast.parse(_NODE_SRC)
+
+
+def _func(name):
+    for node in _ast.walk(_NODE_AST):
+        if isinstance(node, _ast.FunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f"offboard_node.py 에 {name}() 이 없습니다")
+
+
+def _calls_in(func_node):
+    """func_node 안에서 호출되는 이름들(속성 호출은 마지막 어트리뷰트명)."""
+    out = set()
+    for n in _ast.walk(func_node):
+        if isinstance(n, _ast.Call):
+            f = n.func
+            if isinstance(f, _ast.Attribute):
+                out.add(f.attr)
+            elif isinstance(f, _ast.Name):
+                out.add(f.id)
+    return out
+
+
+def _call_count(func_node, name):
+    n = 0
+    for x in _ast.walk(func_node):
+        if isinstance(x, _ast.Call) and isinstance(x.func, _ast.Attribute) \
+                and x.func.attr == name:
+            n += 1
+    return n
+
+
+def test_f15_alignment_branch_has_offboard_reacquire_path():
+    """F-15: 헤딩 정렬(Phase 2) 구간에서 OFFBOARD를 잃으면 재요청 경로가 없어
+    무한 대기했다(`_fw_offboard_requested`가 이미 True라 Phase 1로 못 돌아감).
+
+    종전에도 ACTIVE TRANSITION 분기(천이 명령 발행 후)에는 재요청이 있었으므로
+    "함수 안에 `_request_offboard` 가 있다"만으로는 F-15 회귀를 못 잡는다 —
+    **두 곳** 이어야 한다: ①ACTIVE TRANSITION ②OFFBOARD 미확인(정렬 대기)."""
+    fn = _func("_step_transition_fw")
+    assert _call_count(fn, "_request_offboard") >= 2, \
+        "TRANSITION_FW 의 OFFBOARD 미확인 분기에 재요청 경로가 없습니다 (F-15 회귀)"
+
+
+def test_f15_reacquire_is_guarded_by_pilot_takeover():
+    """F-15 수정이 2026-07-25 조종사 인계 사고를 되살리면 안 된다 —
+    재요청 경로를 여는 대신 조종사 모드에서는 PILOT_TAKEOVER 로 빠져야 한다."""
+    calls = _calls_in(_func("_step_transition_fw"))
+    assert "offboard_reacquire_allowed" in calls, \
+        "TRANSITION_FW 재요청이 조종사 인계 가드를 통과하지 않습니다"
+    assert "_enter_pilot_takeover" in calls
+
+
+def _warn_calls_mentioning(keyword):
+    """본문에 keyword 를 포함하는 logger.warn(...) 호출 노드들."""
+    found = []
+    for n in _ast.walk(_NODE_AST):
+        if not (isinstance(n, _ast.Call)
+                and isinstance(n.func, _ast.Attribute)
+                and n.func.attr == "warn" and n.args):
+            continue
+        text = ""
+        for part in _ast.walk(n.args[0]):
+            if isinstance(part, _ast.Constant) and isinstance(part.value, str):
+                text += part.value
+        if keyword in text:
+            found.append(n)
+    return found
+
+
+def test_f16_offboard_reacquire_warns_are_throttled():
+    """F-16: 재요청 WARN 이 throttle 밖에서 10Hz로 찍혔다(C3 실측 10건/0.90s)
+    — 실제 vehicle_command 는 1Hz 1건인데. 로그만 보면 2026-07-25 조종사 인계
+    사고(0.9초에 10회 재요청)와 육안 구별이 안 된다."""
+    # "이탈 → 재요청" = 매 틱 반복 발화하는 F-16 패턴. `_enter_pilot_takeover`
+    # 의 1회성 로그("재요청 안 함")는 대상이 아니다.
+    calls = _warn_calls_mentioning("이탈 → 재요청")
+    assert len(calls) >= 3, (
+        f"재요청 WARN 로그를 {len(calls)}건만 찾았습니다 — "
+        f"TRANSITION_FW(정렬/천이중)·TRANSITION_MC·FOLLOWING 4곳이어야 합니다")
+    for c in calls:
+        kw = {k.arg for k in c.keywords}
+        assert "throttle_duration_sec" in kw, \
+            (f"offboard_node.py:{c.lineno} 의 재요청 WARN 이 throttle 밖입니다 "
+             f"(F-16 회귀)")
+
+
+def test_timeout_fallback_reuses_request_override():
+    """사용자 확정 결정: 타임아웃 폴백은 **새 경로를 만들지 않고**
+    이미 실증된 `_request_override()`(manual 시도 → AUTO.LOITER)를 재사용한다."""
+    assert "_request_override" in _calls_in(_func("_safety_fallback"))
+    assert "_safety_fallback" in _calls_in(_func("_timeout_fallback"))
+    assert "state_timeout_due" in _calls_in(_func("_timeout_fallback"))
+
+
+@pytest.mark.parametrize("func_name", [
+    "_step_climbing", "_step_transition_fw", "_step_transition_mc",
+])
+def test_each_guarded_state_checks_its_timeout(func_name):
+    """CLIMBING / TRANSITION_FW / TRANSITION_MC 각각이 타임아웃을 본다."""
+    assert "_timeout_fallback" in _calls_in(_func(func_name)), \
+        f"{func_name} 에 타임아웃 판정이 없습니다"
+
+
+def test_entry_timeout_checked_in_control_callback():
+    """ENTRY 는 `_step_entry()` 가 bool 을 반환하는 구조라 판정이 콜백 쪽에 있다."""
+    assert "_timeout_fallback" in _calls_in(_func("_control_callback"))
+
+
+def test_range_guard_runs_before_state_dispatch():
+    """거리 상한은 상태머신이 어디서 막혔든 작동해야 하므로
+    `_control_callback` 최상단(조종사 인계 감시 바로 다음)에 있어야 한다."""
+    assert "_range_guard_breached" in _calls_in(_func("_control_callback"))
+    guard = _calls_in(_func("_range_guard_breached"))
+    assert "horiz_dist_from_origin" in guard
+    assert "range_limit_exceeded" in guard
+    assert "_safety_fallback" in guard
+
+
+def test_range_guard_reference_is_takeoff_position_not_path_origin():
+    """기준점은 `_path_origin`(waypoint_frame='local' 이면 0)이 아니라 실제
+    이륙지점이어야 한다 — EKF 로컬 원점은 이륙지점과 다르다(실측 10.94m)."""
+    src = _ast.get_source_segment(_NODE_SRC, _func("_range_guard_breached"))
+    assert "_takeoff_pos_ned" in src
+    assert "_path_origin" not in src

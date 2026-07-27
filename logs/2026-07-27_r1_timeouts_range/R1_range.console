@@ -1,0 +1,21 @@
+<3>WSL (279) ERROR: CreateProcessParseCommon:711: Failed to translate \\wsl.localhost\Ubuntu\home\suri\suridoksuri\.claude\worktrees\sitl-vtol-campaign
+[run_scenario] === R1_range — R1 ③: 거리 상한 발동 — A1(편도 300m) 을 기본 상한 300.0m 그대로 날려 종점 부근에서 OVERRIDE 로 떨어지는가
+[run_scenario] 기동 px4 pid=362
+[run_scenario] 기동 mavros pid=677
+[run_scenario] MAVROS connected=true 확인
+[run_scenario] 파라미터 CBRK_SUPPLY_CHK=894281 → 검증됨
+[run_scenario] 파라미터 NAV_DLL_ACT=0 → 검증됨
+[run_scenario] 기동 phase2.launch pid=1107
+[run_scenario] 거리 상한 감시 시작: 1500m (이륙지점 기준 수평)
+[run_scenario] offboard_node 첫 로그 관측 (플래너 계산 완료) — 미션 시계 시작
+[run_scenario] 상태 진입: ARM_TAKEOFF  (ARM 요청)
+[run_scenario] 상태 진입: CLIMBING  (CommandTOL 이륙 요청 alt=50.0m AMSL (지면 0.0+50.0) -> CLIMBING)
+[run_scenario] 상태 진입: TRANSITION_FW  (운용 고도 50.0m 도달 → transition_fw)
+[run_scenario] 상태 진입: STREAMING  (FW 전환 완료 -> STREAMING)
+[run_scenario] 상태 진입: FOLLOWING  (OFFBOARD 확인 → FOLLOWING)
+[run_scenario] 상태 진입: TRANSITION_MC  (경로 추종 완료 -> transition_mc)
+[run_scenario] 상태 진입: OVERRIDE  (긴급 수동 전환 실행 → MANUAL 요청)
+[run_scenario] 상태 진입: DONE  (수동/안전 모드 진입 확인 (mode=AUTO.LOITER) -> DONE)
+[run_scenario] DONE 관측 — 6.0s 더 수집 후 종료
+[run_scenario] ulog 수집 /root/PX4-vehicle/build/px4_sitl_default/rootfs/log/2026-07-27/12_46_29.ulg → 12_46_29.ulg (25.7 MB)
+[run_scenario] 산출물: /root/drone_ws/src/suridoksuri/logs/2026-07-27_sitl_vtol_campaign/R1_range  (exit=0 reason=done)

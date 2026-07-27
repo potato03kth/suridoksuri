@@ -11,6 +11,8 @@ import numpy as np
 from fc_bridge.execution.state_logic import (
     climbing_reached, home_amsl_confirmed, home_amsl_sample_fresh,
     is_pilot_takeover, path_origin_ned, translate_path,
+    offboard_reacquire_allowed, state_timeout_due,
+    horiz_dist_from_origin, range_limit_exceeded, path_max_range,
 )
 
 
@@ -228,3 +230,139 @@ def test_translate_path_empty_mc_wps_does_not_crash():
         np.zeros((3, 2)), [], 3.0, [1.0, 2.0, 3.0])
     assert mc_wps.shape == (0, 2)
     assert alt == pytest.approx(6.0)
+
+
+# ── offboard_reacquire_allowed() — F-15 수정의 안전 가드 ─────────
+
+def test_reacquire_not_needed_when_already_offboard():
+    assert not offboard_reacquire_allowed("OFFBOARD")
+
+
+@pytest.mark.parametrize("mode", ["AUTO.LOITER", "AUTO.RTL", "AUTO.TAKEOFF",
+                                  "AUTO.MISSION", "HOLD", ""])
+def test_reacquire_allowed_in_autonomous_modes(mode):
+    """자율/페일세이프 모드거나 아직 모드를 못 받은 상태면 재요청이 정당하다 —
+    F-15(정렬 구간 OFFBOARD 이탈)에서 복구해야 하는 경로가 바로 이것이다."""
+    assert offboard_reacquire_allowed(mode)
+
+
+@pytest.mark.parametrize("mode", ["MANUAL", "POSCTL", "ALTCTL", "STABILIZED",
+                                  "ACRO", "RATTITUDE", "POSITION_SLOW"])
+def test_reacquire_forbidden_in_pilot_modes(mode):
+    """2026-07-25 flight01 회귀 방지: 조종사가 쥔 모드에서는 재요청 금지.
+    F-15 수정으로 재요청 경로를 새로 여는 만큼 이 가드가 핵심이다."""
+    assert not offboard_reacquire_allowed(mode)
+
+
+def test_reacquire_forbidden_case_insensitive():
+    assert not offboard_reacquire_allowed("posctl")
+
+
+def test_reacquire_is_strict_complement_of_pilot_takeover():
+    """OFFBOARD가 아닌 모든 모드에 대해 재요청 허용 == 조종사 인계 아님."""
+    for mode in ("MANUAL", "POSCTL", "AUTO.LOITER", "AUTO.RTL", "ALTCTL", ""):
+        assert offboard_reacquire_allowed(mode) == (not is_pilot_takeover(mode))
+
+
+# ── state_timeout_due() — 타임아웃 4종 공통 판정 ─────────────────
+
+def test_state_timeout_strictly_greater():
+    """경계는 strict > — hold_timeout/mc_wp_timeout/landing_timeout 규약과 동일."""
+    assert not state_timeout_due(30.0, 30.0)
+    assert state_timeout_due(30.1, 30.0)
+
+
+def test_state_timeout_disabled_when_zero_or_negative():
+    """0 이하는 비활성 = 종전 무한대기 동작으로 되돌리는 탈출구."""
+    assert not state_timeout_due(1e9, 0.0)
+    assert not state_timeout_due(1e9, -1.0)
+
+
+def test_state_timeout_c10_entry_would_have_fired():
+    """C10 실측: ENTRY 체류 432.67s (5.85km 이탈). 기본값 60.0s면 잡힌다.
+    근거: logs/2026-07-27_sitl_vtol_campaign/C10_pxvehicle/metrics.json
+          completion.state_timeline[-1].dwell_s = 432.6743"""
+    assert state_timeout_due(432.6743, 60.0)
+
+
+@pytest.mark.parametrize("elapsed,timeout", [
+    # 캠페인 실측 최대 체류 vs 신설 기본값 — 정상 미션에서 오발동하면 안 된다.
+    (31.91, 120.0),   # CLIMBING 최대 (A3_pxvehicle, transition_alt=50)
+    (52.11, 120.0),   # CLIMBING 최대 (C1b, transition_alt=120)
+    (20.08,  90.0),   # TRANSITION_FW 최대 (A4)
+    (7.55,   30.0),   # TRANSITION_MC 최대 (A2)
+])
+def test_state_timeout_does_not_fire_on_measured_maxima(elapsed, timeout):
+    assert not state_timeout_due(elapsed, timeout)
+
+
+# ── 거리 상한 ───────────────────────────────────────────────────
+
+def test_horiz_dist_ignores_altitude():
+    assert horiz_dist_from_origin([3.0, 4.0, 999.0], [0.0, 0.0, -50.0]) == pytest.approx(5.0)
+
+
+def test_horiz_dist_relative_to_takeoff_not_local_origin():
+    """기준점은 EKF 로컬 원점이 아니라 이륙지점이다 — 2026-07-25 flight01에서
+    둘이 수평 10.94m 어긋나 있었다."""
+    takeoff = [8.53, -6.84, -10.55]
+    assert horiz_dist_from_origin(takeoff, takeoff) == pytest.approx(0.0)
+    assert horiz_dist_from_origin([8.53, -6.84], [0.0, 0.0]) == pytest.approx(10.94, abs=0.01)
+
+
+def test_range_limit_strictly_greater():
+    assert not range_limit_exceeded(300.0, 300.0)
+    assert range_limit_exceeded(300.1, 300.0)
+
+
+def test_range_limit_disabled_when_zero_or_negative():
+    assert not range_limit_exceeded(1e6, 0.0)
+    assert not range_limit_exceeded(1e6, -1.0)
+
+
+def test_range_limit_nan_is_not_a_breach():
+    """NaN 표본으로 폴백이 발동하면 안 된다(안전측: 모르면 발동 안 함)."""
+    assert not range_limit_exceeded(float("nan"), 300.0)
+
+
+def test_range_limit_c10_excursion_would_have_fired():
+    """C10 실측 이탈 5.85km (N=5038, E=-2979). 기본 상한 300m이면 잡힌다."""
+    d = horiz_dist_from_origin([5038.0, -2979.0, 50.0], [0.0, 0.0, 0.0])
+    assert d == pytest.approx(5852.0, abs=2.0)
+    assert range_limit_exceeded(d, 300.0)
+
+
+def test_range_limit_c7_harness_precedent():
+    """하니스 RangeGuard가 C7에서 1564m에 발동한 전례 — 노드 상한(300m)이라면
+    훨씬 일찍 잡았을 것이다."""
+    assert range_limit_exceeded(1564.0, 1500.0)
+    assert range_limit_exceeded(1564.0, 300.0)
+
+
+# ── path_max_range() — 이륙 전 경로/상한 정합성 진단 ─────────────
+
+def test_path_max_range_picks_farthest_point():
+    pts = np.array([[0.0, 0.0], [200.0, 0.0], [200.0, 200.0]])
+    assert path_max_range(pts, [0.0, 0.0, 0.0]) == pytest.approx(282.84, abs=0.01)
+
+
+def test_path_max_range_relative_to_takeoff():
+    pts = np.array([[100.0, 0.0], [130.0, 0.0]])
+    assert path_max_range(pts, [100.0, 0.0, 0.0]) == pytest.approx(30.0)
+
+
+def test_path_max_range_empty_path_is_zero():
+    assert path_max_range([], [0.0, 0.0, 0.0]) == pytest.approx(0.0)
+
+
+def test_path_max_range_default_yaml_path_exceeds_default_limit():
+    """yaml 기본 waypoints(정북 300m)는 기본 상한 300.0m와 맞물린다 —
+    이륙 직전 경고가 나가야 하는 조건이며, 편도 300m 초과 경로를 시험할 땐
+    range_limit_m 을 함께 키워야 한다는 근거."""
+    pts = np.array([[0.0, 0.0], [300.0, 0.0]])
+    far = path_max_range(pts, [0.0, 0.0, 0.0])
+    assert far == pytest.approx(300.0)
+    # 경로점 자체는 경계값이라 미발동이지만, 역천이 오버슈트(≈57-d_end_thresh,
+    # 기본 10 → +46.8m)가 붙으면 실제 비행 최원점은 상한을 넘는다.
+    assert not range_limit_exceeded(far, 300.0)
+    assert range_limit_exceeded(far + 46.8, 300.0)

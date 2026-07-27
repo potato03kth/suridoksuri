@@ -316,6 +316,97 @@ def is_pilot_takeover(mode: str) -> bool:
     return str(mode).upper() in PILOT_MODES
 
 
+def offboard_reacquire_allowed(mode: str) -> bool:
+    """지금 OFFBOARD를 (재)요청해도 되는 모드인가.
+
+    True 조건: 현재 OFFBOARD가 **아니고**(=요청할 이유가 있고), 조종사가 쥔
+    수동모드도 **아닐** 때. 즉 AUTO.LOITER / AUTO.RTL / AUTO.TAKEOFF 같은
+    자율·페일세이프 모드이거나 아직 모드를 못 받은 상태("")일 때만 허용한다.
+
+    (2026-07-27 SITL-7 F-15 대응: `_step_transition_fw`의 헤딩 정렬 구간은
+    `_fw_offboard_requested`가 이미 True라 OFFBOARD를 잃어도 재요청 경로가
+    아예 없었다 — hover 세트포인트만 계속 뿜으며 무한 대기한다. 재요청 경로를
+    여는 것이 수정인데, 그 경로가 **2026-07-25 조종사 인계 사고**(POSCTL로
+    가져간 기체를 0.9초에 10회 재요청으로 되뺏어와 조종사가 KILL 스위치를
+    써야 했던 건)를 되살리면 안 된다. 그래서 "재요청해도 되는가"를 이 함수
+    하나로 못박고, 호출부는 False일 때 재요청이 아니라 `PILOT_TAKEOVER`로
+    빠지게 한다. `is_pilot_takeover()`와 짝이며 그 정의를 그대로 상속한다.)
+    """
+    if str(mode).upper() == "OFFBOARD":
+        return False
+    return not is_pilot_takeover(mode)
+
+
+# ── 상태 타임아웃 / 거리 상한 (2026-07-27 SITL-7 R1) ────────────
+
+def state_timeout_due(elapsed_s: float, timeout_s: float) -> bool:
+    """상태 체류시간이 타임아웃을 넘었는지. `timeout_s <= 0`이면 비활성.
+
+    경계는 strict `>` — `hold_timeout`(`_step_hold`)·`mc_wp_timeout`
+    (`_step_following`)·`landing_timeout`(`_step_landing`)이 쓰는 규약과
+    동일하게 맞췄다.
+
+    (2026-07-27 SITL-7 캠페인 F-1/F-2/F-3: 상태 12개 중 탈출 타임아웃이 있는
+    것은 `HOLD`·`OVERRIDE`·`LANDING` 셋뿐이었고 나머지는 조건이 오지 않으면
+    영구 대기했다. C10에서 `entry_mode:=mid_flight` 파라미터 하나로 ENTRY가
+    432.67초 내내 탈출하지 못한 채 기체가 이륙지점에서 5.85km 이탈했다 —
+    장애주입 없이. 스트림이 살아 있어 PX4 offboard-loss 페일세이프도 안 걸린다.
+    근거: `logs/2026-07-27_sitl_vtol_campaign/campaign_report.md` §1, C10 metrics.json
+    `completion.state_timeline`.)
+
+    ⚠️ 이 타임아웃의 처리는 `mc_wp_timeout`류의 **강제 진행이 아니라 안전
+    폴백**이다 — 호출부는 초과 시 이미 실증된 `_request_override()`
+    (manual 시도 → AUTO.LOITER 폴백)로 떨어뜨린다. 새 폴백 경로를 만들면
+    그 경로부터 다시 검증해야 하기 때문이다(S7에서 안전경로 3종 실증됨).
+    """
+    if timeout_s <= 0:
+        return False
+    return elapsed_s > timeout_s
+
+
+def horiz_dist_from_origin(pos_ned, origin_ned) -> float:
+    """이륙지점(origin_ned) 기준 **수평** 거리 (m). 고도는 무시한다.
+
+    두 인자 모두 NED [N, E, h_up] (또는 앞 2원소만 있어도 된다).
+    """
+    p = np.asarray(pos_ned, dtype=float)[:2]
+    o = np.asarray(origin_ned, dtype=float)[:2]
+    return float(np.linalg.norm(p - o))
+
+
+def range_limit_exceeded(horiz_dist_m: float, limit_m: float) -> bool:
+    """수평거리 상한 초과 판정. `limit_m <= 0`이면 비활성(항상 False).
+
+    NaN 방어: 거리 표본이 NaN이면 초과로 보지 **않는다**. NaN은 모든 비교가
+    False라 `>`는 어차피 False지만, 이후 누가 부등호를 뒤집어도 안전측이
+    유지되도록 명시한다 — `home_amsl_confirmed()`가 NaN 하나로 통째로
+    무력화됐던 선례(2026-07-25 감사)와 같은 계열의 함정이다.
+
+    (도입 근거: 하니스 `tools/sitl/run_scenario.py`의 `RangeGuard`가 C7에서
+    1564m에 실제 발동해 7km 비행을 막았다. 그러나 그건 **하니스 밖에는 아무
+    제동장치가 없다**는 뜻이기도 하다 — 실기체에는 하니스가 없다. 같은 감시를
+    노드 안에 넣는다.)
+    """
+    if limit_m <= 0:
+        return False
+    if not math.isfinite(horiz_dist_m):
+        return False
+    return horiz_dist_m > limit_m
+
+
+def path_max_range(pts, origin_ned) -> float:
+    """경로점 전체 중 이륙지점 기준 최대 수평거리 (m). 빈 경로면 0.0.
+
+    노드 기동/이륙 시점에 "이 경로는 애초에 거리 상한을 넘게 설계돼 있다"를
+    미리 경고하기 위한 진단용 — 비행 중이 아니라 지상에서 잡으려는 것이다.
+    """
+    a = np.asarray(pts, dtype=float)
+    if a.size == 0:
+        return 0.0
+    o = np.asarray(origin_ned, dtype=float)[:2]
+    return float(np.max(np.linalg.norm(a[:, :2] - o, axis=1)))
+
+
 def path_origin_ned(takeoff_pos_ned, waypoint_frame: str = "takeoff"):
     """`waypoints:=` 를 해석할 경로 원점(NED [N, E, h_up])을 결정한다.
 

@@ -1,0 +1,19 @@
+[run_scenario] === R1_c10_entry — R1 ①: C10 재현 — ENTRY 무한대기(실측 432.67s / 5.85km)가 entry_timeout 에 걸려 안전 폴백되는가. 거리 상한은 꺼서(5000) ENTRY 타임아웃만 격리
+[run_scenario] 기동 px4 pid=375
+[run_scenario] 기동 mavros pid=690
+[run_scenario] MAVROS connected=true 확인
+[run_scenario] 파라미터 CBRK_SUPPLY_CHK=894281 → 검증됨
+[run_scenario] 파라미터 NAV_DLL_ACT=0 → 검증됨
+[run_scenario] 기동 phase2.launch pid=1092
+[run_scenario] 거리 상한 감시 시작: 1500m (이륙지점 기준 수평)
+[run_scenario] offboard_node 첫 로그 관측 (플래너 계산 완료) — 미션 시계 시작
+[run_scenario] 상태 진입: ARM_TAKEOFF  (ARM 요청)
+[run_scenario] 상태 진입: CLIMBING  (CommandTOL 이륙 요청 alt=50.1m AMSL (지면 0.1+50.0) -> CLIMBING)
+[run_scenario] 상태 진입: TRANSITION_FW  (운용 고도 50.0m 도달 → transition_fw)
+[run_scenario] 상태 진입: STREAMING  (FW 전환 완료 -> STREAMING)
+[run_scenario] 상태 진입: FOLLOWING  (OFFBOARD 확인 → FOLLOWING)
+[run_scenario] 상태 진입: OVERRIDE  (긴급 수동 전환 실행 → MANUAL 요청)
+[run_scenario] 상태 진입: DONE  (수동/안전 모드 진입 확인 (mode=AUTO.LOITER) -> DONE)
+[run_scenario] DONE 관측 — 6.0s 더 수집 후 종료
+[run_scenario] ulog 수집 /root/PX4-vehicle/build/px4_sitl_default/rootfs/log/2026-07-27/12_42_48.ulg → 12_42_48.ulg (37.2 MB)
+[run_scenario] 산출물: /root/drone_ws/src/suridoksuri/logs/2026-07-27_sitl_vtol_campaign/R1_c10_entry  (exit=0 reason=done)

@@ -1,0 +1,130 @@
+{
+  "scenario_id": "R1_range",
+  "desc": "R1 ③: 거리 상한 발동 — A1(편도 300m) 을 기본 상한 300.0m 그대로 날려 종점 부근에서 OVERRIDE 로 떨어지는가",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local"
+  },
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame:=local"
+  ],
+  "home": null,
+  "timeout_s": 420.0,
+  "inject_spec": [],
+  "started_utc": "2026-07-27T12:46:18.128051+00:00",
+  "run_id": "R1_range",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-26T19:05:12.934133+00:00",
+  "px4_gz_world": null,
+  "px4_gz_worlds_dir": null,
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "3f6c517",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785156392\n    nanosec: 663484482\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: AUTO.LOITER\nsystem_status: 3\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-27T12:46:43.653125+00:00",
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 1.0,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785156404.905218,
+      "t_since_launch_s": 1.4,
+      "t_since_node_alive_s": 0.4,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785156405.9147437,
+      "t_since_launch_s": 2.4,
+      "t_since_node_alive_s": 1.4,
+      "msg": "CommandTOL 이륙 요청 alt=50.0m AMSL (지면 0.0+50.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785156436.9051878,
+      "t_since_launch_s": 29.84,
+      "t_since_node_alive_s": 28.84,
+      "msg": "운용 고도 50.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785156459.2060091,
+      "t_since_launch_s": 48.67,
+      "t_since_node_alive_s": 47.67,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785156459.3105788,
+      "t_since_launch_s": 48.67,
+      "t_since_node_alive_s": 47.67,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    },
+    {
+      "state": "TRANSITION_MC",
+      "ros_t": 1785156479.0138848,
+      "t_since_launch_s": 68.5,
+      "t_since_node_alive_s": 67.5,
+      "msg": "경로 추종 완료 -> transition_mc"
+    },
+    {
+      "state": "OVERRIDE",
+      "ros_t": 1785156479.7060292,
+      "t_since_launch_s": 69.1,
+      "t_since_node_alive_s": 68.1,
+      "msg": "긴급 수동 전환 실행 → MANUAL 요청"
+    },
+    {
+      "state": "DONE",
+      "ros_t": 1785156485.0057113,
+      "t_since_launch_s": 71.13,
+      "t_since_node_alive_s": 70.12,
+      "msg": "수동/안전 모드 진입 확인 (mode=AUTO.LOITER) -> DONE"
+    }
+  ],
+  "warn_count": 9,
+  "error_count": 1,
+  "range_guard": {
+    "enabled": true,
+    "limit_m": 1500.0,
+    "samples": 15,
+    "max_horiz_m": 329.4,
+    "max_at_local_enu": [
+      2.6,
+      329.4,
+      58.0
+    ],
+    "breach": null
+  },
+  "exit_reason": "done",
+  "exit_code": 0,
+  "ended_utc": "2026-07-27T12:48:11.566901+00:00",
+  "elapsed_s": 103.1,
+  "ulogs": [
+    "12_46_29.ulg"
+  ]
+}

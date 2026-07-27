@@ -1,0 +1,153 @@
+{
+  "scenario_id": "R1_c7rc",
+  "desc": "R1 ④: 안전경로 회귀 — PILOT_TAKEOVER. /root/s7/run_c7_rc.sh 로 MAVLink 조이스틱을 함께 흘려야 POSCTL 이 실제로 먹는다",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local",
+    "range_limit_m": "1500.0"
+  },
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame:=local",
+    "range_limit_m:=1500.0"
+  ],
+  "home": null,
+  "timeout_s": 420.0,
+  "inject_spec": [
+    {
+      "on_state": "FOLLOWING",
+      "delay_s": 8.0,
+      "action": "set_mode",
+      "mode": "POSCTL"
+    }
+  ],
+  "started_utc": "2026-07-27T12:55:48.076371+00:00",
+  "run_id": "R1_c7rc",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-26T19:05:12.934133+00:00",
+  "px4_gz_world": null,
+  "px4_gz_worlds_dir": null,
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "3f6c517",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785156962\n    nanosec: 885203094\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: AUTO.LOITER\nsystem_status: 0\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-27T12:56:17.317578+00:00",
+  "inject_transport": "in-process",
+  "inject_setmode_service_ready": true,
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 1.8,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785156979.060836,
+      "t_since_launch_s": 1.8,
+      "t_since_node_alive_s": 0.0,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785156984.4929736,
+      "t_since_launch_s": 4.01,
+      "t_since_node_alive_s": 2.2,
+      "msg": "CommandTOL 이륙 요청 alt=50.1m AMSL (지면 0.1+50.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785157012.384272,
+      "t_since_launch_s": 31.84,
+      "t_since_node_alive_s": 30.04,
+      "msg": "운용 고도 50.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785157033.7835279,
+      "t_since_launch_s": 50.27,
+      "t_since_node_alive_s": 48.46,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785157033.8921108,
+      "t_since_launch_s": 50.27,
+      "t_since_node_alive_s": 48.46,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    },
+    {
+      "state": "PILOT_TAKEOVER",
+      "ros_t": 1785157042.584534,
+      "t_since_launch_s": 59.08,
+      "t_since_node_alive_s": 57.28,
+      "msg": "조종사 인계 감지 (mode=POSCTL) — 세트포인트 발행 중단, OFFBOARD 재요청 안 함. 기체는 조종사 것."
+    }
+  ],
+  "warn_count": 1,
+  "error_count": 0,
+  "range_guard": {
+    "enabled": true,
+    "limit_m": 1500.0,
+    "samples": 27,
+    "max_horiz_m": 1557.2,
+    "max_at_local_enu": [
+      -3.7,
+      1557.2,
+      49.0
+    ],
+    "breach": {
+      "horiz_m": 1557.2,
+      "limit_m": 1500.0,
+      "local_enu": [
+        -3.7,
+        1557.2,
+        49.0
+      ],
+      "utc": "2026-07-27T12:59:11.652536+00:00"
+    }
+  },
+  "inject_results": [
+    {
+      "spec": {
+        "on_state": "FOLLOWING",
+        "delay_s": 8.0,
+        "action": "set_mode",
+        "mode": "POSCTL"
+      },
+      "action": "set_mode",
+      "fired_mono_s": 58.432,
+      "fired_utc": "2026-07-27T12:57:22.116148+00:00",
+      "rc": 0,
+      "via": "in-process",
+      "done_mono_s": 58.435,
+      "output": "in-process SetMode(custom_mode='POSCTL') → mode_sent=True (왕복 0.002s)"
+    }
+  ],
+  "exit_reason": "range_exceeded",
+  "exit_code": 6,
+  "ended_utc": "2026-07-27T12:59:12.083917+00:00",
+  "elapsed_s": 188.4,
+  "ulogs": [
+    "12_56_01.ulg"
+  ]
+}
