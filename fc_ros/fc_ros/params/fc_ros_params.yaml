@@ -16,7 +16,13 @@ offboard_node:
 
     # mid_flight WP0 진입 기준
     wp0_entry_radius: 5.0     # WP0 도달 판정 반경 (m)
-    wp0_heading_tol: 0.05     # 헤딩 허용 오차 (rad) ≈ 2.9°
+    # 헤딩 허용 오차 (rad) ≈ 15° — 2026-07-29 사용자 지시로 0.05(≈2.9°)에서 확대.
+    # 종전 2.9°는 구조적으로 너무 빡빡했다(F-7): 정렬 완료 시 잔류 오차가 −2.5°로
+    # 고착돼 실질 마진이 0.4°뿐이었고, 바람 8m/s 에서 정렬 허용대 재이탈이
+    # 0 → 12.5° 로 튀었다. _FW_STABLE_REQ 틱 연속 조건이라 마진이 없으면 카운터가
+    # 계속 리셋돼 TRANSITION_FW 에서 못 빠져나온다(R1 타임아웃이 받아내긴 한다).
+    # ⚠ ENTRY 의 WP0 도달 판정과 공용이다(offboard_node.py :1127 천이정렬 / :1877 ENTRY).
+    wp0_heading_tol: 0.2618
     v_approach: 5.0           # ENTRY 접근 속도 (m/s)
 
     # TwistStamped frame_id — CC 환경의 MAVROS 버전에 따라 변경
