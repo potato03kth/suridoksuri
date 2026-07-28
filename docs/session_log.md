@@ -11,6 +11,46 @@ project: suridoksuri-1
 
 ---
 
+## 2026-07-28 — [main] 정밀착륙 F2 구현·실기체 배포 → 천이 플래시 대기로 잠정 보류
+
+**브랜치:** `dev--vision-computing-module` · **커밋:** `8cb0861`
+**목적:** vision이 이미 발행 중인 착륙 setpoint를 받는 코드가 FC에 한 줄도 없던 것을 메운다(오케스트레이터 세션). 사용자가 제시한 시퀀스("비전착륙 여부를 파라미터로 / 마지막 WP 중심으로 원을 확대하며 탐색")를 평가한 뒤 실행.
+
+### 완료
+
+- **사용자 시퀀스 평가 — 뼈대 승인, 빠진 조각 5개 지적.** 원 확대 탐색은 `vision_plan.md` §10 성공판정 문구("마지막 WP 도달·천이 → **MC 스캔** → 목표 포착·확인 → 정중앙 상공 이동 → 부드러운 착륙")와 글자 그대로 일치해 방향은 그대로 채택. 다만 ①**순항고도(예시 50m)에서는 초록매트가 원리적으로 안 보인다**(`distress_coarse.yaml` `min_area=8000`이 40m를 의도적으로 배제 — 50m면 3,600px²로 임계의 절반) → 탐색고도 조정 단계를 1순위로 추가 ②검출 래치 없이는 스치듯 보고 놓친다(shim이 설계상 절대좌표를 기억하지 않음) ③`landing_setpoint.z`가 착륙점 지면고도라 그대로 먹이면 3D 슬루로 수직 4m/s 하강 ④탐색 타임아웃·폴백 부재 ⑤`HOLD` 종결 시한(D-a) 부재. **원 확대는 폐기가 아니라 3단계로 강등** — 25m 풋프린트가 33.4×18.8m라 WP 오차 ±9.4m면 제자리에서 잡히므로 "고도정렬 → 제자리확인 → 나선"이 싼 것부터 시도하는 순서다.
+- **구현(커밋 `8cb0861`, +465줄):** `_State`에 `VISION_SEARCH`/`PRECISION_LAND` 2종 추가. 진입점은 `_step_hold` 말미가 아니라 **`_exit_hold()` 단일 분기 함수** — HOLD 종료 경로가 둘(안정 도달/타임아웃)이라 각각에 분기를 복제하면 한쪽만 고치는 사고가 난다. 신규 모듈 3종: `fc_bridge/execution/search_pattern.py`(나선·풋프린트·검출고도 상한) · `fc_bridge/execution/precision_land.py`(래치·하강게이트·인계판정 순수함수) · `fc_ros/adapters/vision_target_bridge.py`(두 토픽 구독·계약 파싱). **`vision_landing:=false`(기본)면 구독조차 만들지 않아 종전과 100% 동일.**
+- **인수인계 D-a~D-d 전부 처리:** `vision_veto_timeout`(10s) 신설 / `_RANGE_GUARDED_STATES`에 `VISION_SEARCH` 포함·`PRECISION_LAND` 제외 / `listen_lt` 미개방 / AGL은 이륙지점 지면 기준 근사(라이다 여전히 미배선).
+- **실기체 배포 완료** — push → RPi pull(HEAD=`8cb0861`) → 컨테이너 `colcon build --packages-select fc_ros`(4.36s) → 검증(소스↔install md5 `6501c8f3…` 일치, import 통과). **QoS BEST_EFFORT/depth=1/KEEP_LAST를 실기체 컨테이너에서 직접 확인** — 유닛테스트로는 원리적으로 못 잡는 항목이라 여기서 봐야 했다. 컨테이너 numpy는 **1.21.5**(랩탑 2.x)이나 신규 코드는 양쪽 호환.
+- **테스트:** `fc_bridge` 221 + `fc_ros` 182 = **403 passed, 회귀 0.** 파괴검증 23종(`search_pattern` 11 · `vision_target_bridge` 7 · `precision_land` 5).
+
+### 발견
+
+- **🔴 `DiagnosticStatus.level`이 1바이트 `bytes`로 온다**(`vision/ros/shim_node.py:221`). 인수인계 문서 §2-2가 "OK=0/WARN=1/ERROR=2"라고만 적어둬서, 그대로 믿고 `level == 1`로 짜면 `b'\x01' == 1`이 항상 False라 **테스트 전건 green인 채 실기체에서 거부권만 조용히 사라진다.** 문서에 경고 문단을 추가하고 `level_to_int()`로 흡수.
+- **🔴 나선 선회속도를 최대반경 기준으로 전 구간에 쓰면 커버리지가 통째로 틀어진다.** r=5m에서 tilt 27° → 25m 고도 시선오프셋 12.75m로 **링 간격(12.2m)과 같은 자릿수**(r=2m면 51.9°로 비행 자체가 위험). 매 틱 반경별 재산출 + 나선을 링간격 절반에서 시작하도록 수정 → 최대 tilt **6.0°**, 오프셋 2.62m.
+- **`vision_search_timeout` 90s가 1회차를 완주 직전에 잘랐다** — 나선 89s + 정렬·dwell 8s = 97s. 120s로 역산 재설정. 탐색 시간 예산 실측: 1회차 97s / 재탐색 74s / **최악 171s(2.9분)**.
+- **파괴검증 절차 자체의 함정** — 파괴→원복이 같은 초 안에 일어나면 `.pyc` mtime 검증(초 단위 해상도)이 stale 바이트코드를 유효로 판정한다. `diff`가 "바이트 동일"이라 해도 pytest는 계속 red였고, `__pycache__` 제거 후에야 green. 반대 방향이면 "테스트가 버그를 못 잡는다"는 **오판**을 만든다 → 메모리 `feedback_destructive_verification_pycache_trap` 신설.
+
+### 결정
+
+- **🔴 F2 잠정 보류 (사용자).** 선행은 **천이 문제 해결 = PX4 패치 실기체 플래시**(🛩 sitl-vtol 트랙). 근거 둘: ①F2는 `HOLD` 이후에 발동하므로 **천이가 안 고쳐지면 F2 코드가 실행되는 지점까지 기체가 가지 못한다** ②`sitl_vtol_remediation_plan.md` §4-1 4번이 "첫 실비행에 미검증 변수 둘 금지"를 명문화. 기본값이 off라 배포된 상태로 두어도 무해.
+- **탐색 실패 시 폴백 = 고도 낮춰 1회 재탐색 후 GPS 착륙**(사용자 선택). 무한 재탐색 금지 — 성공 판정이 "재시도 없이"를 포함한다.
+- **WP↔착륙지 오차는 ±10~30m로 가정**(사용자) → 최대반경 30m·링간격 12m. 실효 커버반경은 39.4m.
+
+### 다음 세션
+
+1. **🛩 sitl-vtol 플래시 + R7 실비행** (F2의 선행 조건)
+2. **F2 SITL 장애주입** — 천이와 무관하게 지금도 가능. 6종 표가 `fc_precision_land_handoff.md` §6-1에 있다
+3. `vision_landing:=true` SITL 완주 → 실기체 첫 비행(1번 완료 후에만)
+
+### 주의
+
+> **F2는 검증이 하나도 안 끝났다.** SITL 장애주입 0건, `vision_landing:=true` 비행 0건(SITL·실기체 둘 다), 실촬영 검출 검증 전무(vision 골든셋이 전부 합성). "구현·배포 완료"를 "동작 확인됨"으로 읽지 말 것 — 재개 지점은 `docs/fc_precision_land_handoff.md` §0-2.
+
+> 오늘 비행 로그 2건(`logs/2026-07-28_flight01`·`flight02`)이 RPi에 **미커밋**으로 남아 있다. `notes.md`의 관찰·결론이 비어 있어 Claude가 채울 수 없다 — 사용자가 채운 뒤 커밋 필요. `vision/results/logs`(37M)는 미추적 런타임 로그.
+
+---
+
 ## 2026-07-24 — [vtol-hw] VTOL 오프보드 비행 전 코드 준비상태 점검 → eta3 플래너 `np.trapz` 크래시 버그 발견·수정
 
 **브랜치:** `dev--vision-computing-module`

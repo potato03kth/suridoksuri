@@ -2,48 +2,138 @@
 doc_type: fc_handoff
 project: suridoksuri-1
 track: 🎯 fc-정밀착륙 (F2)
-scope: vision → FC 인수인계 — `OffboardNode` 정밀착륙 서브상태 구현을 위한 계약·함정·검증 정본
-status: ▶ 착수 대기 (vision 쪽 절반 완료·실기체 검증됨)
+scope: F2 정본 — 계약·구현 상태·재개 순서. (원래는 vision → FC 인수인계였고 그 내용도 그대로 남아 있다)
+status: ⏸ 잠정 보류 — 구현·배포 완료, 검증 미완. 선행 = 🛩 sitl-vtol 실기체 플래시
 created: 2026-07-28
 last_updated: 2026-07-28
 ---
 
-# FC 정밀착륙(F2) 인수인계
+# FC 정밀착륙(F2) — 구현 상태 및 재개 인수인계
 
 > **이 문서 하나로 F2를 완주할 수 있게 썼다.** FC 세션은 `docs/vision_plan.md`·
 > `docs/vision_orchestration_handoff.md`를 읽지 않아도 된다(도메인 컨텍스트 격리).
 > 더 깊은 배경이 필요하면 `docs/vision_fc_interface.md`(852줄, 정찰 사실확정)의 **필요한 절만** 열어라.
 >
-> **작성자:** vision 오케스트레이터 세션(2026-07-28). 아래 "실측/검증됨" 표시가 붙은 것은
-> **전부 실기체 또는 실행으로 직접 확인**한 것이고 재조사할 필요가 없다.
+> **§0~§0-2가 현재 상태이고, §1 이후는 원래의 계약·함정 정본이다** — 계약 내용은 구현 후에도
+> 바뀌지 않았으므로 그대로 유효하다. 재개할 때는 **§0-2(재개 순서)부터** 읽으면 된다.
 
 ---
 
-## 0. 한 줄 요약
+## 0. 🔴 현재 상태 — 한 줄 요약
 
-**vision은 낼 것을 다 내고 있고, 받는 코드가 FC에 한 줄도 없다.** F2는 폐루프를 닫는 마지막 칸이다.
+**F2는 구현·배포까지 끝났고, 검증이 안 끝난 채 사용자 결정으로 보류 중이다.**
+`vision_landing:=false`(기본)라 **지금 기체에 얹혀 있어도 무해**하다.
 
 ```
 [호스트 picam-venv]              [fc 컨테이너]                        [offboard_node]
- main.py --target-sink ─JSONL─▶ shim_node ─┬─▶ /vision/landing_setpoint  ← ❗받는 코드 없음
-                                           ├─▶ /vision/target_status     ← ❗받는 코드 없음
-                                           ├─▶ /vision/target_pose       ← (선택) 안 써도 된다
-                                           └─▶ /mavros/landing_target/raw  ⏸ 기본 꺼짐
+ main.py --target-sink ─JSONL─▶ shim_node ─┬─▶ /vision/landing_setpoint  ✅ 받는 코드 있음
+                                           ├─▶ /vision/target_status     ✅ 받는 코드 있음
+                                           ├─▶ /vision/target_pose       ← (선택) 안 쓴다
+                                           └─▶ /mavros/landing_target/raw  ⏸ 기본 꺼짐(D-c 유지)
                                            ▲
                                  /mavros/local_position/pose ✅ 이미 구독 중
 ```
 
-**`fc_ros`/`fc_bridge`는 지금까지 한 줄도 수정되지 않았다.** 인터페이스 파일 3종 md5가
-기준선(`893a5eb`) 이후 계속 동일함을 vision 세션이 반복 확인했다 — 즉 **기존 계약이 그대로 유효**하다.
+### 0-1. 🔴 왜 보류인가 (2026-07-28 사용자 결정)
+
+**천이 문제 해결(PX4 패치 실기체 플래시)이 먼저다.** 두 가지 이유이고 둘 다 강하다:
+
+1. **F2는 `HOLD` 이후에 발동한다.** 거기 도달하려면 FW 순항 → 역천이(`TRANSITION_MC`) → `HOLD`를
+   거쳐야 한다. **천이가 안 고쳐지면 F2 코드가 실행되는 지점까지 기체가 가지 못한다** — 지금
+   F2를 아무리 다듬어도 실비행으로 확인할 방법이 없다.
+2. **`sitl_vtol_remediation_plan.md` §4-1 4번이 "첫 실비행에 미검증 변수를 둘로 만들지 말라"를
+   명문화**하고 있다. 천이 패치와 정밀착륙을 같은 비행에서 처음 켜는 것 자체가 금지다.
+
+선행 작업은 **🛩 sitl-vtol 트랙**이다(`docs/session_status.md`, 절차는 `docs/px4_v6c_patch_build.md`):
+①실기체 플래시(USB·QGC 필요, 사용자 승인 후 별도 세션) → ②비-정북 레그 실비행(R7).
+
+> 🚨 **플래시 시 주의(그 트랙이 기록한 것):** 패치 펌웨어가 **자기신고를 하지 않는다** —
+> `git_identity`가 순정과 완전히 동일(`v1.18.0-alpha1-592-gc890d9db0a`)해서 **구별 수단은
+> sha256(`f1c16e2b…`)뿐**이다. 플래시 직전 반드시 재확인할 것.
+
+### 0-2. ▶ 재개 순서 (여기서 시작하라)
+
+| # | 할 일 | 왜 이 순서인가 |
+|---|---|---|
+| 1 | 🛩 sitl-vtol 플래시 + R7 실비행 완료 | 위 §0-1. **이게 끝나기 전엔 아래를 해도 확인이 안 된다** |
+| 2 | **SITL 장애주입** (§6-1) | 하드웨어 없이 지금도 가능한 유일한 검증. 실비행 전에 끝내둘 것 |
+| 3 | `vision_landing:=true` SITL 완주 | 탐색→래치→정렬→인계 전 구간 |
+| 4 | 실기체 `vision_landing:=true` 첫 비행 | ①이 끝난 뒤에만 |
+
+**2번은 1번을 기다릴 필요가 없다** — 천이와 무관하게 노트북 SITL에서 돌릴 수 있고, 실비행
+기회가 왔을 때 바로 쓰려면 미리 해두는 편이 낫다(메모리 `project_fc_sitl_laptop_env`).
+
+### 0-3. ✅ 무엇이 구현됐나 (커밋 `8cb0861`)
+
+```
+HOLD ─┬─(vision_landing=false, 기본)─▶ LANDING              ← 종전과 100% 동일
+      └─(true)─▶ VISION_SEARCH ─(래치)─▶ PRECISION_LAND ─▶ LANDING
+```
+
+- **`VISION_SEARCH`** — 탐색고도 정렬 → 제자리 확인(3s) → 아르키메데스 나선 확대.
+  실패 시 15m/18m로 **재탐색 1회**, 그래도 실패면 GPS 착륙 폴백(무한 재탐색 금지 —
+  성공 판정이 *"재시도 없이"* 를 포함한다).
+  싼 것부터 시도하는 구조다: 25m 풋프린트가 33.4×18.8m라 **WP 오차 ±9.4m 이내면 나선을 한
+  바퀴도 돌지 않고 제자리에서 잡힌다.**
+- **`PRECISION_LAND`** — 수평은 vision, **수직은 FC가 스케줄**한다. 정렬 오차가
+  `vision_align_tol` 안에 든 틱에만 목표고도를 내린다.
+- 신규 모듈 3종: `fc_bridge/execution/search_pattern.py`(나선 기하·풋프린트·검출고도 상한) ·
+  `fc_bridge/execution/precision_land.py`(래치·하강게이트·인계판정, 순수 함수) ·
+  `fc_ros/adapters/vision_target_bridge.py`(두 토픽 구독·계약 파싱).
+- **테스트:** `fc_bridge` 221 + `fc_ros` 182 = **403 passed**. 파괴검증 23종.
+- **배포 검증 완료:** 소스↔install md5 일치 · import 통과 · **QoS BEST_EFFORT 실기체 확인**
+  (유닛테스트로는 원리적으로 못 잡는 항목이라 실기체에서 직접 봐야 했다).
+
+### 0-4. 🔴 무엇이 안 됐나 (정직하게)
+
+| 미검증 항목 | 상태 |
+|---|---|
+| **SITL 장애주입** (§6-1) | **전무.** vision SIGKILL / veto / setpoint 침묵 어느 것도 실증 안 함 |
+| **`vision_landing:=true` 비행** | **0건** (SITL·실기체 둘 다) |
+| 실촬영 검출 | **전무** — vision 골든셋이 전부 합성이다 |
+| 라이다 AGL | 여전히 **미배선**(D-d). 지금은 이륙지점 지면 기준 근사 = **평탄지 가정** |
+
+### 0-5. 구현 중 실측으로 잡은 결함 3건 (재조사 불필요)
+
+1. **나선 선회속도를 최대반경 기준으로 전 구간에 쓰면 안 된다.** r=5m에서 tilt 27° →
+   25m 고도에서 시선이 12.75m 밀리는데 이건 **링 간격(12.2m)과 같은 자릿수**라 커버리지가
+   통째로 틀어진다(r=2m면 51.9°로 비행 자체가 위험). **매 틱 그 순간의 반경으로 속도를 다시
+   구하고, 나선을 링 간격의 절반에서 시작**하도록 고쳤다 → 최대 tilt 6.0°, 오프셋 2.62m.
+2. **`vision_search_timeout` 90s는 1회차를 완주 직전에 자른다** — 나선 89s + 정렬·dwell 8s
+   = 97s다. 120s로 역산 재설정했다. **반경·간격·속도를 바꾸면 이 값도 같이 재야 한다.**
+3. 🔴 **`DiagnosticStatus.level`이 1바이트 `bytes`로 온다**(`vision/ros/shim_node.py:221`이
+   `st.level = bytes([...])`로 넣는다 — msg상 타입이 `byte`라 rclpy가 요구하는 형식이다).
+   **아래 §2-2가 "level 값: OK=0, WARN=1, ERROR=2"라고만 적어둔 탓에** 그대로 믿고
+   `status.level == 1`로 짜면 `b'\x01' == 1`이 항상 False라 **테스트는 전건 green인 채
+   실기체에서 거부권(veto)만 조용히 사라진다.** `level_to_int()`로 흡수하고 회귀로 고정했다.
+
+### 0-6. 탐색 시간 예산 (실측)
+
+| 구간 | 시간 |
+|---|---|
+| 1회차 (25m / 반경 30m) | 정렬 ~5s + dwell 3s + 나선 **89s** = **97s** |
+| 재탐색 (15m / 반경 18m) | 정렬 + dwell + 나선 66s = **74s** |
+| **최악 합계** | **171s (2.9분)** |
+
+임무 끝단이라 배터리 여유가 관건이다. 줄이려면 `vision_search_radius`를 먼저 깎아라 —
+실효 커버반경이 `반경 + 풋프린트단폭/2`라 30m 설정이면 실제로는 **39.4m까지 훑는다**(과잉일 수 있다).
 
 ---
 
 ## 1. 붙는 자리와 재사용할 패턴
 
+> ✅ **이 절은 이미 이행됐다**(커밋 `8cb0861`). 아래 내용은 **왜 그렇게 붙였는지**의 근거로
+> 남겨 둔다 — 구조를 바꾸려 할 때 여기 적힌 사고 이력을 먼저 읽어라.
+
 ### 1-1. 위치
 
-`fc_ros/fc_ros/nodes/offboard_node.py`의 **`_step_hold`(`:1230`)와 `_step_landing`(`:1300`) 사이**에
-새 서브상태를 넣는다. `_State` enum(`:111`)에 항목 추가.
+`fc_ros/fc_ros/nodes/offboard_node.py`의 **`_step_hold`와 `_step_landing` 사이**에 새 서브상태를
+넣는다. `_State` enum에 항목 추가.
+
+**실제 구현:** `_State.VISION_SEARCH` / `_State.PRECISION_LAND` 2종을 추가했고, 진입점은
+`_step_hold` 말미가 아니라 **`_exit_hold()`라는 단일 분기 함수**다 — HOLD 종료 경로가 두 개
+(안정 도달 / 타임아웃)라 각각에 분기를 복제하면 한쪽만 고치는 사고가 나기 때문이다.
+`vision_landing=false`면 `_exit_hold`가 곧장 `LANDING`으로 보내 **종전과 완전히 동일**하다.
 
 현재 `HOLD → LANDING` 전이는 두 경로다(`_step_hold` 말미):
 - `wp1_land_ready(dist, speed, ...)`가 `_HOLD_STABLE_REQ` 틱 연속 참 → `LANDING`
@@ -138,6 +228,14 @@ KeyValue가 이미 변환된 삼중항으로 실려 나온다(진단용). 다만
 
 **level 값:** `OK=0`, `WARN=1`, `ERROR=2`.
 
+> 🔴 **하지만 그 값은 `int`가 아니라 1바이트 `bytes`로 온다.** msg상 타입이 `byte`라
+> rclpy가 `bytes`를 요구하고, 발행 측도 `st.level = bytes([int(...)])`로 넣는다
+> (`vision/ros/shim_node.py:221`). **`status.level == 1`로 비교하면 `b'\x01' == 1`이 항상
+> False라 거부권이 조용히 사라진다** — 테스트는 전건 green이고 실기체에서만 틀린다.
+> `fc_ros/adapters/vision_target_bridge.py::level_to_int()`가 양쪽을 흡수하므로 **그걸 써라.**
+> (이 문단은 2026-07-28 F2 구현 중 발견돼 추가됐다. 원래 이 절은 위 한 줄뿐이었고, 그게
+> 정확히 함정의 원인이었다.)
+
 #### 🔴 거부권 계약
 
 ```
@@ -180,14 +278,14 @@ advisory이므로 강제는 아니지만, **이걸 무시하고 계속 횡 유�
 
 ---
 
-## 3. 🔴 FC가 결정해야 할 것
+## 3. ✅ FC 결정사항 — 전부 처리됨 (2026-07-28, 커밋 `8cb0861`)
 
-| # | 항목 | 왜 FC 결정인가 |
+| # | 항목 | **내린 결정** |
 |---|---|---|
-| **D-a** | **`HOLD` 종결 시한** (`hold_before_reascend_s`) | vision이 **일부러 안 만들었다** — `FailsafeContract`가 이 값을 *"FC가 자기 제어틱에서 재는 값, vision이 정해 보낼 값이 아니다"*로 못박았다. 🔴 **없으면 vision이 `HOLD`로 빠졌을 때 무한 호버링**이다(실측 확인: 재획득 없으면 `HOLD`가 영원히 유지됨). **F2에서 반드시 같이 넣어라.** |
-| **D-b** | `_RANGE_GUARDED_STATES` 포함 여부 | §1-3 |
-| **D-c** | `listen_lt: true`로 네이티브 precision-land 피벗을 열 것인가 | `px4_config.yaml:214`가 현재 `false`라 `/mavros/landing_target/raw` 구독자가 **아예 없다**. 열면 `frame`에 **정수 리터럴 12**를 써야 한다(§4 함정 1) |
-| **D-d** | AGL 소스 확정 | §5 참조 — vision이 가정하는 "라이다 AGL"이 `fc_ros`에 배선돼 있지 않다 |
+| **D-a** | `HOLD` 종결 시한 | ✅ **`vision_veto_timeout`(기본 10s) 신설.** vision이 `HOLD`/`ABORT_ASCEND`(=veto)로 빠진 채 이 시한을 넘기면 GPS 착륙으로 폴백한다. vision이 *일부러* 안 만든 값이고(`FailsafeContract`가 "FC가 자기 제어틱에서 재는 값"으로 못박음), **없으면 무한 호버링**이었다 |
+| **D-b** | `_RANGE_GUARDED_STATES` 포함 여부 | ✅ **`VISION_SEARCH`는 포함, `PRECISION_LAND`는 제외.** 탐색은 의도적으로 WP1 바깥으로 나가지만 상한 300m 대비 탐색 반경(30m)은 자릿수가 다르고, "점점 커지는 원"은 스스로 멈출 조건이 없어(`_step_transition_mc`의 "도망가는 캐럿"과 같은 실패 모드) 거리 상한이 **유일한 기하학적 제동장치**다. `PRECISION_LAND`는 `LANDING`과 같은 논리로 제외(내려오는 중 OVERRIDE는 착륙 방해) |
+| **D-c** | `listen_lt: true` 네이티브 피벗 | ✅ **열지 않는다.** `/vision/landing_setpoint` 자체 서보 경로로 충분하고, 열면 §4 함정 1(`frame` off-by-one)을 떠안는다. `px4_config.yaml:214`는 `false` 그대로 |
+| **D-d** | AGL 소스 | ⚠️ **미해결 — 이륙지점 지면 기준 근사로 진행 중.** `offboard_node._agl()`이 `pos_ned[2] − _takeoff_ground_h`를 쓴다(CLIMBING의 AGL 판정과 같은 기준). **평탄지 가정**이라 착륙지 지면 높이가 이륙지점과 다르면 그만큼 틀린다. 라이다 배선은 **여전히 없다**(§5 그대로 유효) |
 
 ---
 
@@ -247,13 +345,25 @@ vision 설계는 여러 곳에서 **"라이다 AGL"**을 가정하는데, **`fc_
 
 ## 6. 검증 방법
 
-### 6-1. SITL 장애주입 (필수)
+### 6-1. SITL 장애주입 (필수) — 🔴 **미실시. 재개 시 여기가 2번 항목이다**
 
 vision 프로세스 **SIGKILL** / 소켓 끊김 / attitude stale / `valid=false` 각각에 대해 FC가
-의도한 상태로 전이하는지 실증하라. 특히:
-- 생산자 SIGKILL → `vision/link` **ERROR** → FC가 홀드로 빠지는가
-- `state=HOLD`(veto) → FC가 하강을 멈추는가
-- setpoint 침묵이 길어질 때 **마지막 값을 붙들고 있지 않은가**
+의도한 상태로 전이하는지 실증하라. **천이 플래시를 기다릴 필요가 없다** — 노트북 SITL에서
+지금도 돌릴 수 있다(메모리 `project_fc_sitl_laptop_env`).
+
+| # | 주입 | 기대 동작 | 구현상 어디서 걸리나 |
+|---|---|---|---|
+| 1 | 생산자 SIGKILL | `vision/link` ERROR → 탐색 중단·GPS 착륙 | `_step_vision_search` ②번 분기 |
+| 2 | `state=HOLD`(veto) 지속 | 하강 정지 → 10s 후 GPS 착륙 | `descend_allowed(veto=True)` → `vision_veto_timeout` |
+| 3 | setpoint 침묵 | **마지막 값을 붙들지 않는다** — `pos_ned`가 `None`으로 떨어지고 고도가 고정된다 | `VisionTargetBridge.snapshot()` stale 만료 + `descend_allowed(guided=False)` |
+| 4 | shim 자체 사망 | status까지 끊김 → `status_age_s` 증가로 1번과 **구분되어야** 한다 | 페일세이프 3분법(§2-3) |
+| 5 | 단발 오탐 1프레임 | 탐색이 **중단되지 않는다** | `latch_candidate` 연속 3틱 + 산포 3m |
+| 6 | 나선 완주 | 15m 재탐색 1회 후 GPS 착륙 (무한 반복 없음) | `search_pass_next` |
+
+> ⚠️ **`ros2 topic info -v`로 QoS를 반드시 눈으로 확인하라.** BEST_EFFORT↔RELIABLE 불일치는
+> **유닛테스트로 원리적으로 못 잡는다**(단일 프로세스로 재현 불가). 배포 시 컨테이너에서
+> `_vision_qos()`가 BEST_EFFORT/depth=1/KEEP_LAST임은 확인했지만, **구독자-발행자 짝이 실제로
+> 붙는지는 토픽이 실제로 흐를 때만 보인다.**
 
 ### 6-2. 🔴 실기체 배포 규율 (이 저장소의 반복 사고)
 
@@ -285,11 +395,46 @@ vision 프로세스 **SIGKILL** / 소켓 끊김 / attitude stale / `valid=false`
 
 ---
 
-## 8. 참조
+## 8. 파라미터 레퍼런스 (2026-07-28 신설분)
 
+전부 `offboard_node`의 ROS2 파라미터다. **테스트 임시값은 yaml을 고치지 말고 launch 인자로만
+준다**(이 저장소 규율): `phase2.launch.py vision_landing:=true vision_search_alt:=20.0`.
+
+| 파라미터 | 기본 | 의미 / 근거 |
+|---|---|---|
+| `vision_landing` | **`false`** | 🔴 **마스터 스위치.** false면 구독조차 만들지 않는다 = 종전과 100% 동일 |
+| `vision_search_alt` | 25.0 | 탐색고도(AGL). 검출 상한 33.57m 대비 8.6m 여유. **검출률이 나쁘면 20m로 내리는 것이 첫 카드**(25m 명목 픽셀면적이 `min_area`의 1.80배뿐, 20m는 2.82배) |
+| `vision_search_radius` | 30.0 | 최대 탐색반경. 실효 커버는 `반경 + 풋프린트단폭/2` = **39.4m** |
+| `vision_search_spacing` | 0.0 | 링 간격. **0이면 풋프린트에서 자동 산출**(겹침 35% → 25m에서 12.2m) |
+| `vision_search_speed` | 0.0 | 선회속도 **상한**. 0이면 `v_approach`. 실제 속도는 매 틱 반경별로 재산출된다 |
+| `vision_search_dwell` | 3.0 | 탐색고도 도달 후 제자리 확인(s) |
+| `vision_search_timeout` | **120.0** | 1회 탐색 상한. 🔴 실측 역산값 — 1회차가 97s다. **반경·간격·속도를 바꾸면 같이 재라** |
+| `vision_retry_alt` / `_radius` | 15.0 / 18.0 | 재탐색 회차 |
+| `vision_latch_ticks` / `_spread_m` | 3 / 3.0 | 래치 조건(연속 틱 + 수평 산포). 단발 오탐 차단 |
+| `vision_stale_timeout` | 1.0 | 🔴 실측 발행 4.4Hz 기준. **0.5s로 잡으면 헛경보** |
+| `vision_link_timeout` | 3.0 | `link_dead` 유효기간(하트비트 1Hz × 3). 일회성 ERROR가 영구 래치되는 것을 막는다 |
+| `vision_veto_timeout` | 10.0 | **D-a.** veto 지속 시 GPS 착륙 폴백까지의 시한 |
+| `vision_align_tol` | 1.0 | 이 안에 들어와야 하강한다 — **수평/수직 분리의 핵심** |
+| `vision_descend_speed` | 0.8 | 정렬 후 하강률(m/s) |
+| `vision_land_handoff_agl` | 3.0 | AUTO.LAND 인계 고도. 🔴 vision의 `terminal_agl_m`과 **같은 숫자여야 한다** |
+| `precision_land_timeout` | 60.0 | 정렬이 영영 안 설 때의 상한 |
+
+> ⚠️ **`fc_ros_params.yaml`에는 아직 안 넣었다** — 지금은 노드 기본값만 있다. yaml에 넣고
+> launch 인자로도 노출하려면 `phase2.launch.py`의 `DeclareLaunchArgument` + `overrides`
+> 두 곳을 같이 고쳐야 한다(`docs/rpi_deploy.md` §6).
+
+---
+
+## 9. 참조
+
+- **`docs/px4_v6c_patch_build.md`** — 🔴 **선행 작업(천이 플래시) 절차 전문.** §0-1 참조
+- `docs/session_status.md` 🛩 sitl-vtol 트랙 — 선행 작업의 현재 상태
 - `docs/vision_fc_interface.md` — 정찰 사실확정(852줄). **필요한 절만.** §9에 F1~F6 원래 작업 목록
   (F1=shim은 vision이 대신 완료했다)
-- `docs/rpi_deploy.md` — 실기체 배포 절차·함정
+- `docs/rpi_deploy.md` — 실기체 배포 절차·함정. §6이 새 파라미터를 yaml/launch에 넣는 법
 - `docs/sitl_vtol_remediation_plan.md` §4-1 — "첫 실비행에 미검증 변수 둘 금지"
 - `fc_bridge/execution/state_logic.py:458` — `slew_setpoint`
+- **`fc_bridge/execution/search_pattern.py`** — 나선 기하·풋프린트·검출고도 상한 (F2 신설)
+- **`fc_bridge/execution/precision_land.py`** — 래치·하강게이트·인계판정 순수 함수 (F2 신설)
+- **`fc_ros/fc_ros/adapters/vision_target_bridge.py`** — 두 토픽 구독·계약 파싱 (F2 신설)
 - `vision/ros/shim_core.py` — 계약 상수·변환 순수 로직(읽기만; vision 도메인 소유)

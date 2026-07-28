@@ -26,25 +26,40 @@ last_updated: 2026-07-28
 
 ## 트랙 보드
 
-### 🎯 fc-정밀착륙 (F2) — ▶ 착수 대기 (**2026-07-28 vision 트랙에서 인수인계됨**)
+### 🎯 fc-정밀착륙 (F2) — ⏸ **잠정 보류** (구현·배포 완료, 검증 미완. **선행: 🛩 sitl-vtol 실기체 플래시**)
 
 > # 이 트랙을 재개한다면 → **`docs/fc_precision_land_handoff.md` 하나만 읽으면 된다.**
-> 계약(토픽·프레임·QoS·거부권)·붙는 자리·함정·검증·잠정값이 전부 거기 있고, **vision 도메인
+> 계약·붙는 자리·함정·**구현된 것과 안 된 것**·재개 순서가 전부 거기 있고, **vision 도메인
 > 문서를 읽지 않아도 완주하도록** 썼다(도메인 컨텍스트 격리 유지).
 
-- **내용:** `OffboardNode`에 정밀착륙 서브상태 신설 — `_step_hold`(`:1230`)와 `_step_landing`(`:1300`)
-  사이. 비전이 주는 절대 목표점으로 정렬한 뒤 AUTO.LAND에 인계한다. **폐루프를 닫는 마지막 칸이다.**
-- **전제(vision 쪽, 전부 완료·실기체 검증됨):** `/vision/landing_setpoint`(PoseStamped, **ENU**,
-  목표 절대위치) · `/vision/target_status`(DiagnosticArray, **`vision/state`가 거부권**) ·
-  `/vision/target_pose`(body FLU 상대, 선택). **QoS는 BEST_EFFORT** — RELIABLE로 구독하면 조용히
-  아무것도 안 받는다. `fc_ros`/`fc_bridge`는 **여태 한 줄도 수정되지 않았다**(md5 대조 확인).
-- **🔴 같이 넣어야 하는 것:** `hold_before_reascend_s`(HOLD 종결 시한). vision이 *일부러* 안 만들었고
-  (계약상 FC 몫), **없으면 vision이 `HOLD`로 빠졌을 때 무한 호버링**이다.
-- **🔴 배포 규율:** **기본 off 파라미터로** 넣을 것 — 실기체 FW+OFFBOARD 실적 0건이라
-  `sitl_vtol_remediation_plan.md` §4-1 4번이 "첫 실비행에 미검증 변수 둘 금지"를 명문화하고 있다.
-- **결정 필요:** `_RANGE_GUARDED_STATES` 포함 여부 · `listen_lt: true`(네이티브 피벗) 여부 ·
-  **AGL 소스 확정**(vision이 가정하는 "라이다 AGL"이 `fc_ros`에 배선돼 있지 않다 — 지금 고도 소스는
-  `/mavros/altitude`뿐).
+- **🔴 보류 사유 (2026-07-28 사용자 결정):** **천이 문제 해결(PX4 패치 실기체 플래시)이 먼저다.**
+  F2는 `HOLD` **이후**에 발동하는데, 거기 도달하려면 FW 순항 → 역천이 → HOLD를 거쳐야 한다 —
+  즉 **천이가 안 고쳐지면 F2 코드가 실행되는 지점까지 기체가 가지 못한다.** 게다가
+  `sitl_vtol_remediation_plan.md` §4-1 4번이 "첫 실비행에 미검증 변수를 둘로 만들지 말라"를
+  명문화하고 있어, 천이 패치와 정밀착륙을 같은 비행에서 처음 켜는 것 자체가 금지다.
+  **선행 작업은 🛩 sitl-vtol 트랙의 "①실기체 플래시 → ②비-정북 레그 실비행(R7)".**
+- **✅ 구현·배포 완료 (`8cb0861`)** — `vision_landing:=false`(기본)면 종전 `HOLD → LANDING`과
+  **완전히 동일**하다(구독조차 만들지 않는다). RPi 배포·검증까지 끝냈다(소스↔install md5 일치,
+  import 통과, **QoS BEST_EFFORT 실기체 확인**). 즉 **지금 기체에 얹혀 있어도 무해**하다.
+  - 상태 2종: `VISION_SEARCH`(탐색고도 정렬 → 제자리 확인 → 아르키메데스 나선 확대, 실패 시
+    15m/18m 재탐색 1회 → GPS 착륙 폴백) · `PRECISION_LAND`(수평은 vision, **수직은 FC가 스케줄**).
+  - 신규 모듈: `fc_bridge/execution/search_pattern.py`(나선·풋프린트·검출고도 상한) ·
+    `fc_bridge/execution/precision_land.py`(래치·하강게이트·인계판정) ·
+    `fc_ros/adapters/vision_target_bridge.py`(두 토픽 구독·계약 파싱).
+  - **인수인계 D-a~D-d 전부 처리**: `vision_veto_timeout`(10s) 신설 / `_RANGE_GUARDED_STATES`에
+    `VISION_SEARCH` 포함·`PRECISION_LAND` 제외 / `listen_lt`는 열지 않음 / AGL은 이륙지점 지면
+    기준 근사(라이다 배선 여전히 없음).
+- **🔴 미검증 — 재개 시 여기서 시작한다:** ①**SITL 장애주입**(핸드오프 §6-1: vision SIGKILL →
+  `link_dead` → 폴백 / veto → 하강 중단 / setpoint 침묵 시 마지막 값을 붙들지 않는지) ②`vision_landing:=true`
+  실비행 **0건** ③실촬영 검출 검증 전무(vision 골든셋이 전부 합성).
+- **구현 중 실측으로 잡은 것 3건:** 최대반경 기준 선회속도를 나선 전체에 쓰면 r=5m에서 tilt 27°
+  → 25m 고도 시선오프셋 12.75m로 **링 간격(12.2m)과 같은 자릿수**라 커버리지가 통째로 틀어진다
+  (매 틱 반경별 재산출로 수정, 최대 tilt 6.0°) / `vision_search_timeout` 90s가 1회차 97s를 완주
+  직전에 잘랐다(→120s 역산) / **`DiagnosticStatus.level`이 1바이트 `bytes`로 온다**
+  (`shim_node.py:221`) — 핸드오프 §2-2가 "OK=0/WARN=1/ERROR=2"라고만 적어둬 그대로 믿고
+  `level == 1`로 짜면 **테스트 전건 green인 채 실기체에서 거부권만 조용히 사라진다.**
+- **탐색 시간 예산(실측):** 1회차 97s / 재탐색 74s / **최악 합계 171s(2.9분)**. 임무 끝단이라
+  배터리 여유를 보고 반경·타임아웃을 줄일지 판단할 것.
 - **잠정값 주의:** 기체 최외곽 반경 `R` **미측정**(2026-07-29 실측 예정)이라 vision이 내는 **착륙점
   좌표 자체가 잠정값**이다. 카메라 마운트 요각 ψ_m도 미측정 — **틀리면 착륙 오프셋의 *방향 자체*가
   틀린다**(수정할수록 멀어지는 증상이면 이걸 먼저 의심).
