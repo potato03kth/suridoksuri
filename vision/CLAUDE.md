@@ -763,6 +763,45 @@ nominal.yaml과 같은 보수적 값**을 유지한다 — 합성이라고 해�
 40m는 `distress_coarse.yaml`이 `min_area=8000`으로 **의도적으로 배제**하므로 정규 경로에서는
 `no_target_detection`이 정상이다(프리셋 헤더 주석 참조).
 
+---
+
+## 착륙점 등거리 축퇴 완화 (2026-07-28, `modules/distress_box.py`)
+
+**문제(오케스트레이터 실측 발견):** `WhiteBoxDetector`는 매트 bbox 네 모서리 중 흰 박스 중심에서
+가장 먼 것을 골라 착륙점을 만드는데, **실측 스펙상 흰 박스가 매트 정중앙**이라 네 모서리가
+이론상 등거리다. 정확한 등거리에서는 `max()`가 첫 최댓값을 돌려줘 결정론은 안 깨지지만,
+**실전 입력은 절대 정확히 등거리가 아니다** — 같은 장면인데 정지 이미지에서는 TL, mp4에서는 BR이
+선택됐다. 커밋 `e1f8471` 이후 이 착륙점이 `modules/distress_mat.py`를 거쳐 **실제 유도 좌표로
+나가므로**, 프레임마다 매트 반대편을 지시하면 기체가 진동한다.
+
+**재현(합성 1px 흔들림 시퀀스 10프레임, 300px=3.0m 매트):**
+
+| 설정 | 서로 다른 착륙점 | 최대 프레임간 점프 |
+|---|---|---|
+| 완화 전(=`tie_tolerance_ratio=0.0, corner_hysteresis=False`) | **4개**(네 모서리 전부) | **296.98px = 2.970m** |
+| 완화 후(기본값) | 1개 | **0.00px = 0.000m** |
+| 대조군: 확실히 편심된 박스(좌상단) | 1개(우하단 = 박스 반대편) | 0.000m — **기존 동작 보존** |
+
+**완화 방법 — 선택의 안정성만 손댄다.** `interior_margin_ratio=0.3`(대회측 미회신 잠정값)과
+"박스 옆 빈 초록면" 규약은 **무변경**이다.
+
+1. **동률 허용오차 `tie_tolerance_ratio`(기본 0.02)** — 최대거리에서 `ratio × 매트 bbox 대각선`
+   이내인 모서리를 전부 동률 후보로 보고 정규 순서(`CORNER_NAMES = tl,tr,br,bl`)의 첫 번째를
+   고른다. 300px 매트에서 tol≈8.5px로 실측 잡음 1px을 크게 웃돈다. **`0.0`을 주면 옛 동작과
+   정확히 동일**(회귀테스트로 못 박음)이라 되돌리기가 파라미터 한 줄이다.
+2. **프레임 간 히스테리시스 `corner_hysteresis`(기본 True)** — 직전 선택이 아직 동률 후보 안에
+   있으면 유지. 1+2의 조합은 **폭 `2×tol`의 슈미트 트리거**라, 허용오차 경계에 딱 걸친 배치에서도
+   한 번 전환한 뒤 눌러앉지 왕복 진동하지 않는다. 직전 프레임 대응은 매트 bbox IoU로 찾는다
+   (`modules/fusion.py::TemporalFusion`과 같은 패턴 — 새 추적기 발명 금지).
+
+**결정론(§7.5) 유지:** 히스테리시스는 wall-clock/난수가 아니라 *입력 시퀀스*만의 함수다. 상태는
+인스턴스 단위(`reset()` 제공)라 새 인스턴스는 항상 같은 초기 선택에서 출발한다 —
+`modules/tracker.py`/`fusion.py`와 동일한 stateful 모듈 관례.
+
+**진단 3종이 `meta["white_box_detector"]`로 나간다**(§7.4 블랙박스 포렌식): `landing_corner`
+(고른 모서리 이름) / `corner_tie_count`(>1이면 그 프레임이 실제 축퇴였다) / `corner_from_hysteresis`
+(정규 순서 대신 직전 선택이 유지됨).
+
 ## VisionState 필드 사용 규칙
 
 ```
@@ -923,7 +962,7 @@ pytest vision/tests/ -q -k main # 특정만
 | vertiport_ring `RedRingDetector` | 빨강 Hue 양끝 게이팅(랩어라운드 대응)·최소외접원 피팅·중심/반지름 meta | ✅ test_vertiport_ring |
 | 버티포트 coarse 캐스케이드 통합(`presets/vertiport_coarse.yaml`) | 3단 전체 파이프라인 end-to-end·단계별 meta 기록·빈 이미지 0검출 | ✅ test_vertiport_cascade |
 | ArUco fine 프리셋 통합(`presets/vertiport_fine.yaml`, ArUco Phase 4) | `Pipeline.from_config` 실로드·ID 23 검출+코너·다른 ID 거절·빈 이미지 0검출(coarse와 독립 실행) | ✅ test_vertiport_fine |
-| distress_box `WhiteBoxDetector`(§5.3 fine, 2026-07-25) | 매트 내 흰 박스 확인·`landing_point_px`가 매트 bbox 내부에 있음·박스가 매트 좌상단에 치우치면 착륙점이 반대편(우하단)으로 밀림·박스 없음/너무 큼/너무 작음/종횡비 초과 각각 거절+reject_reasons 기록·detections 2개(확정1+거절1) 혼합·빈 detections·zero bbox·original/current/mask 비변형(선언 필드 계약)·결정론 | ✅ test_distress_box |
+| distress_box `WhiteBoxDetector`(§5.3 fine, 2026-07-25) | 매트 내 흰 박스 확인·`landing_point_px`가 매트 bbox 내부에 있음·박스가 매트 좌상단에 치우치면 착륙점이 반대편(우하단)으로 밀림·박스 없음/너무 큼/너무 작음/종횡비 초과 각각 거절+reject_reasons 기록·detections 2개(확정1+거절1) 혼합·빈 detections·zero bbox·original/current/mask 비변형(선언 필드 계약)·결정론. **[2026-07-28] 등거리 축퇴 완화**(위 "착륙점 등거리 축퇴 완화" 절) — 완화 끈 옛 동작이 실제로 매트 반대편까지 점프함(고친 대상 못 박기)·기본값에서 1px 흔들림 10프레임에 착륙점 불변·`tie_tolerance_ratio=0` + `corner_hysteresis=False`가 옛 동작과 정확히 일치·편심 박스는 여전히 반대편 선택(`corner_tie_count==1`)·슈미트 트리거 무진동(전환 경계를 **해석식 아닌 실측 스캔**으로 찾아 대조군이 실제로 진동함을 먼저 확인)·히스테리시스 상태 인스턴스 격리+`reset()`+실제 배선 여부·매트 2개 IoU 교차오염 없음·진단 3종·JSON 직렬화. **파괴검증 D1/D2/D3/D4/D5로 red 확인** | ✅ test_distress_box |
 | distress_mat `DistressMatGeometry`(초록구역 pose, 2026-07-28) | 코너 순서 정규화가 **실측 approxPolyDP 순서**(반시계)를 시계방향·TL시작으로 바꾸는지(항등이면 red) · 입력 회전/감김 8가지 조합에 불변 · 축퇴 사각형/4점 아님 거절 · coarse는 매트 중심 degrade + `landing_point_source` 명시 · fine은 `white_box_detector`의 `landing_point_px`를 **그대로 소비**(재구현 금지) · 생성자 `size_m`/`platform_height_m`이 실제로 meta에 반영(하드코딩이면 red) · `plane_reference="mat_top_surface"` · 선언 필드 계약(검출 개수 불변, original/current/mask 무변형) · meta 네임스페이스 · 빈 입력 · 결정론 · JSON 직렬화(numpy 누출 없음). **파괴검증 D1/D1b/D3b/D8로 red 확인** | ✅ test_distress_mat |
 | ② 조난자 fine 프리셋 통합(`presets/distress_fine.yaml`, 2026-07-25) | `distress_coarse.yaml` 뒤에 `white_box_detector` 캐스케이드 실로드·매트+박스 실제 확정·`Detection.meta`에 `landing_point_px` 실제 기록(`Pipeline.from_config` 경유, 클래스 직접 호출 아님) | ✅ test_replay(`test_distress_fine_preset_confirmed_detection_carries_landing_point_meta`) |
 | utils/image_loader | 경로→BGR ndarray(shape/dtype + **채널 순서가 실제로 BGR인지를 3분할 B/G/R 띠로 왕복 확인** — 여기서 RGB로 뒤집히면 뒤의 HSV 색 검출이 통째로 어긋난다)·PNG 무손실 왕복(임의 정규화 없음)·`Path` 객체 수용·1채널 원본도 3채널로 확장·결정론 · 없는 파일→`FileNotFoundError`(메시지에 경로 포함)·디렉터리/쓰레기 바이트/0바이트→조용한 None이 아니라 `ValueError`. **파괴검증 5종(I-D1~D5)으로 red 확인** | ✅ test_image_loader |

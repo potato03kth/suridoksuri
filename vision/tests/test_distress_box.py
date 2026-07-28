@@ -221,3 +221,194 @@ def test_deterministic():
         d.meta["white_box_detector"] for d in d2.detections
     ]
     assert d1.meta["white_box_detector"] == d2.meta["white_box_detector"]
+
+
+# ---------------------------------------------------------------------------
+# 등거리 축퇴 완화 (2026-07-28) — distress_box.py 클래스 docstring "등거리 축퇴와 그 완화"
+#
+# 실측 스펙상 흰 박스가 매트 정중앙이라 네 모서리가 등거리다. 1px 흔들림만으로 선택 모서리가
+# 뒤집혀 착륙점이 매트 반대편(≈2.97m)으로 점프하던 것을 tie 허용오차 + 프레임간 히스테리시스로
+# 잡는다. 이 착륙점은 `modules/distress_mat.py`를 거쳐 실제 유도 좌표로 나간다.
+# ---------------------------------------------------------------------------
+
+# 1px 흔들림 시퀀스(mp4 압축이 흰 박스 컨투어 중심을 흔드는 상황의 최소 모형)
+_JITTER = [(0, 0), (1, 1), (0, 0), (-1, -1), (0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (0, 0)]
+
+
+def _draw_centered_box_jittered(canvas, bbox, dx, dy, side=20):
+    x, y, w, h = bbox
+    cx, cy = x + w // 2 + dx, y + h // 2 + dy
+    half = side // 2
+    cv2.rectangle(canvas, (cx - half, cy - half), (cx + half, cy + half), (255, 255, 255), -1)
+
+
+def _landing_sequence(detector, jitter=_JITTER, bbox=_MAT_BBOX, draw=None):
+    """흔들림 시퀀스를 한 detector 인스턴스에 순서대로 먹여 착륙점 열을 얻는다."""
+    draw = draw or _draw_centered_box_jittered
+    points = []
+    for dx, dy in jitter:
+        canvas = _canvas_with_mat(bbox)
+        draw(canvas, bbox, dx, dy)
+        state = VisionState(
+            original=canvas.copy(), current=canvas.copy(), detections=[Detection(bbox=bbox)]
+        )
+        state = detector(state)
+        assert len(state.detections) == 1, f"흔들림 ({dx},{dy})에서 확정 실패"
+        points.append(tuple(state.detections[0].meta["white_box_detector"]["landing_point_px"]))
+    return points
+
+
+def _max_jump_px(points):
+    return max(
+        (float(np.hypot(b[0] - a[0], b[1] - a[1])) for a, b in zip(points, points[1:])), default=0.0
+    )
+
+
+def test_legacy_selection_jumps_across_the_mat_under_1px_jitter():
+    """완화를 끈 옛 동작은 실제로 매트 반대편까지 점프한다 — 고친 대상이 무엇인지 못 박는 테스트.
+
+    이게 red가 되면 축퇴 재현 자체가 사라진 것이므로 아래 완화 테스트의 의미도 재검토해야 한다.
+    """
+    legacy = WhiteBoxDetector(tie_tolerance_ratio=0.0, corner_hysteresis=False)
+    points = _landing_sequence(legacy)
+    # 매트가 300px(=3.0m)이므로 200px 초과 점프는 매트 반대편으로 건너뛴 것이다.
+    assert _max_jump_px(points) > 200.0
+    assert len(set(points)) > 1
+
+
+def test_centered_box_landing_point_is_stable_under_1px_jitter():
+    """기본값(완화 켜짐)에서는 같은 흔들림에도 착륙점이 전혀 움직이지 않아야 한다."""
+    points = _landing_sequence(WhiteBoxDetector())
+    assert len(set(points)) == 1, f"착륙점이 흔들렸다: {sorted(set(points))}"
+    assert _max_jump_px(points) == 0.0
+
+
+def test_landing_point_meta_reports_corner_and_tie_diagnostics():
+    """축퇴 진단이 blackbox로 나가는지 — 정중앙 박스는 네 모서리 전부가 동률 후보여야 한다."""
+    state = WhiteBoxDetector()(_state_with_mat(_draw_centered_box))
+    meta = state.detections[0].meta["white_box_detector"]
+    assert meta["landing_corner"] in ("tl", "tr", "br", "bl")
+    assert meta["corner_tie_count"] == 4
+    assert meta["corner_from_hysteresis"] is False  # 첫 프레임은 정규 순서로 결정
+
+
+def test_offcenter_box_beyond_tie_band_still_picks_opposite_corner():
+    """완화가 '박스 옆' 규약을 삼키지 않는지 — 확실히 편심된 박스는 여전히 반대편을 고른다."""
+    detector = WhiteBoxDetector()
+    state = detector(_state_with_mat(lambda c, b: _draw_offcenter_box(c, b, margin=25)))
+    meta = state.detections[0].meta["white_box_detector"]
+    assert meta["landing_corner"] == "br"      # 박스가 좌상단 -> 착륙점은 우하단
+    assert meta["corner_tie_count"] == 1       # 동률 아님 = 완화가 개입하지 않았다
+
+
+def test_offcenter_box_landing_point_also_stable_under_jitter():
+    def draw(canvas, bbox, dx, dy):
+        x, y, w, h = bbox
+        cv2.rectangle(canvas, (x + 25 + dx, y + 25 + dy),
+                      (x + 45 + dx, y + 45 + dy), (255, 255, 255), -1)
+
+    points = _landing_sequence(WhiteBoxDetector(), draw=draw)
+    assert len(set(points)) == 1
+
+
+def test_tie_tolerance_zero_and_no_hysteresis_reproduces_legacy_exactly():
+    """완화 파라미터를 끄면 옛 동작과 **정확히** 같아야 한다(파라미터가 실제로 살아 있다는 증거)."""
+    off = WhiteBoxDetector(tie_tolerance_ratio=0.0, corner_hysteresis=False)
+    on = WhiteBoxDetector()
+    assert _landing_sequence(off) != _landing_sequence(on)
+
+
+def test_hysteresis_is_a_schmitt_trigger_no_oscillation():
+    """동률 허용오차 경계에 걸친 배치에서도 한 번 전환하면 눌러앉지, 왕복하지 않는다.
+
+    `_select_far_corner`는 순수 함수라 이미지 렌더링 잡음 없이 슈미트 성질만 직접 검증한다.
+    """
+    x, y, w, h = _MAT_BBOX
+    corners = [(float(x), float(y)), (float(x + w), float(y)),
+               (float(x + w), float(y + h)), (float(x), float(y + h))]
+    diag = float(np.hypot(w, h))
+    mat_cx, mat_cy = x + w / 2.0, y + h / 2.0
+
+    naive = WhiteBoxDetector(corner_hysteresis=False)
+
+    def naive_choice(delta):
+        # 박스를 TL 쪽(-delta)으로 밀면 실제 최원거리 모서리는 BR로 옮겨간다.
+        return naive._select_far_corner(corners, mat_cx - delta, mat_cy - delta, diag, None)[0]
+
+    # 전환 경계를 해석식으로 유도하지 않고 **실측 스캔으로 찾는다** — 경계를 정하는 경쟁 모서리가
+    # 매트 종횡비에 따라 달라져(정사각 매트에서는 BR이 아니라 TR/BL이 먼저 동률에서 빠진다)
+    # 손으로 유도한 식은 조용히 틀리기 쉽다.
+    base = naive_choice(0.0)
+    switch_delta = next(
+        (d / 100.0 for d in range(1, 100 * int(diag)) if naive_choice(d / 100.0) != base), None
+    )
+    assert switch_delta is not None, "전환 경계를 못 찾았다 — 허용오차가 너무 크다"
+
+    # 경계를 사이에 두고 오가는 시퀀스
+    deltas = [switch_delta * 1.5, switch_delta * 0.8, switch_delta * 1.5,
+              switch_delta * 0.8, switch_delta * 1.5, switch_delta * 0.8]
+
+    naive_chosen = [naive_choice(d) for d in deltas]
+    assert len(set(naive_chosen)) > 1, f"진동 대조군이 진동하지 않았다: {naive_chosen}"
+
+    detector = WhiteBoxDetector()
+    prev, chosen = None, []
+    for delta in deltas:
+        idx, _, _ = detector._select_far_corner(
+            corners, mat_cx - delta, mat_cy - delta, diag, prev
+        )
+        chosen.append(idx)
+        prev = idx
+    # 첫 프레임에 확정된 뒤, 경계를 오가도 절대 다른 모서리로 넘어가지 않는다
+    assert len(set(chosen)) == 1, f"경계에서 진동했다: {chosen}"
+
+
+def test_hysteresis_state_is_per_instance_and_resettable():
+    """상태가 인스턴스 단위라 새 인스턴스는 항상 같은 초기 선택에서 출발한다(§7.5 결정론)."""
+    a = WhiteBoxDetector()
+    b = WhiteBoxDetector()
+    assert _landing_sequence(a) == _landing_sequence(b)
+
+    # 히스테리시스 상태가 실제로 프레임 사이에 배선돼 있는지(안 쓰이면 슈미트 성질도 없다)
+    assert a._prev_corner_choices, "프레임 처리 후에도 히스테리시스 상태가 비어 있다"
+    assert a._prev_corner_choices[0][0] == _MAT_BBOX
+
+    a.reset()
+    assert a._prev_corner_choices == []
+    assert _landing_sequence(a) == _landing_sequence(b)
+
+
+def test_hysteresis_does_not_cross_contaminate_two_mats():
+    """매트가 둘이면 IoU로 각자 짝을 찾아야 한다 — 순서로 섞이면 안 된다."""
+    bbox1 = (20, 20, 300, 300)
+    bbox2 = (380, 20, 300, 300)
+    detector = WhiteBoxDetector()
+    corners_seen = []
+    for dx, dy in _JITTER:
+        canvas = np.full((400, 700, 3), (60, 60, 60), dtype=np.uint8)
+        for bbox in (bbox1, bbox2):
+            x, y, w, h = bbox
+            cv2.rectangle(canvas, (x, y), (x + w, y + h), _bgr_green(), -1)
+        _draw_centered_box_jittered(canvas, bbox1, dx, dy)
+        # 두 번째 매트는 박스를 좌상단에 편심 배치 -> 반대편(br)이 안정적으로 나와야 한다
+        x2, y2, _, _ = bbox2
+        cv2.rectangle(canvas, (x2 + 25 + dx, y2 + 25 + dy),
+                      (x2 + 45 + dx, y2 + 45 + dy), (255, 255, 255), -1)
+        state = detector(
+            VisionState(original=canvas.copy(), current=canvas.copy(),
+                        detections=[Detection(bbox=bbox1), Detection(bbox=bbox2)])
+        )
+        assert len(state.detections) == 2
+        corners_seen.append(
+            tuple(d.meta["white_box_detector"]["landing_corner"] for d in state.detections)
+        )
+    assert len(set(corners_seen)) == 1
+    assert corners_seen[0][1] == "br"
+
+
+def test_landing_point_meta_is_json_serializable():
+    """blackbox JSONL로 나가므로 numpy 타입이 새면 안 된다."""
+    import json
+
+    state = WhiteBoxDetector()(_state_with_mat(_draw_centered_box))
+    json.dumps(state.detections[0].meta["white_box_detector"])
