@@ -100,7 +100,47 @@ if (airspeed_triggers_transition) {           // 대기속도계가 유효하면
 그런데 가속이 거의 없었다: `VT_PSHER_SLEW=1.0`/s · `VT_F_TRANS_THR=1.0`이라 **pusher는 1초 만에
 100% 지령**에 도달한다. 그럼에도 3.4초간 지면속도 2.4 m/s에 정착(가속이 멎음)했다. pusher가 100%로
 돌았다면 나올 수 없는 값이므로 **전진 추력이 실제로는 발생하지 않았다는 정황이 강하다.**
-확정은 ulog `actuator_outputs`/`actuator_motors`(pusher 채널)와 `airspeed` 실측이 필요하다.
+
+### ✅ ulog 로 확정 (2026-07-28 저녁 회수, `log_215_2026-07-28-10-29-12.ulg`)
+
+로그 동일성 확인: `vtol_state` 3→1 at t=56.28s → 3 at t=67.12s = **10.84초**(관측 10.8초와 일치),
+`nav_state` 14(OFFBOARD)→2(POSCTL) at t=59.35s = 천이 명령 **3.07초** 후 인계. 같은 비행이 맞다.
+
+**🔴 결함 A — pusher 지령·PWM 은 완벽했다. 모터가 안 돌았다.**
+
+| 단계 | 실측 | 판정 |
+|---|---|---|
+| 제어할당 (`actuator_motors`) | m4 = 0.22 → **1.00 포화** (56.47→57.67s, 1.4초) | `VT_PSHER_SLEW=1.0/s` 대로 정상 |
+| PWM 출력 (`actuator_outputs` **multi_id=1**) | out4 = 1000(정지) → 평균 **1868**, 최대 **1900** | `PWM_AUX_MAX5`(1900) 포화 — 정상 |
+| 배터리 전류 | 호버 22.40 A → pusher 100% 구간 23.22 A = **+0.81 A** | 🔴 **사실상 무부하** |
+
+`CA_ROTOR4_AX=1.0`(유일한 X축 추력) → m4 가 pusher, `PWM_AUX_FUNC5=105`(Motor5) → AUX5 출력.
+4S 프로펠러 모터가 100%로 돌면 수십 A 가 늘어야 하는데 **+0.81 A** 다.
+⚠ `multi_id=0`(PWM MAIN)은 제어면 서보 4개(`PWM_MAIN_FUNC1~4 = 201~204`)라 out4~7 이 0 이다 —
+이것만 보고 "PWM 미출력"으로 오판하기 쉽다. 모터는 **`multi_id=1`(AUX)** 을 봐야 한다.
+
+> **결론: 소프트웨어·설정은 무죄다.** PX4 는 지령을 냈고 PWM 도 최대로 나갔다.
+> 원인은 pusher **ESC / 모터 / 배선 / 프로펠러** — 순수 하드웨어다.
+> (전류계가 pusher ESC 급전 경로를 지나는지는 배선 확인 필요. 다만 지면속도 2.4 m/s 정착이
+> 무추력을 독립적으로 뒷받침한다.)
+
+**🔴 결함 B — 대기속도계가 음수를 낸다. pusher 를 고쳐도 천이는 완료되지 않는다.**
+
+```
+differential_pressure   평균 -26.95 Pa   범위 [-45.77, -13.15]     ← 전진 중인데 계속 음수
+calibrated_airspeed     평균  -2.48 m/s  최대 +3.98 m/s
+SENS_DPRES_OFF = -21.78 (오프셋 보정을 이미 먹인 뒤에도 음수)
+```
+
+전진 비행에서 차압은 **양수**여야 한다. 계속 음수라면 핏토관 **역결선**(total↔static 뒤바뀜) ·
+막힘 · 미장착 중 하나다. 이게 왜 치명적이냐면 — ④ 위 인용대로 `SENS_EN_MS4525DO=1`·
+`ASPD_PRIMARY=1` 이라 천이 완료 판정이 **대기속도 가지**를 타고, 그 값이 음수면 기체가 실제로
+12 m/s 를 내도 **`CAS >= VT_ARSP_TRANS(12.0)` 이 영원히 성립하지 않는다.**
+
+> **따라서 A·B 를 모두 고쳐야 천이가 된다. 하나만 고치면 여전히 실패한다.**
+> ⚠ `SENS_EN_MS4525DO=0` / `ASPD_PRIMARY=-1` 로 대기속도계를 꺼서 개루프 가지
+> (`VT_F_TR_OL_TM=10s`, 시간만으로 천이)로 우회하는 길이 있으나 **권장하지 않는다** —
+> 속도 미달 상태로 FW 로 넘어가면 실속·낙하다. A 를 먼저 고칠 것.
 
 배경으로 **상승 중 전압이 11.63V(셀당 2.91V)까지 무너진 상태**였다 — 50m 상승(①의 결과)이
 배터리를 먼저 소진시킨 뒤 고출력이 필요한 천이에 들어간 셈이다.
@@ -111,16 +151,23 @@ if (airspeed_triggers_transition) {           // 대기속도계가 유효하면
 타당**하다. 노드는 `PILOT_TAKEOVER`로 정상 진입해 세트포인트 발행을 멈췄고 재요청하지 않았다
 (2026-07-25 사고 대책이 실기체에서 의도대로 동작한 것 — 이 부분은 합격).
 
-## 미확보 데이터 (다음 세션 필수)
+## ✅ ulog 회수 완료 (2026-07-28 저녁)
 
-**이 비행의 ulog가 아직 없다.** 비행 후 FC USB가 분리돼(`/dev/ttyACM*` 없음) `record_flight.sh`의
-자동 회수와 `collect_new_logs.py`의 스윕이 둘 다 건너뛰어졌다. FC에 전원을 넣고
-`pull_ulog.py --out logs/2026-07-28_flight02/`로 받아야 아래가 확정된다:
+`log_215_2026-07-28-10-29-12.ulg` (6,518,323 B,
+sha256 `1fc386b30c97861e08d3d1b1a69d39be4058f660c218499c9bccdb0a41c35ce1`).
+비행 후 FC USB 가 분리돼 자동회수·스윕이 모두 건너뛰어졌던 것을 `pull_ulog.py --log-id 215` 로
+직접 받았다. 펌웨어 `ver_sw = c890d9db0a…`(실기체 커밋과 일치), 로그 길이 129.6초.
 
-- `position_setpoint_triplet.current.course` / `.type` → ③이 F-17 계열인지, 패치가 실제로 먹었는지
-- `actuator_outputs` (pusher PWM) → ④가 지령 부재인지 추력 부족인지
-- `wind_estimate` / `airspeed` → 정동 표류의 바람 기여분
-- `vtol_vehicle_status`, `battery_status` (부하 전류)
+| 확인 대상 | 결과 |
+|---|---|
+| `actuator_motors` / `actuator_outputs` (pusher) | ✅ **④ 확정 — 지령·PWM 정상, 전류 +0.81 A = 무추력.** 하드웨어 결함 A |
+| `airspeed` / `differential_pressure` | ✅ **신규 결함 B 발견 — 차압 -26.95 Pa, CAS 음수.** 천이 완료 조건을 영구 차단 |
+| `wind` / `wind_estimate` | ⚠ **토픽 자체가 로그에 없다**(104개 토픽 중 부재) — 정동 표류의 바람 기여분은 이 로그로 정량화 불가 |
+| `vtol_vehicle_status`, `battery_status` | ✅ 위 표에 반영 |
+
+**남은 미확인 1건:** `position_setpoint_triplet.current.course` / `.type` → ③이 F-17 계열인지,
+F-17 패치가 실제로 먹었는지. 토픽은 로그에 있으므로 **추가 회수 없이 이 파일로 분석 가능하다.**
+다만 결함 A·B 가 천이 실패를 이미 완전히 설명하므로 우선순위는 낮다.
 
 ## 재현 방법
 
