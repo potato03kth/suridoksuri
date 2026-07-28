@@ -6,7 +6,7 @@
 > ⚠️ **재설계 진행 중.** 이 문서는 현재 구현된 "무채색 사각형 검출기" 임시 틀을 설명한다.
 > 정밀착륙(ArUco/색 2단 검출, 폐루프 유도, 변경내성·관측성) 방향은 **`docs/vision_plan.md`**를
 > 먼저 읽을 것. 이 틀은 폐기가 아니라 ② 조난자 구역 색 파이프라인 + ArUco 모듈 컨테이너로 재편된다
-> (계획서 §12). `geo_project.pixel_to_gps`는 폐기 예정.
+> (계획서 §12). `geo_project.pixel_to_gps`는 **2026-07-28 삭제 완료**(아래 "`utils/geo_project.py` 폐기" 절).
 
 ---
 
@@ -67,7 +67,6 @@
 | `utils/calibration_loader.py` | **신설(ArUco 브랜치 Phase 3)** — `vision/calibration/<camera_id>/nominal.yaml` 로드 어댑터. `CameraCalibration`(camera_matrix/dist_coeffs/image_size/accuracy/not_for_closed_loop_30cm/calib_id 등) 반환, `core/target.py::solve_target_pose()` 입력으로 바로 연결. `compute_nominal_intrinsics.py`가 만드는 `nominal.yaml` 스키마 전용(`calib_analyze.py`의 `<calib_id>.yaml`은 스키마가 달라 별개 — 과설계 금지, 필요해지면 그때 확장). `calib_id`는 로드에 쓴 파일 경로 문자열(§7.3 provenance echo) |
 | `utils/video_reader.py` | 영상 파일 → 프레임 이터레이터 |
 | `utils/visualize.py` | bbox 드로잉, 결과 이미지 저장. **[2026-07-28] `draw_sink_status()` 추가** — 유도(정밀착륙) 발행 상태 오버레이(소비자 수/마지막 seq/드롭 수/엔드포인트). `--display`와 `--target-sink`가 완전히 독립이라 "화면은 뜨는데 유도 좌표는 아무 데도 안 나가는" 상태가 가능하다는 사각지대 대응(사용자 결정). 소비자 0명=빨강+큰 글씨, sink 꺼짐=주황, 정상=초록. `draw_detections()`가 만든 사본을 **제자리에서** 고치고(사본 재생성 없음) 좌상단 **반투명** 패널에만 그려 검출 결과를 가리지 않는다. ⚠️ 문자열은 **ASCII만**(Hershey 폰트가 한글을 못 그린다). 호출 게이팅(`--display none`이면 비용 0)은 호출자 책임 — 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절 |
-| `utils/geo_project.py` | 픽셀 좌표 → GPS 좌표 (FC 연동 시 사용) |
 | `utils/logging.py` | 이중싱크 사람로그(터미널+.log 로테이션) + provenance 헤더(config+git해시+캘리브id) (§7.4/§7.3). `main.py`/`replay.py`에 연결됨 |
 | `utils/blackbox.py` | 프레임별 JSONL 블랙박스 + 거절이유 로깅. bounded queue+drop-oldest 비차단 (§7.4). `main.py`/`replay.py`에 연결됨 |
 | `utils/stream.py` | `MjpegStreamer` — 라이브 저해상 MJPEG-over-HTTP 스트림(§7.9 항목5, "작동영상 피드백 3경로" (b)). `push_frame()`은 bounded queue+drop-oldest 비차단(`blackbox.py`와 동일 패턴 재사용). 다운스케일·인코딩·HTTP 서빙은 전부 별도 스레드. `main.py --display stream`/`replay.py --display stream`으로 opt-in 연결(항상 켜지지 않음). 기본값 결정 근거는 아래 "라이브 스트림 어댑터 기본값" 참조 |
@@ -1126,6 +1125,38 @@ nominal.yaml과 같은 보수적 값**을 유지한다 — 합성이라고 해�
 3. `--af-mode none`으로도 한 번 띄워 예전 동작(드라이버 기본)과 비교한다.
 4. RPi `picam-venv`에는 `pytest`가 없다 — 실기체 검증은 "실행해서 로그/산출물 확인" 방식이어야 한다.
 
+---
+
+## `utils/geo_project.py` 폐기 (2026-07-28)
+
+`docs/vision_plan.md` §12가 지정한 폐기를 실행했다. **삭제**를 골랐고, deprecation 경고 단계를
+거치지 않았다 — 근거:
+
+1. **참조가 0건이다.** 저장소 전체를 AST로 훑어 `geo_project` import / `pixel_to_gps` 호출이
+   한 건도 없음을 확인했다(`vision/utils/__init__.py`도 빈 파일이라 재노출 경로 없음,
+   `registry.py` 미등록, preset yaml 미참조, 테스트 0건). deprecation 경고는 **호출자가 있을 때**
+   시간을 벌어주는 장치인데, 호출자가 없으면 죽은 무게만 남는다.
+2. **대체가 실제로 존재한다** — 이게 §12의 전제 조건이었다. `core/frames.py`(cam→body 프레임
+   체인) + `core/target.py::solve_target_pose()` + `modules/distress_mat.py`(초록구역 상대 pose)
+   + `utils/target_sink.py`(소켓 인터페이스)로 상대 pose 폐루프 경로가 끝까지 이어져 있다.
+3. **남겨두는 것 자체가 위험하다.** 이 함수는 30cm 요구에 미달하는 바로 그 접근(GPS 절대좌표,
+   정확도 한계 ~1~2m)이고, docstring이 "FC 연동 시 자세를 인자로 받도록 확장 필요"라며 **확장을
+   권유**하고 있었다. 되살아날 유인이 문서에 실제로 존재한다(아래).
+4. 되돌리기는 git 히스토리로 한 줄이다.
+
+### 🔴 남은 stale 참조 (이번 세션 소관 밖 — 다음 세션이 닫을 것)
+
+**FC 도메인 문서가 아직 이 함수를 확장하라고 적어두고 있다.** vision 세션이 손댈 파일이
+아니라 그대로 뒀다:
+
+| 파일 | 내용 |
+|---|---|
+| `docs/pixhawk6c_rpi4_integration_guide.md` | `pixel_to_gps.py (vision)` 블록도, `pixel_to_gps_with_attitude()` **확장 시그니처(필수)**, "P2/P3 작업" 목록 — 전부 피벗 이전 설계다 |
+| `docs/flight_plan.md` (241행) | "vision→FC 연동(`pixel_to_gps`로 임의 GPS WP 주입)" |
+
+코드 쪽 재발은 `tests/test_deprecations.py`가 막는다(파일 부재 + import 불가 + 저장소 전체에
+`pixel_to_gps` 문자열 재등장 없음). 문서 쪽은 FC 세션이 정리해야 한다.
+
 ## VisionState 필드 사용 규칙
 
 ```
@@ -1297,7 +1328,7 @@ pytest vision/tests/ -q -k main # 특정만
 | utils/video_reader | **실제 mp4를 써서 실제 디코딩**(몽키패치 없음, `test_frame_source.py`와 같은 원칙) — 전 프레임 이터레이트(BGR shape/dtype) · **순서 보존**(프레임마다 다른 밝기를 심어 확인 — 시간축 모듈 `fusion`/`tracker`가 전적으로 여기 기댄다) · `while True` 루프가 EOF에서 실제로 멈춤(무한루프 회귀) + 소진 후 재이터레이트는 빈 목록 · 결정론 · `fps`/`frame_count`가 인코딩값·실제 이터레이션 수와 일치(하드코딩 아님) · 컨텍스트 종료: `__enter__`가 self 반환 + `__exit__`이 실제로 `VideoCapture`를 release(본문에서 예외가 나도, 닫힌 뒤 읽어도 크래시 없이 빈 목록) · 없는 파일→`FileNotFoundError`·영상 아닌 파일→`IOError`(0프레임으로 삼키지 않음). **파괴검증 7종(V-D1~D7)으로 red 확인** | ✅ test_video_reader |
 | utils/visualize `draw_sink_status`(발행상태 오버레이, 2026-07-28) | **소비자 0명이면 경고색이 실제 픽셀로 찍힘**(경고를 정상색으로 바꾸면 red) + 경고 헤드라인이 정상보다 **크다**(잉크량 비교) · 소비자 있으면 정상색이고 경고색은 0픽셀 · sink 꺼짐은 두 색 어느 쪽과도 구분되는 제3색 · seq/dropped 값이 실제로 픽셀에 반영(라벨만 그리고 숫자를 버리면 red) · **검출 그리기 비훼손**: 패널 밖 영역이 비트 단위로 동일 · 제자리 수정(같은 배열 객체 반환)·shape/dtype 보존 · 결정론 · 초소형(64px)~실기체(4608px) 프레임 무크래시 · **오버레이 문자열 ASCII 전용**(Hershey 폰트가 한글을 못 그림 — 소스 레벨 회귀) | ✅ test_visualize |
 | utils/visualize `draw_detections`/`save_result` | 형상·파일 생성 | ❌ TODO (위 오버레이 테스트가 이걸 대신하지 않는다) |
-| utils/geo_project | **폐기 예정(plan §12) — 신규 테스트 금지** | 폐기 |
+| ~~utils/geo_project~~ | **2026-07-28 삭제 완료**(plan §12). 되살아나지 않는지만 묘비 테스트로 지킨다 — 파일 부재·import 불가·저장소 어디에도 `pixel_to_gps` 재등장 없음. **파괴검증 D18로 red 확인** | ✅ test_deprecations |
 | utils/logging | 이중싱크 핸들러 구성·콘솔레벨이 파일레벨 억제 안 함·재호출 시 핸들러 중복 안 됨·provenance에 git해시/config/캘리브id | ✅ test_logging |
 | utils/blackbox | 프레임/거절이유 JSONL 기록·close() 큐 가득해도 안전 · **[2026-07-28] 플래키 수정** — 예전 `test_bounded_queue_drops_oldest_under_burst`는 "**파일에** 남은 레코드가 ≤ max_queue"를 단언했는데 `__init__`이 `QueueListener`를 이미 start()해 둔 상태라 넣는 동안 리스너가 동시에 파일로 흘려보낸다(파일 건수는 스케줄링 의존 — 생산 루프에 틱당 0.2ms만 양보해도 50건이 남아 실패). drop-oldest가 보장하는 건 "**큐에** 최대 N건"이지 "**싱크에** 최대 N건"이 아니다. 3건으로 쪼갬: ① 소비 스레드 없이 `_DropOldestQueueHandler`만 두고 **매 스텝** `qsize == min(넣은수, 상한)` + 잔여 = 최신 N건(`test_target_sink.py`의 `_DropOldestQueue` 결정론 패턴 재사용. ⚠️ 최종 상태만 보면 "가득 차면 큐를 통째로 비우는" 구현도 50/5에서 우연히 통과 — 파괴검증 D-B3 실측) ② 그 상한이 `BlackBoxLogger`에 실제 배선됐는지 구조 검증(`_queue.maxsize == max_queue` + 핸들러 타입) ③ end-to-end는 **부하 무관 불변식**만(최신 프레임 불유실 + 순서·유일성·부분열). **파괴검증 4종(D-B1~B4)으로 red 확인** | ✅ test_blackbox |
 | utils/stream `MjpegStreamer`(§7.9 항목5) | 실제 HTTP 서버 기동 → 실제 프레임 push → 실제 클라이언트로 `/stream` 접속해 진짜 MJPEG 바이트 수신·`cv2.imdecode` 디코드 성공·VGA 박스 축소(종횡비 유지, 업스케일 없음)·`push_frame()` 비차단(클라이언트 없음/느린 클라이언트 붙어있어도 논-블로킹, 실측 시간)·`start()` 전 `push_frame` 안전 no-op·idempotent stop/restart | ✅ test_stream |

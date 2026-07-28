@@ -26,7 +26,7 @@ VTOL 자율비행 대회용 통합 소프트웨어 저장소다.
   `offboard_node`의 정밀착륙 서브상태에 전달해 폐루프 유도한다. `LANDING_TARGET`(MAVLink) 네이티브
   precision-land 피벗과 호환되도록 상대 pose 형식으로 출력한다. 설계 상세는 `docs/vision_plan.md` §8.
   (기존 `geo_project.pixel_to_gps` GPS 절대좌표 방식은 GPS 정확도 한계(~1~2m)로 30cm 요구 미달 →
-  폐기 예정, 상대 pose 폐루프로 대체.)
+  **2026-07-28 삭제 완료**, 상대 pose 폐루프로 대체.)
 
 **실제 이음매(2026-07-28 구현 완료, 빌드 의존 0):** 두 도메인은 **localhost TCP 소켓 + JSON
 Lines**로만 만난다 — 코드 수준 교차 import도, `colcon`/`pip` 빌드 의존도 **여전히 없다.**
