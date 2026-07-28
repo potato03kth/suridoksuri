@@ -51,6 +51,11 @@ last_updated: 2026-07-28
 > `git_identity`가 순정과 완전히 동일(`v1.18.0-alpha1-592-gc890d9db0a`)해서 **구별 수단은
 > sha256(`f1c16e2b…`)뿐**이다. 플래시 직전 반드시 재확인할 것.
 
+**플래시 준비 자료는 이미 모여 있다** — `logs/2026-07-28_px4_flash/`에 플래시 **전** 파라미터
+백업 4종(`px4_params_2026-07-28_pre-flash.{csv,json,params,txt}`) · `ver_all_*_pre-flash.txt` ·
+`POST_FLASH_CHECKLIST.md` · `CRITICAL_PARAMS.md`가 커밋돼 있다(`d687191`). 즉 그 트랙은
+"준비 완료, 물리적 플래시만 남은" 상태다.
+
 ### 0-2. ▶ 재개 순서 (여기서 시작하라)
 
 | # | 할 일 | 왜 이 순서인가 |
