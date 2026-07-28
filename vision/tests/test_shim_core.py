@@ -735,6 +735,44 @@ def test_shim_node_never_reads_wire_keys_directly():
     assert found == set(), f"shim_node.py가 와이어 키를 직접 읽는다: {sorted(found)}"
 
 
+def test_shim_node_installs_its_sigterm_handler_after_rclpy_init():
+    """🔴 순서 회귀 — `rclpy.init()`이 자기 SIGTERM 핸들러로 우리 것을 **덮어쓴다.**
+
+    먼저 걸면 SIGTERM에 `stop_event`가 안 서고 종료 경로가
+    `RCLError: rcl_shutdown already called`로 터진다(실기체에서 실제로 재현, 2026-07-28).
+    이 저장소가 이미 한 번 밟은 "신호당 핸들러는 하나" 함정(`main.py` D-A5)과 같은 것이라
+    순서 자체를 고정한다.
+    """
+    main_fn = next(
+        n for n in ast.walk(_shim_node_ast())
+        if isinstance(n, ast.FunctionDef) and n.name == "main"
+    )
+    # main() 본문을 **순서대로** 훑어 두 호출의 등장 위치를 찾는다
+    # (ast.walk는 순서를 보장하지 않으므로 body를 직접 순회해야 한다).
+    init_idx = handler_idx = None
+    for idx, stmt in enumerate(main_fn.body):
+        for sub in ast.walk(stmt):
+            if not isinstance(sub, ast.Call):
+                continue
+            fn = sub.func
+            if isinstance(fn, ast.Attribute) and fn.attr == "init":
+                if isinstance(fn.value, ast.Name) and fn.value.id == "rclpy":
+                    init_idx = idx if init_idx is None else init_idx
+            if isinstance(fn, ast.Name) and fn.id == "_install_sigterm_handler":
+                handler_idx = idx if handler_idx is None else handler_idx
+    assert init_idx is not None, "main()에 rclpy.init() 호출이 없다"
+    assert handler_idx is not None, "main()에 _install_sigterm_handler() 호출이 없다"
+    assert init_idx < handler_idx, (
+        f"rclpy.init()(문 {init_idx})이 _install_sigterm_handler()(문 {handler_idx})보다 "
+        "뒤에 있다 — rclpy가 우리 SIGTERM 핸들러를 덮어쓴다"
+    )
+
+
+def test_shim_node_guards_rclpy_shutdown():
+    """rclpy가 이미 컨텍스트를 내렸을 때 무조건 shutdown()을 부르면 종료 경로가 터진다."""
+    assert "if rclpy.ok():" in _shim_node_src()
+
+
 def test_shim_node_is_the_only_vision_file_importing_rclpy():
     vision_root = pathlib.Path(shim_core.__file__).parents[1]
     offenders = []

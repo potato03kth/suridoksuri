@@ -212,7 +212,19 @@ class VisionShimNode(Node):
 
 
 def _install_sigterm_handler(stop_event: threading.Event) -> None:
-    """`tools/h264_stream.py::_install_sigterm_handler`와 동일 패턴 — 이벤트만 세팅한다."""
+    """`tools/h264_stream.py::_install_sigterm_handler`와 동일 패턴 — 이벤트만 세팅한다.
+
+    🔴 **반드시 `rclpy.init()` *뒤에* 불러야 한다.** `rclpy.init()`은 기본
+    `SignalHandlerOptions.ALL`로 SIGINT/SIGTERM 핸들러를 **자기 것으로 설치**하는데,
+    `signal.signal`은 신호당 핸들러가 하나뿐이라 먼저 건 우리 핸들러를 **덮어쓴다.**
+    그러면 SIGTERM이 와도 `stop_event`가 영영 안 서고, rclpy가 컨텍스트만 내려버려
+    루프가 계속 돌다가 `finally`의 `rclpy.shutdown()`이
+    `RCLError: rcl_shutdown already called`로 터진다 — **실기체에서 실제로 재현했다**(2026-07-28).
+
+    이 저장소는 같은 함정을 이미 한 번 밟았다(`main.py`의 `--target-sink` 배선이
+    `sink.install_signal_handlers()`를 부르지 않는 이유, 파괴검증 D-A5). 순서 자체를
+    회귀테스트로 고정해 뒀다(`test_shim_core.py`가 `main()`의 AST에서 호출 순서를 본다).
+    """
 
     def _handler(signum, frame):  # noqa: ARG001 - signal handler 표준 시그니처
         stop_event.set()
@@ -324,9 +336,10 @@ def main(argv=None) -> int:
         hardware_id=args.hardware_id,
     )
     stop_event = threading.Event()
-    _install_sigterm_handler(stop_event)
-
     rclpy.init()
+    # 🔴 순서가 중요하다 — rclpy.init()이 자기 SIGTERM 핸들러를 설치하므로 그 **뒤에** 걸어야
+    # 우리 것이 이긴다. `_install_sigterm_handler` docstring 참조(실기체에서 재현한 버그).
+    _install_sigterm_handler(stop_event)
     node = VisionShimNode(cfg, args.qos_depth)
     router = ShimRouter(cfg)
     try:
@@ -339,7 +352,10 @@ def main(argv=None) -> int:
             f"lt_pub={node.published_landing_targets}"
         )
         node.destroy_node()
-        rclpy.shutdown()
+        # 방어적 — rclpy가 자기 신호 경로로 이미 컨텍스트를 내렸을 수도 있고, 그때
+        # 무조건 shutdown()을 부르면 RCLError로 종료 경로 자체가 터진다.
+        if rclpy.ok():
+            rclpy.shutdown()
     return rc
 
 
