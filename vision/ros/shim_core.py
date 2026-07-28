@@ -9,8 +9,85 @@
 [컨테이너] shim_node.py (Humble, Py3.10)  ← rclpy를 import하는 유일한 vision 파일
             │      └ 이 파일(shim_core.py): rclpy도 vision도 import하지 않는 순수 로직
             ▼
-          /vision/target_pose · /vision/target_status · [옵션] /mavros/landing_target/raw
+          /vision/target_pose · /vision/target_status · /vision/landing_setpoint
+                              · [옵션] /mavros/landing_target/raw
 ```
+
+## 🔴 `/vision/landing_setpoint` — 상대 오차를 절대 setpoint로 바꾸는 곳 (2026-07-28)
+
+사용자가 확정한 커뮤니케이션 흐름은 *"픽스호크 attitude → 연산 → 목표 setpoint → offboard_node"*
+인데, **연산 지점이 소켓 앞(호스트)이 아니라 뒤(이 ROS 그래프 안)** 이다. 호스트에서 하면
+attitude가 소켓 왕복 + vision 발행주기(**실측 4.4Hz**)만큼 늦는다 — 접근 중 기체가 10°/s로
+흔들리고 attitude가 250ms 지연되면 2.5° 오차 → 10m AGL에서 **44cm**라 30cm 요구를 지연 하나로
+날린다. 같은 ROS 그래프 안이면 `/mavros/local_position/pose`를 30Hz로 직접 받는다(실측 근거는
+아래 `DEFAULT_ATTITUDE_STALE_S`). 덤으로 **와이어(JSONL)는 `position_flu` 상대 pose 그대로**라
+`mavros_msgs/LandingTarget` 네이티브 precision-land 피벗 경로가 살아 있고, vision→FC 역방향
+의존도 생기지 않는다(FC가 죽어도 vision은 상대 pose를 계속 뱉는다).
+
+### 🔴 절대 좌표를 **기억하지 않는다** — 이게 이 기능의 핵심 계약
+
+정밀착륙에서 중요한 것은 절대 위치가 아니라 "타겟 대비 오차를 0으로 만드는 것"이다. 목표점을
+한 번 계산해 고정하면 **EKF 드리프트가 그대로 오차로 남는다.** 그래서 이 파일은 매 레코드마다
+
+    목표 = (그 순간의 최신 local_position/pose) + (그 순간의 상대 오차)
+
+로 **다시 계산**한다. 드리프트는 현재위치와 목표점에 똑같이 실려 상쇄된다. `ShimRouter`가 들고
+있는 상태는 **최신 `VehiclePose` 하나뿐**이고 계산된 절대 좌표는 어디에도 저장되지 않는다
+(회귀테스트 `test_router_keeps_no_absolute_target_memory` 계열이 이걸 지킨다).
+
+### 변환 유도 (프레임 부호 사고 이력이 여러 건이라 한 줄씩 근거를 남긴다)
+
+```
+① p_flu       : 와이어의 `position_flu` — 기체 body FLU(x=전방, y=좌, z=상) 상대벡터
+② q_enu       : /mavros/local_position/pose 의 orientation
+                = base_link(FLU) → map(ENU) 회전. mavros 전역 관례로 ROS 쪽은 항상 FLU/ENU다
+③ Δ_enu       = R(q_enu) · p_flu                      ← 상대벡터를 월드 ENU로 회전
+④ target_enu  = pose.position_enu + Δ_enu             ← 🔴 매번 최신 pose로 다시 더한다
+⑤ 발행        : geometry_msgs/PoseStamped, frame_id="map" (ENU) — ②·④와 **같은 프레임**
+```
+
+**⑤에서 ENU를 고른 이유:** `offboard_node._publish_pos_setpoint(pos_ned, ...)`의 `pos_ned`는
+`[N, E, h_up]`(3번째가 **위** 양수)인데 이건 NED도 ENU도 아닌 저장소 내부 하이브리드다. 그 숫자를
+`geometry_msgs/PoseStamped`(ROS 관례상 frame_id가 뜻하는 프레임)에 담으면 **선언한 프레임과 값이
+어긋나는 거짓말**이 되고, 이 저장소가 이미 당한 사고 유형(`pos_ned` vs `vel_ned`가 같은 접미사로
+반대 부호, orientation을 body Pose에 싣지 않기로 한 판단)과 정확히 같은 종류다. ENU/`map`으로
+내면 소비자는 **이미 저장소에 있는 관용구 한 줄**을 그대로 쓴다:
+
+```python
+# fc_ros/adapters/vehicle_state_bridge.py::update_from_pose 와 문자 그대로 같은 줄
+pos_ned = np.array([msg.pose.position.y, msg.pose.position.x, msg.pose.position.z])
+self._publish_pos_setpoint(pos_ned, yaw_ned)
+```
+
+편의를 위해 그 `[N, E, h_up]` 삼중항도 `enu_to_pos_ned_n_e_hup()`(단일 출처)로 계산해
+KeyValue로 **진단용으로만** 수출한다 — 권위 있는 값은 어디까지나 PoseStamped 쪽이다.
+
+### 🔴 setpoint의 orientation은 단위 쿼터니언이 아니라 **현재 기수방위**다
+
+`_publish_pos_setpoint` docstring이 못박은 실사고: *"orientation 미설정 시 ROS2 기본값(단위
+쿼터니언, ENU yaw=0 = NED yaw=90°)이 실제 헤딩과 무관하게 그대로 발행돼 OFFBOARD 진입 첫 틱에
+yaw 점프"*(2026-07-21 flight04 yaw 스핀 사고). 즉 **여기서 단위 쿼터니언은 "모름"이 아니라
+"동쪽을 보라"는 명령**이다. 그래서 setpoint에는 **그 순간 기체의 실제 yaw만 뽑은**(roll/pitch=0)
+쿼터니언을 실어 "현재 헤딩 유지"를 뜻하게 한다 — 정사각 타겟은 90° 자기대칭이라 타겟에서
+방위를 유도하는 것 자체가 물리적으로 무의미하기도 하다.
+
+### degrade — 침묵/무효/사망 3분법을 그대로 따른다
+
+| attitude 상태 | `/vision/landing_setpoint` | `/vision/target_pose` | `/vision/target_status` |
+|---|---|---|---|
+| 정상 | **발행** | 발행 | `vision/setpoint` = `OK` |
+| 아직 못 받음 | **침묵** | **그대로 발행** | `WARN` + `attitude_missing` |
+| stale | **침묵** | **그대로 발행** | `WARN` + `attitude_stale` |
+| 쿼터니언 노름 0 | **침묵** | **그대로 발행** | `WARN` + `attitude_invalid_quaternion` |
+
+🔴 **0이나 추측값을 채우지 않는다** — `core/wire.py`가 "가장 위험한 거짓말"이라 부른 그것이다
+(setpoint 자리의 0은 "기체 바로 아래로 가라"가 된다). 🔴 **상대 pose 경로는 attitude 유무와
+무관하게 계속 나간다** — 새 기능이 기존 경로를 죽이면 안 된다.
+
+`vision/target`이 아니라 **별도 `vision/setpoint` status**로 낸 이유: attitude 부재는 "검출이
+나쁘다"가 아니라 "절대화 경로가 막혔다"이고, 이걸 `vision/target`의 level에 태우면 mavros가 안
+도는 지상시험에서 level이 **항상** WARN이라 진짜 고장이 묻힌다(`not_for_closed_loop_30cm`을
+level에 태우지 않은 것과 같은 판단).
 
 ## 🔴 이 파일이 stdlib만 쓰는 이유 — 취향이 아니라 강제다
 
@@ -160,6 +237,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -236,9 +314,45 @@ DEFAULT_STALE_WARN_S = 0.75
 DEFAULT_UNKNOWN_COVARIANCE = 1e6
 DEFAULT_HARDWARE_ID = "vision"
 
+#: 절대 setpoint 토픽. **`/mavros/...`가 아니다** — 이건 PX4에 직접 명령하는 토픽이 아니라
+#: FC(`offboard_node`)가 소비할 vision 산출물이다. 그래서 `publish_landing_target`(구독자가
+#: 아예 없어 기본 꺼짐)과 달리 **기본 켜짐**이다: 아무것도 명령하지 않고, 소비자가 없으면
+#: 그냥 아무도 안 듣는다.
+DEFAULT_LANDING_SETPOINT_TOPIC = "/vision/landing_setpoint"
+#: 기체 자세·위치 소스. `fc_ros/nodes/telemetry_node.py`가 구독하는 바로 그 토픽이고
+#: QoS도 그쪽 `_MAVROS_QOS`와 같은 BEST_EFFORT/KEEP_LAST 계열을 쓴다.
+DEFAULT_VEHICLE_POSE_TOPIC = "/mavros/local_position/pose"
+#: mavros의 ENU 월드 프레임 이름. `offboard_node._publish_pos_setpoint`가
+#: `/mavros/setpoint_position/local`에 쓰는 `frame_id`와 같은 값이다.
+DEFAULT_SETPOINT_FRAME_ID = "map"
+#: 🔴 **실측 근거 2개로 양쪽에서 조인 값이다. `stale_warn_s`(0.75)를 복사한 것이 아니다**
+#: — 그쪽은 vision 발행주기(4.4Hz) 근거고 이쪽은 mavros 주기(30Hz) + 오차예산 근거다.
+#:
+#: (a) **위(오차예산)에서:** 폐루프 바닥고도 AGL 3.0m(`closed_loop_floor_agl_m` =
+#:     `terminal_agl_m`)에서 기체가 10°/s로 흔들릴 때 0.25s 지연 = 2.5° 자세오차 →
+#:     지상오차 `3.0·tan(2.5°) = 0.131m`. 30cm 요구의 절반 아래다(`core/frames.py`가
+#:     `지상오차=고도×tan(θ)`로 정량화해 둔 그 식). 같은 지연이라도 10m AGL에서는 0.44m라
+#:     예산을 넘지만, 고고도 추정치로 **최종 커밋하지 않는 것**은 상태머신 커밋 게이트와
+#:     `closed_loop_floor_agl_m`이 이미 담당한다.
+#: (b) **아래(지터)에서:** 실비행 rosbag 48건의 `/mavros/local_position/pose` 실측 —
+#:     median 29.93Hz, 메시지 간격 median **33.1ms** / p95 **36.0ms** / p99 **37.2ms**
+#:     (4개 bag 직접 측정). 0.25s는 p99의 **6.7배**라 정상 지터로는 절대 안 뜬다. 실제로
+#:     걸리는 것은 드물게 관측된 수백 ms 드롭아웃(같은 bag들에서 최대 211/339/723/2564ms)
+#:     뿐이고, 그때 발행을 멈추는 것이 **의도된 동작**이다.
+DEFAULT_ATTITUDE_STALE_S = 0.25
+
 STATUS_NAME_TARGET = "vision/target"
 STATUS_NAME_STATE = "vision/state"
 STATUS_NAME_LINK = "vision/link"
+STATUS_NAME_SETPOINT = "vision/setpoint"
+
+# `vision/setpoint` status의 `message` — 소비자가 문자열 비교로 분기할 수 있게 상수로 둔다.
+SETPOINT_OK = "ok"
+SETPOINT_NO_TARGET = "no_target"
+SETPOINT_ATTITUDE_MISSING = "attitude_missing"
+SETPOINT_ATTITUDE_STALE = "attitude_stale"
+SETPOINT_ATTITUDE_INVALID = "attitude_invalid_quaternion"
+SETPOINT_DISABLED = "disabled"
 
 
 @dataclass
@@ -254,6 +368,14 @@ class ShimConfig:
     stale_warn_s: float = DEFAULT_STALE_WARN_S
     unknown_covariance: float = DEFAULT_UNKNOWN_COVARIANCE
     hardware_id: str = DEFAULT_HARDWARE_ID
+    landing_setpoint_topic: str = DEFAULT_LANDING_SETPOINT_TOPIC
+    vehicle_pose_topic: str = DEFAULT_VEHICLE_POSE_TOPIC
+    setpoint_frame_id: str = DEFAULT_SETPOINT_FRAME_ID
+    #: 🔴 **기본 켜짐**(`publish_landing_target`과 반대) — 이건 PX4 명령 토픽이 아니라 vision
+    #: 산출물이라 소비자가 없어도 아무 일도 일어나지 않는다. 끄면(`--no-landing-setpoint`)
+    #: `/mavros/local_position/pose` 구독 자체가 생기지 않아 이 기능 이전과 완전히 같아진다.
+    publish_landing_setpoint: bool = True
+    attitude_stale_s: float = DEFAULT_ATTITUDE_STALE_S
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -299,6 +421,43 @@ class LandingTargetPlan:
     type: int
 
 
+@dataclass(frozen=True)
+class VehiclePose:
+    """`/mavros/local_position/pose`(`geometry_msgs/PoseStamped`) 한 건 — **전부 ENU/FLU다.**
+
+    🔴 이름에 프레임을 박아 둔다(`core/wire.py`의 `position_cam`/`_flu`/`_frd`와 같은 이유).
+    mavros는 ROS 쪽에 항상 ENU 월드 + FLU 기체를 준다 — FRD/NED 변환은 mavros가 자기 안에서
+    한다. 여기 들어오는 숫자를 NED로 착각하면 북/동이 뒤바뀐다.
+
+    `frozen=True`인 이유는 스레드다. rclpy executor 스레드가 만들고 소켓 루프 스레드가 읽으므로
+    **완성된 객체를 통째로 갈아끼우는** 방식이어야 부분갱신 상태가 보이지 않는다.
+    """
+
+    #: `header.stamp`(ROS 시스템 클록 = wall). 로그 상관용이고 stale 판정에는 **쓰지 않는다.**
+    stamp_ns: int
+    #: shim이 이 메시지를 받은 시각(`time.monotonic_ns()`). 🔴 stale 판정은 이쪽으로만 한다
+    #: — 벽시계는 NTP 점프에 흔들린다(파일 docstring "두 클록의 역할 분담"과 같은 판단).
+    recv_monotonic_ns: int
+    position_enu: tuple  # (x_east, y_north, z_up)
+    orientation_enu: tuple  # (x, y, z, w) — base_link(FLU) → map(ENU) 회전
+
+
+@dataclass
+class SetpointPlan:
+    """`/vision/landing_setpoint`(`geometry_msgs/PoseStamped`) 한 건 — **ENU / frame_id=map**.
+
+    커스텀 msg를 만들지 않았다: 새 빌드 의존이 0이어야 이 shim이 `fc_ros/`가 아니라 `vision/`에
+    살 수 있다(`/vision/target_pose`가 `PoseWithCovarianceStamped`를 고른 것과 같은 논리).
+    """
+
+    stamp_ns: int
+    frame_id: str
+    position_enu: tuple  # (x_east, y_north, z_up) — 절대 목표점
+    #: 🔴 단위 쿼터니언이 아니라 **현재 기수방위**(yaw만, roll/pitch=0). 파일 docstring 참조 —
+    #: ENU 단위 쿼터니언은 "모름"이 아니라 "동쪽을 보라"는 명령이다(flight04 yaw 스핀 사고).
+    orientation_enu: tuple
+
+
 @dataclass
 class ShimOutput:
     """한 번의 발행 묶음. `statuses`는 **하나의 `DiagnosticArray`** 로 나간다(같은 stamp)."""
@@ -307,6 +466,7 @@ class ShimOutput:
     statuses: tuple = ()
     pose: Optional[PosePlan] = None
     landing_target: Optional[LandingTargetPlan] = None
+    landing_setpoint: Optional[SetpointPlan] = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -473,7 +633,176 @@ def _angles_from_flu(position_flu) -> tuple:
     return (math.atan2(x_frd, z_frd), math.atan2(y_frd, z_frd))
 
 
-def build_target_plans(record: dict, cfg: ShimConfig, *, recv_monotonic_ns: int) -> ShimOutput:
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔴 상대 오차 → 절대 setpoint (파일 docstring "절대 좌표를 기억하지 않는다" 참조)
+# ──────────────────────────────────────────────────────────────────────────────
+# stdlib만 쓴다 — numpy도 금지라 쿼터니언 회전을 수식으로 직접 편다. 규약은 **Hamilton**
+# (ROS `geometry_msgs/Quaternion`, `fc_bridge/utils/rotation.py::quat_to_euler_xyz`와 동일).
+# 성분 순서는 **(x, y, z, w)** — `core/frames.py`가 어댑터까지 두고 경고한 그 함정이라
+# 이 파일 안에서는 xyzw 하나로 통일하고 wxyz를 아예 만들지 않는다.
+
+
+def quat_normalize(q) -> Optional[tuple]:
+    """(x,y,z,w) 정규화. 노름이 0에 가까우면 **None** — 0으로 나눠 NaN을 흘리지 않는다.
+
+    None은 호출자에게 "이 자세는 못 쓴다"를 뜻하고, 그러면 setpoint를 **발행하지 않는다**
+    (추측값으로 채우지 않는다 — 파일 docstring degrade 표).
+    """
+    try:
+        x, y, z, w = (float(v) for v in q)
+    except (TypeError, ValueError):
+        return None
+    n = math.sqrt(x * x + y * y + z * z + w * w)
+    if not (n > 1e-9) or not math.isfinite(n):
+        return None
+    return (x / n, y / n, z / n, w / n)
+
+
+def quat_rotate(q, v) -> tuple:
+    """`R(q) · v` — 능동회전. q가 A→B 회전이면 A프레임 벡터를 B프레임으로 옮긴다.
+
+    여기서는 q = base_link(FLU) → map(ENU) 이므로 **FLU 상대벡터를 ENU로** 옮긴다.
+    ⚠️ 켤레(q*)를 쓰면 회전이 정확히 반대로 돌아 노름 검사·축 이름 검사를 **전부 통과하면서**
+    방향만 틀린다 — 그래서 알려진 방향쌍 왕복검증이 유일한 그물이다(`test_frames.py` RT-3~5가
+    같은 이유로 존재한다).
+    """
+    x, y, z, w = q
+    vx, vy, vz = (float(c) for c in v)
+    xx, yy, zz = x * x, y * y, z * z
+    wx, wy, wz = w * x, w * y, w * z
+    xy, xz, yz = x * y, x * z, y * z
+    return (
+        (1.0 - 2.0 * (yy + zz)) * vx + 2.0 * (xy - wz) * vy + 2.0 * (xz + wy) * vz,
+        2.0 * (xy + wz) * vx + (1.0 - 2.0 * (xx + zz)) * vy + 2.0 * (yz - wx) * vz,
+        2.0 * (xz - wy) * vx + 2.0 * (yz + wx) * vy + (1.0 - 2.0 * (xx + yy)) * vz,
+    )
+
+
+def quat_yaw(q) -> float:
+    """(x,y,z,w) → yaw(rad). `fc_bridge/utils/rotation.py::quat_to_euler_xyz`의 yaw 항과 **동일 식**.
+
+    ENU 쿼터니언에 쓰면 ENU yaw(0=동쪽, 반시계 양수)가 나온다.
+    """
+    x, y, z, w = q
+    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+def quat_from_yaw(yaw: float) -> tuple:
+    """yaw(rad) → roll=pitch=0 쿼터니언 (x,y,z,w).
+
+    `fc_bridge/utils/rotation.py::yaw_ned_to_quat_enu`가 만드는 것과 같은 형태(성분 순서만
+    xyzw로 맞춤)라, FC가 기존 디코드 경로(`quat_to_euler_xyz` → `yaw_ned = π/2 − yaw_enu`)로
+    그대로 되읽을 수 있다.
+    """
+    return (0.0, 0.0, math.sin(0.5 * yaw), math.cos(0.5 * yaw))
+
+
+def enu_yaw_to_ned_yaw(yaw_enu: float) -> float:
+    """ENU yaw(0=동) → NED yaw(0=북), [−π, π] 정규화.
+
+    `fc_ros/adapters/vehicle_state_bridge.py::update_from_pose`의 그 줄과 같은 식이다.
+    **진단 KeyValue 전용** — 발행 메시지는 ENU 쿼터니언 그대로 나간다.
+    """
+    y = math.pi / 2.0 - float(yaw_enu)
+    return (y + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def enu_to_pos_ned_n_e_hup(p_enu) -> tuple:
+    """ENU (x_e, y_n, z_u) → `offboard_node._publish_pos_setpoint`의 `pos_ned` = **[N, E, h_up]**.
+
+    🔴 이름이 길고 못생긴 것은 의도다. 이 저장소에는 `pos_ned = [N, E, h_up]`(3번째가 **위**
+    양수)와 `vel_ned = [vN, vE, vD]`(3번째가 **아래** 양수)가 **같은 `_ned` 접미사로 반대 부호
+    규약**을 쓰는 사고 이력이 있다 — 그냥 `to_ned()`라고 부르면 다음 사람이 D를 기대한다.
+
+    이 값은 **진단 KeyValue로만** 나간다(권위 있는 값은 `SetpointPlan.position_enu`).
+    소비자 쪽 대응 코드는 `vehicle_state_bridge.update_from_pose`의 `[p.y, p.x, p.z]` 한 줄이다.
+    """
+    x_e, y_n, z_u = (float(c) for c in p_enu)
+    return (y_n, x_e, z_u)
+
+
+def build_landing_setpoint(
+    position_flu,
+    pose: Optional[VehiclePose],
+    cfg: ShimConfig,
+    *,
+    recv_monotonic_ns: int,
+    stamp_ns: int = 0,
+) -> tuple:
+    """`(SetpointPlan | None, reason, kv_pairs)`.
+
+    🔴 **절대 좌표를 기억하지 않는다** — 호출될 때마다 넘겨받은 `pose`(=그 순간의 최신값)로
+    처음부터 다시 계산한다. 그래서 EKF 드리프트가 현재위치와 목표점에 똑같이 실려 상쇄된다.
+    """
+    pairs: list = [("attitude_stale_s", cfg.attitude_stale_s)]
+
+    if not cfg.publish_landing_setpoint:
+        return None, SETPOINT_DISABLED, pairs
+    if position_flu is None:
+        return None, SETPOINT_NO_TARGET, pairs
+    if pose is None:
+        # 🔴 0을 채우지 않는다. setpoint 자리의 0은 "기체 바로 아래로 가라"는 뜻이다.
+        return None, SETPOINT_ATTITUDE_MISSING, pairs
+
+    attitude_age_s = (int(recv_monotonic_ns) - int(pose.recv_monotonic_ns)) / 1e9
+    pairs.extend(
+        [
+            ("attitude_age_s", attitude_age_s),
+            ("attitude_stamp_ns", int(pose.stamp_ns)),
+            ("vehicle_position_enu", [float(c) for c in pose.position_enu]),
+        ]
+    )
+    if attitude_age_s > cfg.attitude_stale_s:
+        return None, SETPOINT_ATTITUDE_STALE, pairs
+
+    q = quat_normalize(pose.orientation_enu)
+    if q is None:
+        return None, SETPOINT_ATTITUDE_INVALID, pairs
+
+    p_flu = tuple(float(v) for v in position_flu)
+    delta_enu = quat_rotate(q, p_flu)
+    target_enu = tuple(
+        float(pose.position_enu[i]) + delta_enu[i] for i in range(3)
+    )
+    yaw_enu = quat_yaw(q)
+
+    pairs.extend(
+        [
+            ("target_position_flu", list(p_flu)),
+            ("setpoint_delta_enu", list(delta_enu)),
+            ("setpoint_position_enu", list(target_enu)),
+            # FC가 `_publish_pos_setpoint`에 그대로 먹일 삼중항(진단용 에코).
+            ("setpoint_position_ned_n_e_hup", list(enu_to_pos_ned_n_e_hup(target_enu))),
+            ("setpoint_frame_id", cfg.setpoint_frame_id),
+            ("vehicle_yaw_enu_rad", yaw_enu),
+            ("vehicle_yaw_ned_rad", enu_yaw_to_ned_yaw(yaw_enu)),
+            # 🔴 "현재 헤딩 유지"임을 명시 — 단위 쿼터니언(=동쪽)과 헷갈리면 yaw 스핀이 난다.
+            ("setpoint_yaw_source", "vehicle_current_heading"),
+        ]
+    )
+    return (
+        SetpointPlan(
+            # 🔴 pose/status와 **같은 stamp**(target 레코드의 `stamp_wall_ns`). §3.2가 "두 토픽을
+            # 나누면 header.stamp를 같은 값으로 채운다"를 계약으로 걸었고, 여기 attitude 쪽
+            # 시각을 넣으면 소비자가 stamp 쌍으로 짝지을 수 없다. 대신 두 시각의 어긋남은
+            # `attitude_age_s`/`attitude_stamp_ns` KeyValue로 그대로 보인다.
+            stamp_ns=int(stamp_ns),
+            frame_id=cfg.setpoint_frame_id,
+            position_enu=target_enu,
+            orientation_enu=quat_from_yaw(yaw_enu),
+        ),
+        SETPOINT_OK,
+        pairs,
+    )
+
+
+def build_target_plans(
+    record: dict,
+    cfg: ShimConfig,
+    *,
+    recv_monotonic_ns: int,
+    vehicle_pose: Optional[VehiclePose] = None,
+) -> ShimOutput:
     """`type="target"` 레코드 → pose(+status, +선택 LandingTarget) 계획.
 
     `valid=false`면 **pose를 만들지 않는다**(실을 좌표가 없다). 대신 status가 `WARN`+사유로
@@ -539,6 +868,28 @@ def build_target_plans(record: dict, cfg: ShimConfig, *, recv_monotonic_ns: int)
     pose = None
     landing_target = None
     position_flu = record.get("position_flu")
+
+    # 🔴 절대 setpoint는 **매번 여기서 새로 계산된다** — 라우터가 들고 있는 것은 최신
+    # VehiclePose 하나뿐이고 계산 결과는 어디에도 저장되지 않는다(드리프트 상쇄의 전제).
+    # 실을 좌표가 없으면(valid=false) attitude가 멀쩡해도 setpoint는 없다.
+    setpoint, setpoint_reason, setpoint_pairs = build_landing_setpoint(
+        position_flu if valid else None,
+        vehicle_pose,
+        cfg,
+        recv_monotonic_ns=recv_monotonic_ns,
+        stamp_ns=stamp_ns,
+    )
+    setpoint_status = StatusPlan(
+        # 🔴 `vision/target`이 아니라 **별도 status**다 — attitude 부재를 target level에 태우면
+        # mavros 없는 지상시험에서 level이 항상 WARN이라 진짜 고장이 묻힌다(파일 docstring).
+        level=LEVEL_OK if setpoint_reason in (SETPOINT_OK, SETPOINT_DISABLED) else LEVEL_WARN,
+        name=STATUS_NAME_SETPOINT,
+        message=setpoint_reason,
+        hardware_id=cfg.hardware_id,
+        values=_kvs([("published", setpoint is not None), ("reason", setpoint_reason)]
+                    + setpoint_pairs),
+    )
+
     if valid and position_flu is not None:
         pose = PosePlan(
             stamp_ns=stamp_ns,
@@ -570,7 +921,11 @@ def build_target_plans(record: dict, cfg: ShimConfig, *, recv_monotonic_ns: int)
             )
 
     return ShimOutput(
-        stamp_ns=stamp_ns, statuses=(status,), pose=pose, landing_target=landing_target
+        stamp_ns=stamp_ns,
+        statuses=(status, setpoint_status),
+        pose=pose,
+        landing_target=landing_target,
+        landing_setpoint=setpoint,
     )
 
 
@@ -657,12 +1012,38 @@ class ShimRouter:
     def __init__(self, cfg: Optional[ShimConfig] = None):
         self.cfg = cfg or ShimConfig()
         self._pending: Optional[_Pending] = None
+        # 🔴 **여기 저장되는 것은 "기체가 지금 어디에 있는가"뿐이다.** 계산된 절대 목표점은
+        # 절대 보관하지 않는다 — 보관하는 순간 EKF 드리프트가 그대로 착륙 오차가 된다
+        # (파일 docstring "절대 좌표를 기억하지 않는다").
+        self._vehicle_pose: Optional[VehiclePose] = None
+        # rclpy executor 스레드가 쓰고 소켓 루프 스레드가 읽는다.
+        self._pose_lock = threading.Lock()
         # 관측성 카운터(§7.4)
         self.targets = 0
         self.state_hints = 0
         self.rejected = 0
         self.unpaired_targets = 0
         self.orphan_state_hints = 0
+        self.vehicle_poses = 0
+
+    # ---------- 기체 자세 ----------
+
+    def on_vehicle_pose(self, pose: VehiclePose) -> list:
+        """최신 `VehiclePose`로 갈아끼운다. **아무것도 발행하지 않는다**(빈 리스트).
+
+        pose 하나만으로는 낼 것이 없다 — 목표점은 vision 레코드가 올 때 그 순간의 이 값으로
+        비로소 계산된다. 반환형을 `list`로 맞춘 것은 호출부(`shim_node`)가 다른 이벤트와 같은
+        `for out in ...: node.emit(out)` 모양을 쓰게 하기 위해서다.
+        """
+        with self._pose_lock:
+            self._vehicle_pose = pose
+            self.vehicle_poses += 1
+        return []
+
+    @property
+    def vehicle_pose(self) -> Optional[VehiclePose]:
+        with self._pose_lock:
+            return self._vehicle_pose
 
     # ---------- 입력 ----------
 
@@ -686,7 +1067,12 @@ class ShimRouter:
             self.targets += 1
             # 앞의 target이 짝을 못 만났다 — 혼자 내보내고 새 것을 들고 간다.
             outputs.extend(self._flush_pending())
-            out = build_target_plans(record, self.cfg, recv_monotonic_ns=recv_monotonic_ns)
+            out = build_target_plans(
+                record,
+                self.cfg,
+                recv_monotonic_ns=recv_monotonic_ns,
+                vehicle_pose=self.vehicle_pose,
+            )
             self._pending = _Pending(output=out, frame_id=record.get("frame_id"))
             return outputs
 
@@ -702,6 +1088,7 @@ class ShimRouter:
                     statuses=pending.output.statuses + (status,),
                     pose=pending.output.pose,
                     landing_target=pending.output.landing_target,
+                    landing_setpoint=pending.output.landing_setpoint,
                 )
             )
             return outputs
@@ -790,6 +1177,7 @@ class ShimRouter:
                 + (_missing_state_status(self.cfg, pending.frame_id),),
                 pose=pending.output.pose,
                 landing_target=pending.output.landing_target,
+                landing_setpoint=pending.output.landing_setpoint,
             )
         ]
 

@@ -27,11 +27,18 @@
 `shim_core.MAV_FRAME_BODY_FRD` 하나에만 있고 이 파일은 그것을 **경유해서만** 쓴다.
 `LandingTarget.LOCAL_NED` 같은 이름이 이 파일에 등장하는 순간 회귀테스트가 red가 된다.
 
-## 왜 executor를 안 돌리는가
+## executor — 구독이 생기면서 스레드가 하나 늘었다 (2026-07-28)
 
-이 노드는 구독도 타이머도 서비스도 없다 — **발행만 한다.** rclpy 퍼블리셔는 executor 없이도
-동작하므로 `rclpy.spin`을 띄우지 않고 메인 스레드가 곧장 소켓 루프를 돈다. 스레드가 하나뿐이라
-종료 경로도 하나다(SIGTERM → `stop_event` → 루프 탈출 → `destroy_node`).
+예전에는 구독도 타이머도 없어(발행만) executor 자체를 안 돌렸다. `/vision/landing_setpoint`가
+생기면서 `/mavros/local_position/pose`를 구독하게 됐고, **구독은 spin 없이는 콜백이 안 뛴다.**
+
+메인 스레드는 소켓을 `_POLL_S=0.2`초 타임아웃으로 폴링하므로 여기서 `spin_once`를 부르면
+자세가 **최대 0.2초** 묵는다 — `attitude_stale_s`(0.25s) 예산의 80%를 폴링 하나로 까먹는다.
+그래서 executor를 **데몬 스레드**에서 돌려 30Hz 자세를 그대로 받는다. 두 스레드가 만나는 곳은
+`ShimRouter._vehicle_pose` **하나뿐이고 락으로 보호**된다(`shim_core` 참조).
+
+🔴 **`--no-landing-setpoint`를 주면 구독도 executor 스레드도 아예 만들지 않는다** — 이 기능
+이전의 단일 스레드 동작으로 정확히 되돌아가는 escape hatch다.
 
 ## 재접속은 shim의 책임이다
 
@@ -57,23 +64,29 @@ import time
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 
 from vision.ros.shim_core import (
+    DEFAULT_ATTITUDE_STALE_S,
     DEFAULT_HARDWARE_ID,
     DEFAULT_HOST,
+    DEFAULT_LANDING_SETPOINT_TOPIC,
     DEFAULT_LANDING_TARGET_TOPIC,
     DEFAULT_PORT,
     DEFAULT_POSE_FRAME_ID,
     DEFAULT_POSE_TOPIC,
+    DEFAULT_SETPOINT_FRAME_ID,
     DEFAULT_STALE_WARN_S,
     DEFAULT_STATUS_TOPIC,
     DEFAULT_UNKNOWN_COVARIANCE,
+    DEFAULT_VEHICLE_POSE_TOPIC,
     ShimConfig,
     ShimRouter,
+    VehiclePose,
 )
 
 #: `fc_ros`의 `_MAVROS_QOS`와 같은 BEST_EFFORT 계열(§9 F1). depth만 1인 이유는 이게 제어용
@@ -126,7 +139,7 @@ class _LineReader:
 class VisionShimNode(Node):
     """계획(dataclass) → 실제 ROS 메시지. **여기에 판단을 넣지 마라**(파일 docstring 참조)."""
 
-    def __init__(self, cfg: ShimConfig, qos_depth: int):
+    def __init__(self, cfg: ShimConfig, qos_depth: int, router: ShimRouter):
         super().__init__("vision_shim")
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -134,10 +147,23 @@ class VisionShimNode(Node):
             depth=qos_depth,
         )
         self.cfg = cfg
+        self._router = router
         self._pose_pub = self.create_publisher(
             PoseWithCovarianceStamped, cfg.pose_topic, qos
         )
         self._status_pub = self.create_publisher(DiagnosticArray, cfg.status_topic, qos)
+        self._setpoint_pub = None
+        self.vehicle_poses_received = 0
+        if cfg.publish_landing_setpoint:
+            self._setpoint_pub = self.create_publisher(
+                PoseStamped, cfg.landing_setpoint_topic, qos
+            )
+            # `fc_ros/nodes/telemetry_node.py::_MAVROS_QOS`와 같은 BEST_EFFORT/KEEP_LAST 계열.
+            # depth만 1인 이유는 이 노드의 다른 토픽과 같다 — 제어용이라 최신성 > 완전성이고,
+            # 호환성을 정하는 것은 reliability/durability이지 depth가 아니다.
+            self.create_subscription(
+                PoseStamped, cfg.vehicle_pose_topic, self._on_vehicle_pose, qos
+            )
         self._lt_pub = None
         if cfg.publish_landing_target:
             # mavros_msgs는 이 노드가 LandingTarget 피벗을 켤 때만 필요하다 — 지연 import로
@@ -151,6 +177,26 @@ class VisionShimNode(Node):
         self.published_poses = 0
         self.published_statuses = 0
         self.published_landing_targets = 0
+        self.published_setpoints = 0
+
+    # ---------- 구독 ----------
+
+    def _on_vehicle_pose(self, msg) -> None:
+        """`/mavros/local_position/pose` → 라우터의 최신 자세. **판단은 한 줄도 없다.**
+
+        executor 스레드에서 뛴다. 여기서 하는 일은 msg 필드를 `VehiclePose`로 옮기는 것뿐이고
+        stale 판정·회전·좌표합성은 전부 `shim_core`가 한다(얇음 계약).
+        """
+        p, q = msg.pose.position, msg.pose.orientation
+        self.vehicle_poses_received += 1
+        self._router.on_vehicle_pose(
+            VehiclePose(
+                stamp_ns=Time.from_msg(msg.header.stamp).nanoseconds,
+                recv_monotonic_ns=time.monotonic_ns(),
+                position_enu=(p.x, p.y, p.z),
+                orientation_enu=(q.x, q.y, q.z, q.w),
+            )
+        )
 
     # ---------- 발행 ----------
 
@@ -188,6 +234,22 @@ class VisionShimNode(Node):
             msg.pose.covariance = [float(v) for v in plan.covariance]
             self._pose_pub.publish(msg)
             self.published_poses += 1
+        if output.landing_setpoint is not None and self._setpoint_pub is not None:
+            plan = output.landing_setpoint
+            sp = PoseStamped()
+            sp.header.stamp = stamp
+            # 🔴 ENU 월드 프레임("map"). 여기 `pose_frame_id`("base_link")를 넣으면 절대
+            # 좌표가 body 상대좌표라고 주장하는 셈이라 소비자가 통째로 오해한다.
+            sp.header.frame_id = plan.frame_id
+            sp.pose.position.x = float(plan.position_enu[0])
+            sp.pose.position.y = float(plan.position_enu[1])
+            sp.pose.position.z = float(plan.position_enu[2])
+            sp.pose.orientation.x = float(plan.orientation_enu[0])
+            sp.pose.orientation.y = float(plan.orientation_enu[1])
+            sp.pose.orientation.z = float(plan.orientation_enu[2])
+            sp.pose.orientation.w = float(plan.orientation_enu[3])
+            self._setpoint_pub.publish(sp)
+            self.published_setpoints += 1
         if output.landing_target is not None and self._lt_pub is not None:
             plan = output.landing_target
             lt = self._landing_target_cls()
@@ -309,6 +371,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="🔴 기본 꺼짐 — px4_config.yaml의 listen_lt가 false라 구독자가 없다(FC 결정 D2).",
     )
     p.add_argument("--pose-frame-id", default=DEFAULT_POSE_FRAME_ID)
+    p.add_argument("--landing-setpoint-topic", default=DEFAULT_LANDING_SETPOINT_TOPIC)
+    p.add_argument("--vehicle-pose-topic", default=DEFAULT_VEHICLE_POSE_TOPIC)
+    p.add_argument("--setpoint-frame-id", default=DEFAULT_SETPOINT_FRAME_ID)
+    p.add_argument(
+        "--no-landing-setpoint",
+        dest="publish_landing_setpoint",
+        action="store_false",
+        help="절대 setpoint 발행을 끈다(기본 켜짐). 끄면 /mavros/local_position/pose 구독과 "
+             "executor 스레드 자체가 생기지 않는다 — 이 기능 이전 동작으로 되돌리는 escape hatch.",
+    )
+    p.add_argument("--attitude-stale-s", type=float, default=DEFAULT_ATTITUDE_STALE_S)
     p.add_argument("--stale-warn-s", type=float, default=DEFAULT_STALE_WARN_S)
     p.add_argument("--unknown-covariance", type=float, default=DEFAULT_UNKNOWN_COVARIANCE)
     p.add_argument("--hardware-id", default=DEFAULT_HARDWARE_ID)
@@ -334,22 +407,40 @@ def main(argv=None) -> int:
         stale_warn_s=args.stale_warn_s,
         unknown_covariance=args.unknown_covariance,
         hardware_id=args.hardware_id,
+        landing_setpoint_topic=args.landing_setpoint_topic,
+        vehicle_pose_topic=args.vehicle_pose_topic,
+        setpoint_frame_id=args.setpoint_frame_id,
+        publish_landing_setpoint=args.publish_landing_setpoint,
+        attitude_stale_s=args.attitude_stale_s,
     )
     stop_event = threading.Event()
     rclpy.init()
     # 🔴 순서가 중요하다 — rclpy.init()이 자기 SIGTERM 핸들러를 설치하므로 그 **뒤에** 걸어야
     # 우리 것이 이긴다. `_install_sigterm_handler` docstring 참조(실기체에서 재현한 버그).
     _install_sigterm_handler(stop_event)
-    node = VisionShimNode(cfg, args.qos_depth)
     router = ShimRouter(cfg)
+    node = VisionShimNode(cfg, args.qos_depth, router)
+    executor = spinner = None
+    if cfg.publish_landing_setpoint:
+        # 구독 콜백을 30Hz로 뛰게 하는 유일한 방법(파일 docstring "executor" 절).
+        # 데몬 스레드라 메인이 죽으면 프로세스를 붙잡지 않는다.
+        executor = SingleThreadedExecutor()
+        executor.add_node(node)
+        spinner = threading.Thread(target=executor.spin, name="vision_shim_spin", daemon=True)
+        spinner.start()
     try:
         rc = run(node, router, args, stop_event)
     finally:
+        if executor is not None:
+            executor.shutdown(timeout_sec=1.0)
+            spinner.join(timeout=2.0)
         node.get_logger().info(
             f"종료 — target={router.targets} state_hint={router.state_hints} "
             f"rejected={router.rejected} unpaired={router.unpaired_targets} "
             f"pose_pub={node.published_poses} status_pub={node.published_statuses} "
-            f"lt_pub={node.published_landing_targets}"
+            f"lt_pub={node.published_landing_targets} "
+            f"setpoint_pub={node.published_setpoints} "
+            f"vehicle_pose_rx={node.vehicle_poses_received}"
         )
         node.destroy_node()
         # 방어적 — rclpy가 자기 신호 경로로 이미 컨텍스트를 내렸을 수도 있고, 그때

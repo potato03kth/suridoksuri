@@ -16,6 +16,7 @@ rclpy를 import하는 것은 `shim_node.py` 하나뿐이고, 이 파일은 그�
 """
 import ast
 import json
+import math
 import pathlib
 
 import numpy as np
@@ -510,7 +511,11 @@ def test_target_and_state_hint_leave_together_with_one_shared_stamp():
     out = outs[0]
     assert out.pose is not None
     assert {s.name for s in out.statuses} == {
-        shim_core.STATUS_NAME_TARGET, shim_core.STATUS_NAME_STATE
+        shim_core.STATUS_NAME_TARGET,
+        shim_core.STATUS_NAME_STATE,
+        # 2026-07-28 신설 — `/vision/landing_setpoint`의 가부와 사유가 같은 배열·같은 stamp로
+        # 나간다(attitude가 없으면 setpoint는 침묵하지만 **사유는 반드시 나간다**).
+        shim_core.STATUS_NAME_SETPOINT,
     }
     assert out.stamp_ns == _WALL
     assert out.pose.stamp_ns == out.stamp_ns
@@ -667,6 +672,477 @@ def test_blank_and_whitespace_lines_are_rejected_without_pose():
     outs = _push(ShimRouter(), "   \n")
     assert outs[0].pose is None
     assert _find(outs[0].statuses, shim_core.STATUS_NAME_LINK).level == shim_core.LEVEL_ERROR
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔴 /vision/landing_setpoint — 상대 오차 → 절대 setpoint (2026-07-28)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# 이 저장소는 프레임 부호 사고 이력이 여러 건이라(`pos_ned` vs `vel_ned`, `frame=12`에 FRD를
+# 넣을 뻔한 건, `test_frames.py` RT-3~5) **알려진 방향쌍이 유일한 그물**이다 — 축 이름만 맞고
+# 부호가 뒤집힌 변환도 노름 검사·왕복 검사는 통과한다.
+
+#: ENU yaw는 **동쪽이 0, 반시계가 양수**다. 기수 정북 = +90°.
+#: 아래 쿼터니언들은 `quat_from_yaw()`(=피검사 코드)로 만들지 않고 **직접 적은 리터럴**이다
+#: — 생성기와 소비자가 같은 부호 실수를 공유하면 테스트가 통째로 눈이 먼다.
+_Q_NOSE_EAST = (0.0, 0.0, 0.0, 1.0)  # ENU yaw 0
+_Q_NOSE_NORTH = (0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4))  # ENU yaw +90°
+#: 기수 동쪽 + ENU x축(=전방) 둘레 우롤 30°. 오일러/전치/켤레 실수를 한 번에 잡는 3D 케이스.
+_Q_NOSE_EAST_ROLL_RIGHT_30 = (
+    math.sin(math.radians(15.0)), 0.0, 0.0, math.cos(math.radians(15.0)),
+)
+
+
+def _pose(position_enu=(0.0, 0.0, 0.0), orientation_enu=_Q_NOSE_NORTH, *, recv=_MONO,
+          stamp=_WALL) -> shim_core.VehiclePose:
+    return shim_core.VehiclePose(
+        stamp_ns=stamp, recv_monotonic_ns=recv,
+        position_enu=position_enu, orientation_enu=orientation_enu,
+    )
+
+
+def _target_line_flu(p_flu, **kw) -> str:
+    """`position_flu`가 정확히 `p_flu`가 되는 **진짜 생산자 레코드**를 만든다.
+
+    손으로 쓴 dict를 넣지 않는다(이 파일의 확립된 원칙) — `core/frames`로 cam 좌표를 역산해
+    `wire.build_target_record()`에 먹인다. 역산이 맞는지는 각 테스트가 레코드의 실제
+    `position_flu`를 먼저 단언해 확인한다.
+    """
+    from vision.core import frames
+
+    cam = frames.flu_to_cam(np.asarray(p_flu, dtype=float))
+    return _target_line(_estimate(position=tuple(float(v) for v in cam)), **kw)
+
+
+def _emit_with_pose(pose, line, *, mono=_MONO, cfg=None):
+    router = ShimRouter(cfg) if cfg is not None else ShimRouter()
+    if pose is not None:
+        assert router.on_vehicle_pose(pose) == []
+    return router, _emit(router, line, mono=mono)
+
+
+def _setpoint_kv(out) -> dict:
+    return _kv(_find(out.statuses, shim_core.STATUS_NAME_SETPOINT))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔴 알려진 방향쌍 — 부호를 못 박는다
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_nose_north_target_10m_ahead_puts_the_setpoint_due_north():
+    """🔴 기준 케이스: 기수 정북 + 전방 10m 타겟 → 목표는 현재위치에서 **정북 10m**."""
+    line = _target_line_flu((10.0, 0.0, 0.0))
+    assert json.loads(line)["position_flu"] == pytest.approx([10.0, 0.0, 0.0], abs=1e-9)
+
+    _, out = _emit_with_pose(_pose((0.0, 0.0, 0.0), _Q_NOSE_NORTH), line)
+    assert out.landing_setpoint is not None
+    # ENU: x=동, y=북 → 정북 10m는 (0, 10, 0)
+    assert list(out.landing_setpoint.position_enu) == pytest.approx([0.0, 10.0, 0.0], abs=1e-6)
+    n, e, h_up = shim_core.enu_to_pos_ned_n_e_hup(out.landing_setpoint.position_enu)
+    assert (n, e) == pytest.approx((10.0, 0.0), abs=1e-6)
+
+
+def test_nose_east_target_10m_ahead_puts_the_setpoint_due_east():
+    """기수를 90° 돌리면 같은 상대벡터가 **다른 절대방향**을 가리켜야 한다(회전이 실제로 먹는지)."""
+    line = _target_line_flu((10.0, 0.0, 0.0))
+    _, out = _emit_with_pose(_pose((0.0, 0.0, 0.0), _Q_NOSE_EAST), line)
+    assert list(out.landing_setpoint.position_enu) == pytest.approx([10.0, 0.0, 0.0], abs=1e-6)
+
+
+def test_nose_north_target_to_the_left_puts_the_setpoint_west():
+    """🔴 FLU의 **+y는 좌**다. 기수 정북에서 좌 = 서쪽(ENU x 음수)."""
+    line = _target_line_flu((0.0, 5.0, 0.0))
+    assert json.loads(line)["position_flu"] == pytest.approx([0.0, 5.0, 0.0], abs=1e-9)
+
+    _, out = _emit_with_pose(_pose((0.0, 0.0, 0.0), _Q_NOSE_NORTH), line)
+    x_e, y_n, _ = out.landing_setpoint.position_enu
+    assert x_e == pytest.approx(-5.0, abs=1e-6), "좌(FLU +y)가 서쪽이 아니라 동쪽으로 갔다"
+    assert y_n == pytest.approx(0.0, abs=1e-6)
+
+
+def test_target_below_lowers_the_setpoint_altitude_not_raises_it():
+    """🔴 `h_up` ↔ `D` 혼동 회귀 — FLU의 **+z는 위**라 아래 타겟은 z가 음수다.
+
+    이 저장소는 `pos_ned=[N,E,h_up]`(위 양수)와 `vel_ned=[vN,vE,vD]`(아래 양수)가 같은 접미사를
+    쓰는 사고 이력이 있다. 부호를 뒤집으면 기체는 **타겟 반대편 위로** 올라간다.
+    """
+    line = _target_line_flu((0.0, 0.0, -10.0))
+    assert json.loads(line)["position_flu"] == pytest.approx([0.0, 0.0, -10.0], abs=1e-9)
+
+    _, out = _emit_with_pose(_pose((0.0, 0.0, 25.0), _Q_NOSE_NORTH), line)
+    assert out.landing_setpoint.position_enu[2] == pytest.approx(15.0, abs=1e-6)
+    assert shim_core.enu_to_pos_ned_n_e_hup(out.landing_setpoint.position_enu)[2] == pytest.approx(
+        15.0, abs=1e-6
+    )
+
+
+def test_setpoint_is_built_from_flu_not_frd():
+    """🔴 FRD를 먹이면 y·z 부호가 뒤집힌다 — 두 값이 실제로 다름을 먼저 단언해 이빨을 확보한다."""
+    rec = json.loads(_target_line_flu((0.0, 5.0, -10.0)))
+    flu, frd = rec["position_flu"], rec["position_frd"]
+    assert flu != frd and flu[1] == pytest.approx(-frd[1]) and flu[2] == pytest.approx(-frd[2])
+
+    pose = _pose((0.0, 0.0, 30.0), _Q_NOSE_NORTH)
+    _, out = _emit_with_pose(pose, json.dumps(rec))
+    q = shim_core.quat_normalize(pose.orientation_enu)
+    from_flu = shim_core.quat_rotate(q, flu)
+    from_frd = shim_core.quat_rotate(q, frd)
+    assert from_flu != pytest.approx(from_frd)
+    got = [c - p for c, p in zip(out.landing_setpoint.position_enu, pose.position_enu)]
+    assert got == pytest.approx(list(from_flu), abs=1e-9)
+    assert got != pytest.approx(list(from_frd))
+
+
+def test_full_3d_rotation_is_not_transposed_or_conjugated():
+    """🔴 yaw만 있는 케이스는 전치/켤레 실수를 못 잡는다(Rz는 부호만 바뀌어도 축이 같다).
+
+    기수 **동쪽** + 우롤 30°에서 기체 바로 아래(FLU z=−10) 타겟은 물리적으로 **북쪽 5m 편향**
+    으로 보여야 한다: 우롤이면 머리가 오른쪽으로 기울고 몸통의 '아래' 축은 **왼쪽**으로
+    기운다. 동쪽을 보는 기체의 왼쪽은 북쪽이다.
+    전치(=Rx(−30))나 켤레를 쓰면 정확히 남쪽 5m가 나온다.
+    """
+    line = _target_line_flu((0.0, 0.0, -10.0))
+    _, out = _emit_with_pose(_pose((0.0, 0.0, 0.0), _Q_NOSE_EAST_ROLL_RIGHT_30), line)
+    x_e, y_n, z_u = out.landing_setpoint.position_enu
+    assert x_e == pytest.approx(0.0, abs=1e-6)
+    assert y_n == pytest.approx(+5.0, abs=1e-6), "롤 부호가 뒤집혔다(전치/켤레)"
+    assert z_u == pytest.approx(-10.0 * math.cos(math.radians(30.0)), abs=1e-6)
+
+
+def test_quat_rotate_matches_an_independent_axis_angle_implementation():
+    """같은 회전을 **다른 공식**(로드리게스, numpy)으로 재구현해 대조한다.
+
+    `quat_rotate`는 stdlib 제약 때문에 손으로 편 식이라, 같은 파일 안의 다른 함수로 검증하면
+    같은 오타를 공유한다. 여기서는 축·각도에서 numpy로 R을 새로 세워 비교한다.
+    """
+    rng = np.random.default_rng(20260728)
+    for _ in range(50):
+        axis = rng.normal(size=3)
+        axis /= np.linalg.norm(axis)
+        angle = float(rng.uniform(-math.pi, math.pi))
+        q = (
+            *(axis * math.sin(angle / 2.0)),
+            math.cos(angle / 2.0),
+        )
+        k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+        rot = np.eye(3) + math.sin(angle) * k + (1 - math.cos(angle)) * (k @ k)
+        v = rng.normal(size=3)
+        assert list(shim_core.quat_rotate(shim_core.quat_normalize(q), v)) == pytest.approx(
+            list(rot @ v), abs=1e-9
+        )
+
+
+def test_enu_to_pos_ned_n_e_hup_is_the_consumer_idiom():
+    """🔴 FC가 쓸 삼중항 — `vehicle_state_bridge.update_from_pose`의 `[p.y, p.x, p.z]`와 같아야."""
+    assert shim_core.enu_to_pos_ned_n_e_hup((3.0, 7.0, 11.0)) == pytest.approx((7.0, 3.0, 11.0))
+
+
+def test_setpoint_yaw_conversion_matches_the_fc_ned_convention():
+    """ENU yaw 0(동) = NED yaw +90°, ENU +90°(북) = NED 0. 부호가 반대면 헤딩이 거울이 된다."""
+    assert shim_core.enu_yaw_to_ned_yaw(0.0) == pytest.approx(math.pi / 2)
+    assert shim_core.enu_yaw_to_ned_yaw(math.pi / 2) == pytest.approx(0.0)
+    assert shim_core.enu_yaw_to_ned_yaw(math.pi) == pytest.approx(-math.pi / 2)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔴 절대 좌표를 기억하지 않는다 — 드리프트 상쇄의 전제
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_same_relative_error_makes_the_setpoint_follow_the_vehicle():
+    """🔴 이 기능의 핵심 회귀.
+
+    같은 상대 오차인데 기체(=EKF 원점 기준 위치)가 드리프트하면 목표점도 **똑같이** 따라
+    움직여야 한다. 한 번 계산해 고정하면 드리프트가 그대로 착륙 오차로 남는다.
+    """
+    line = _target_line_flu((4.0, -3.0, -12.0))
+    deltas = []
+    for drift in ((0.0, 0.0, 0.0), (5.0, -2.0, 0.5), (-40.0, 17.5, 3.25)):
+        _, out = _emit_with_pose(_pose(drift, _Q_NOSE_NORTH), line)
+        deltas.append(
+            tuple(sp - p for sp, p in zip(out.landing_setpoint.position_enu, drift))
+        )
+    # 상대 델타는 셋 다 같아야 하고(같은 상대 오차) …
+    assert deltas[1] == pytest.approx(deltas[0], abs=1e-9)
+    assert deltas[2] == pytest.approx(deltas[0], abs=1e-9)
+    # … 절대 목표점은 셋 다 달라야 한다(고정된 절대좌표를 기억하면 여기서 red).
+    _, out0 = _emit_with_pose(_pose((0.0, 0.0, 0.0), _Q_NOSE_NORTH), line)
+    _, out1 = _emit_with_pose(_pose((5.0, -2.0, 0.5), _Q_NOSE_NORTH), line)
+    assert list(out0.landing_setpoint.position_enu) != pytest.approx(
+        list(out1.landing_setpoint.position_enu)
+    )
+
+
+def test_one_router_recomputes_from_the_latest_pose_every_record():
+    """같은 라우터 인스턴스가 pose 갱신을 실제로 반영하는지(첫 pose를 눌러 담지 않는지)."""
+    line = _target_line_flu((10.0, 0.0, 0.0))
+    router = ShimRouter()
+    router.on_vehicle_pose(_pose((0.0, 0.0, 0.0), _Q_NOSE_NORTH))
+    first = _emit(router, line)
+    router.on_vehicle_pose(_pose((100.0, 200.0, 5.0), _Q_NOSE_EAST))
+    second = _emit(router, line)
+    assert list(first.landing_setpoint.position_enu) == pytest.approx([0.0, 10.0, 0.0], abs=1e-6)
+    # 위치도 자세도 둘 다 새 값으로 다시 계산돼야 한다.
+    assert list(second.landing_setpoint.position_enu) == pytest.approx(
+        [110.0, 200.0, 5.0], abs=1e-6
+    )
+
+
+def test_vehicle_pose_alone_publishes_nothing():
+    """pose만으로는 낼 것이 없다 — 목표점은 vision 레코드가 올 때 비로소 생긴다."""
+    router = ShimRouter()
+    for _ in range(5):
+        assert router.on_vehicle_pose(_pose()) == []
+    assert router.vehicle_poses == 5
+
+
+def test_router_stores_only_the_pose_never_a_computed_target():
+    """🔴 '절대 좌표를 기억하지 않는다'의 구조 회귀 — 라우터 상태에 목표점이 남으면 안 된다."""
+    router = ShimRouter()
+    router.on_vehicle_pose(_pose((7.0, 8.0, 9.0), _Q_NOSE_NORTH))
+    out = _emit(router, _target_line_flu((10.0, 0.0, 0.0)))
+    target_enu = tuple(out.landing_setpoint.position_enu)
+    stored = [
+        v for v in vars(router).values()
+        if isinstance(v, (tuple, list)) and len(v) == 3
+    ]
+    assert target_enu not in [tuple(s) for s in stored]
+    # 보관된 것은 pose 하나뿐이고 그것은 **기체 현재 위치**다(목표점이 아니다).
+    assert tuple(router.vehicle_pose.position_enu) == (7.0, 8.0, 9.0)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔴 degrade — 침묵/무효/사망 3분법을 setpoint에도 적용한다
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_no_attitude_yet_means_no_setpoint_but_target_pose_keeps_flowing():
+    """🔴 새 기능이 기존 경로를 죽이면 안 된다."""
+    _, out = _emit_with_pose(None, _target_line_flu((10.0, 0.0, 0.0)))
+    assert out.landing_setpoint is None
+    assert out.pose is not None, "attitude 부재가 상대 pose 경로까지 죽였다"
+    st = _find(out.statuses, shim_core.STATUS_NAME_SETPOINT)
+    assert st.message == shim_core.SETPOINT_ATTITUDE_MISSING
+    assert st.level == shim_core.LEVEL_WARN
+
+
+def test_stale_attitude_means_no_setpoint_but_target_pose_keeps_flowing():
+    line = _target_line_flu((10.0, 0.0, 0.0))
+    cfg = ShimConfig()
+    late = _MONO + int((cfg.attitude_stale_s + 0.05) * 1e9)
+    _, out = _emit_with_pose(_pose(recv=_MONO), line, mono=late)
+    assert out.landing_setpoint is None
+    assert out.pose is not None
+    st = _find(out.statuses, shim_core.STATUS_NAME_SETPOINT)
+    assert st.message == shim_core.SETPOINT_ATTITUDE_STALE
+    assert json.loads(_kv(st)["attitude_age_s"]) > cfg.attitude_stale_s
+
+
+def test_attitude_just_inside_the_threshold_still_publishes():
+    """임계 바로 안쪽은 통과해야 한다 — 아니면 임계값이 사실상 0이 된다."""
+    line = _target_line_flu((10.0, 0.0, 0.0))
+    cfg = ShimConfig()
+    almost = _MONO + int((cfg.attitude_stale_s - 0.01) * 1e9)
+    _, out = _emit_with_pose(_pose(recv=_MONO), line, mono=almost)
+    assert out.landing_setpoint is not None
+
+
+def test_degenerate_quaternion_means_no_setpoint_instead_of_nan():
+    """노름 0을 정규화하면 NaN이 나온다 — 그 NaN이 setpoint로 나가면 하류가 조용히 오염된다."""
+    _, out = _emit_with_pose(
+        _pose(orientation_enu=(0.0, 0.0, 0.0, 0.0)), _target_line_flu((10.0, 0.0, 0.0))
+    )
+    assert out.landing_setpoint is None
+    assert _find(out.statuses, shim_core.STATUS_NAME_SETPOINT).message == (
+        shim_core.SETPOINT_ATTITUDE_INVALID
+    )
+    assert shim_core.quat_normalize((0.0, 0.0, 0.0, 0.0)) is None
+
+
+def test_missing_attitude_never_fills_a_zero_setpoint():
+    """🔴 setpoint 자리의 0은 '기체 바로 아래로 가라'는 뜻이다 — 가장 위험한 거짓말."""
+    _, out = _emit_with_pose(None, _target_line_flu((10.0, 0.0, 0.0)))
+    kv = _setpoint_kv(out)
+    assert json.loads(kv["published"]) is False
+    for key in ("setpoint_position_enu", "setpoint_position_ned_n_e_hup", "setpoint_delta_enu"):
+        assert key not in kv, f"발행하지 않으면서 {key}를 지어냈다"
+
+
+def test_invalid_record_publishes_no_setpoint_even_with_good_attitude():
+    """`valid=false`(안 보임)면 자세가 멀쩡해도 setpoint는 없다."""
+    router = ShimRouter()
+    router.on_vehicle_pose(_pose())
+    out = _emit(router, _invalid_line())
+    assert out.landing_setpoint is None and out.pose is None
+    assert _find(out.statuses, shim_core.STATUS_NAME_SETPOINT).message == (
+        shim_core.SETPOINT_NO_TARGET
+    )
+
+
+def test_invalid_record_with_a_position_still_publishes_no_setpoint():
+    """🔴 `valid`는 **독립적인** 게이트다 — 좌표가 있어도 무효면 절대화하지 않는다.
+
+    바로 위 테스트만 있으면 파괴검증 DS-18(`position_flu if valid else None` →
+    `position_flu`)이 **green으로 통과한다**: 정상 생산자의 무효 레코드는
+    `position_flu=null`이라 좌표 존재 검사만으로 걸러지기 때문이다. 그건 **생산자가 착해서**
+    통과한 것이고 게이트가 사라진 사실은 못 잡는다 — 이 저장소가 pose 경로에서 이미 똑같이
+    당했다(`test_invalid_record_with_a_position_still_publishes_no_pose`의 D7 기록).
+    confidence 게이트가 켜지면(§5.3) "좌표는 있는데 valid=false"가 실제로 발생한다.
+    """
+    rec = json.loads(_target_line_flu((10.0, 0.0, -5.0)))
+    rec["valid"] = False
+    rec["reason"] = "confidence_below_min(0.100<0.900)"
+    assert rec["position_flu"] is not None  # 전제: 좌표는 멀쩡히 들어 있다
+
+    router = ShimRouter()
+    router.on_vehicle_pose(_pose())
+    out = _emit(router, json.dumps(rec))
+    assert out.landing_setpoint is None, "거절된 추정치를 절대 좌표로 만들어 유도한다"
+    assert out.pose is None
+    kv = _setpoint_kv(out)
+    assert json.loads(kv["published"]) is False
+    assert "setpoint_position_enu" not in kv
+
+
+def test_setpoint_failure_does_not_raise_the_target_status_level():
+    """🔴 attitude 부재를 `vision/target` level에 태우면 mavros 없는 지상시험에서 level이
+    **항상** WARN이라 진짜 고장이 묻힌다(`not_for_closed_loop_30cm`과 같은 판단)."""
+    _, out = _emit_with_pose(None, _target_line_flu((10.0, 0.0, 0.0)))
+    assert _find(out.statuses, shim_core.STATUS_NAME_TARGET).level == shim_core.LEVEL_OK
+    assert _find(out.statuses, shim_core.STATUS_NAME_SETPOINT).level == shim_core.LEVEL_WARN
+
+
+def test_producer_eof_stops_the_setpoint_too():
+    """생산자가 죽으면 상대 오차가 없으므로 절대 목표점도 나올 수 없다."""
+    router = ShimRouter()
+    router.on_vehicle_pose(_pose())
+    _push(router, _target_line_flu((10.0, 0.0, 0.0)))
+    outs = router.on_producer_gone(recv_wall_ns=_WALL, reason="eof")
+    assert all(o.landing_setpoint is None for o in outs)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔴 orientation — 단위 쿼터니언은 '모름'이 아니라 '동쪽을 보라'는 명령이다
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_setpoint_orientation_holds_the_current_heading_not_identity():
+    """🔴 flight04 yaw 스핀 사고 회귀 — ENU 단위 쿼터니언은 NED yaw 90°(동쪽)를 명령한다."""
+    _, out = _emit_with_pose(
+        _pose(orientation_enu=_Q_NOSE_NORTH), _target_line_flu((10.0, 0.0, 0.0))
+    )
+    q = out.landing_setpoint.orientation_enu
+    assert q != pytest.approx((0.0, 0.0, 0.0, 1.0)), "단위 쿼터니언 = 동쪽 명령 = yaw 스핀"
+    assert shim_core.quat_yaw(q) == pytest.approx(math.pi / 2, abs=1e-9)
+    assert shim_core.enu_yaw_to_ned_yaw(shim_core.quat_yaw(q)) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_setpoint_orientation_is_yaw_only_even_when_the_vehicle_is_rolled():
+    """자세 전량을 복사하면 위치 setpoint에 롤/피치가 실려 소비자가 오해한다."""
+    _, out = _emit_with_pose(
+        _pose(orientation_enu=_Q_NOSE_EAST_ROLL_RIGHT_30), _target_line_flu((10.0, 0.0, 0.0))
+    )
+    x, y, z, w = out.landing_setpoint.orientation_enu
+    assert (x, y) == pytest.approx((0.0, 0.0), abs=1e-12)
+    assert x * x + y * y + z * z + w * w == pytest.approx(1.0)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔴 기본값을 실제로 밟는다 (이 저장소에서 같은 사고가 두 번 났다)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_default_config_actually_publishes_the_setpoint():
+    """config를 전부 명시로 넘기는 테스트만 있으면 기본값을 뒤집어도 전건 통과한다."""
+    router = ShimRouter()  # ← 인자 없음. 기본 ShimConfig를 실제로 밟는다.
+    assert router.cfg.publish_landing_setpoint is True
+    router.on_vehicle_pose(_pose())
+    assert _emit(router, _target_line_flu((10.0, 0.0, 0.0))).landing_setpoint is not None
+
+
+def test_default_topic_and_frame_are_the_enu_world_not_base_link():
+    cfg = ShimConfig()
+    assert cfg.landing_setpoint_topic == "/vision/landing_setpoint"
+    assert cfg.vehicle_pose_topic == "/mavros/local_position/pose"
+    # 🔴 절대 좌표를 body 프레임 이름으로 내보내면 소비자가 상대좌표로 오해한다.
+    assert cfg.setpoint_frame_id == "map" != cfg.pose_frame_id
+    _, out = _emit_with_pose(_pose(), _target_line_flu((10.0, 0.0, 0.0)))
+    assert out.landing_setpoint.frame_id == "map"
+
+
+def test_landing_setpoint_can_be_turned_off_entirely():
+    cfg = ShimConfig(publish_landing_setpoint=False)
+    _, out = _emit_with_pose(_pose(), _target_line_flu((10.0, 0.0, 0.0)), cfg=cfg)
+    assert out.landing_setpoint is None
+    st = _find(out.statuses, shim_core.STATUS_NAME_SETPOINT)
+    # 끈 것은 고장이 아니라 운영자의 명시적 선택이다 — level을 올리지 않는다.
+    assert st.message == shim_core.SETPOINT_DISABLED and st.level == shim_core.LEVEL_OK
+    assert out.pose is not None
+
+
+def test_attitude_stale_default_clears_the_measured_mavros_jitter():
+    """🔴 실측 근거(하한): 실비행 rosbag 48건의 `/mavros/local_position/pose` 간격
+    median 33.1ms / p95 36.0ms / **p99 37.2ms**. 기본값은 p99의 5배 이상이어야 정상 지터로
+    헛발동하지 않는다."""
+    measured_p99_s = 0.0372
+    assert shim_core.DEFAULT_ATTITUDE_STALE_S >= 5.0 * measured_p99_s
+
+
+def test_attitude_stale_default_keeps_the_ground_error_inside_the_30cm_budget():
+    """🔴 오차예산(상한): 폐루프 바닥고도 3.0m에서 10°/s 흔들림 × 임계시간의 자세오차가
+    만드는 지상오차(`고도×tan(θ)`, `core/frames.py` §4.5 식)가 30cm의 절반 아래여야 한다."""
+    floor_agl_m, body_rate_deg_s = 3.0, 10.0
+    theta = math.radians(body_rate_deg_s * shim_core.DEFAULT_ATTITUDE_STALE_S)
+    assert floor_agl_m * math.tan(theta) < 0.15
+
+
+def test_attitude_stale_is_not_a_copy_of_the_vision_stale_warn():
+    """근거가 다른 두 임계값이다 — 누가 '통일'하면 한쪽 근거가 조용히 사라진다.
+
+    `stale_warn_s`(0.75)는 vision 발행주기 4.4Hz 근거이고 이쪽은 mavros 30Hz + 오차예산 근거다.
+    """
+    assert shim_core.DEFAULT_ATTITUDE_STALE_S != shim_core.DEFAULT_STALE_WARN_S
+    assert shim_core.DEFAULT_ATTITUDE_STALE_S < shim_core.DEFAULT_STALE_WARN_S
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# stamp 동기 / 진단 수출
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_setpoint_shares_the_target_stamp_so_consumers_can_pair_them():
+    """§3.2 — 세 토픽이 같은 `header.stamp`여야 소비자가 stamp로 짝지을 수 있다."""
+    _, out = _emit_with_pose(_pose(stamp=_WALL + 12345), _target_line_flu((10.0, 0.0, 0.0)))
+    assert out.landing_setpoint.stamp_ns == out.stamp_ns == out.pose.stamp_ns == _WALL
+
+
+def test_setpoint_status_exports_the_consumer_ready_ned_triplet():
+    """`ros2 topic echo` 하나로 진단 가능해야 한다 — FC가 그대로 먹일 [N, E, h_up]."""
+    _, out = _emit_with_pose(_pose((0.0, 0.0, 20.0), _Q_NOSE_NORTH), _target_line_flu((10.0, 0.0, -8.0)))
+    kv = _setpoint_kv(out)
+    assert json.loads(kv["published"]) is True
+    assert json.loads(kv["setpoint_position_ned_n_e_hup"]) == pytest.approx(
+        [10.0, 0.0, 12.0], abs=1e-6
+    )
+    assert json.loads(kv["setpoint_position_enu"]) == pytest.approx([0.0, 10.0, 12.0], abs=1e-6)
+    assert kv["setpoint_yaw_source"] == "vehicle_current_heading"
+    assert json.loads(kv["vehicle_yaw_ned_rad"]) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_setpoint_keyvalues_are_all_strings_and_json_round_trip():
+    """`diagnostic_msgs/KeyValue`는 string 전용 — 다른 타입이면 발행 자체가 죽는다."""
+    _, out = _emit_with_pose(_pose(), _target_line_flu((1.0, 2.0, -3.0)))
+    for k, v in _find(out.statuses, shim_core.STATUS_NAME_SETPOINT).values:
+        assert isinstance(k, str) and isinstance(v, str)
+    assert json.loads(_setpoint_kv(out)["attitude_age_s"]) == pytest.approx(0.0)
+
+
+def test_setpoint_is_deterministic():
+    line = _target_line_flu((3.0, -1.0, -7.0))
+    _, a = _emit_with_pose(_pose((1.0, 2.0, 3.0)), line)
+    _, b = _emit_with_pose(_pose((1.0, 2.0, 3.0)), line)
+    assert a == b
 
 
 # ──────────────────────────────────────────────────────────────────────────────

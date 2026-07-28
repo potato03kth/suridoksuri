@@ -71,8 +71,8 @@
 | `utils/blackbox.py` | 프레임별 JSONL 블랙박스 + 거절이유 로깅. bounded queue+drop-oldest 비차단 (§7.4). `main.py`/`replay.py`에 연결됨 |
 | `utils/stream.py` | `MjpegStreamer` — 라이브 저해상 MJPEG-over-HTTP 스트림(§7.9 항목5, "작동영상 피드백 3경로" (b)). `push_frame()`은 bounded queue+drop-oldest 비차단(`blackbox.py`와 동일 패턴 재사용). 다운스케일·인코딩·HTTP 서빙은 전부 별도 스레드. `main.py --display stream`/`replay.py --display stream`으로 opt-in 연결(항상 켜지지 않음). 기본값 결정 근거는 아래 "라이브 스트림 어댑터 기본값" 참조 |
 | `utils/target_sink.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 1 — 작업 V1)** — `TargetSink` 포트(§7.2가 이름으로만 지정해 뒀던 것) + `NullSink` + `SocketTargetSink`(**localhost TCP 서버**, 호스트 쪽 발행자) + `sample_clocks()` + `_DropOldestQueue`. 컨테이너 안의 Phase 2 shim 노드가 **클라이언트로 접속**해 JSON Lines를 읽어 ROS2 토픽으로 재발행한다. **TCP를 고른 결정적 근거는 `NetworkMode=host`** — 컨테이너가 호스트 네트워크 네임스페이스를 그대로 공유해 `127.0.0.1`이 추가 설정 0으로 통한다. 반면 UDS는 소켓 파일이 컨테이너 마운트 네임스페이스에 보여야 하는데 마운트가 `/home/suri/drone_ws` 하나뿐이라 **컨테이너 실행 설정 변경(=FC 도메인+배포 절차)** 을 요구해 기각(상세는 파일 docstring). 바인드는 **`127.0.0.1` 고정**(`utils/stream.py`의 `0.0.0.0`과 반대 — `NetworkMode=host`라 0.0.0.0이면 비행 중 유도 스트림이 주변 네트워크에 노출된다). **비차단이 최우선 계약** — `publish()`는 bounded queue에 넣기만 하고 소켓 I/O를 한 줄도 안 한다(인코딩·전송·accept 전부 별도 스레드), 가득 차면 drop-oldest(`utils/blackbox.py`/`utils/stream.py` 패턴 재사용), 느린 소비자는 `send_timeout_s`로 끊는다, `start()` 전/`stop()` 후 `publish()`는 조용한 no-op. **SIGTERM 핸들러**(`install_signal_handlers()`)는 `tools/h264_stream.py::_install_sigterm_handler`와 동일 패턴(핸들러는 이벤트만 세팅) — 이 저장소의 원격 프로세스는 SIGINT가 SIG_IGN이라 SIGTERM이 유일한 신호다. ⚠️ **단 `main.py`/`replay.py`는 이 메서드를 부르지 않는다**(신호당 핸들러가 하나뿐이라 라이브 graceful shutdown을 덮어쓴다 — 2026-07-25 실기체 버그). **rclpy를 import하지 않는다**(Phase 2 shim이 유일한 ROS 접점). **[2026-07-28] 관측 접근자** — `client_count`(기존)/`last_seq`(신설) 둘 다 락으로 보호된다: 화면 오버레이(`utils/visualize.py::draw_sink_status`)가 파이프라인 스레드에서 매 프레임 읽는데 클라이언트 목록은 accept/send 스레드가 만지므로 스레드 교차 접근이 상시 일어난다. 기본값 근거는 아래 "target_sink 소켓 기본값" 절 |
-| `ros/shim_core.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 2 — 컨테이너 shim)** — JSON Lines 레코드 → **"발행 계획"(ROS 메시지를 서술하는 dataclass)** 순수 변환. `ShimConfig`/`ShimRouter` + `PosePlan`/`StatusPlan`/`LandingTargetPlan`/`ShimOutput` + `validate_record`/`parse_line`/`kv_value`. 🔴 **stdlib만 쓴다 — 취향이 아니라 강제다**: `vision.core.wire`를 import하면 `wire.py → core/target.py → import cv2` 체인 때문에 **fc 컨테이너에서 즉시 죽는다**(cv2 없음, 실측). 그래서 계약 상수(`SCHEMA_VERSION`/`REQUIRED_*_KEYS`)를 **의도적으로 복제**하고, 그 복제가 어긋나는 것은 랩탑 테스트가 `vision.core.wire`와 **직접 대조**해 잡는다(런타임은 격리, 검증은 대조). rclpy도 numpy도 import하지 않아 랩탑에서 그냥 단위테스트된다. 아래 "컨테이너 ROS2 shim 노드" 절 참조 |
-| `ros/shim_node.py` | **신설(2026-07-28, 같은 Phase 2)** — `shim_core`의 얇은 rclpy 어댑터. **저장소에서 rclpy를 import하는 유일한 파일**이고 컨테이너 안에서만 실행된다(`python3 -m vision.ros.shim_node`). 소켓 **클라이언트**(vision이 서버)라 재접속 루프를 이쪽이 갖고, EOF를 받으면 pose를 끊고 status만 ERROR로 낸다. 판단은 한 줄도 없다 — "계획 → msg 필드 대입"과 소켓 수명주기뿐이고, 그 **얇음 자체가 회귀테스트 대상**이다(`test_shim_core.py`가 이 파일을 **AST로 파싱해** msg 프레임 상수 참조·와이어 키 직접 읽기를 금지한다 — 소스 문자열 검색은 docstring 산문까지 잡아 쓸모없어진다). SIGTERM 핸들러는 `tools/h264_stream.py`와 동일 패턴 |
+| `ros/shim_core.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 2 — 컨테이너 shim)** — JSON Lines 레코드 → **"발행 계획"(ROS 메시지를 서술하는 dataclass)** 순수 변환. `ShimConfig`/`ShimRouter` + `PosePlan`/`StatusPlan`/`LandingTargetPlan`/`ShimOutput` + `validate_record`/`parse_line`/`kv_value`. 🔴 **stdlib만 쓴다 — 취향이 아니라 강제다**: `vision.core.wire`를 import하면 `wire.py → core/target.py → import cv2` 체인 때문에 **fc 컨테이너에서 즉시 죽는다**(cv2 없음, 실측). 그래서 계약 상수(`SCHEMA_VERSION`/`REQUIRED_*_KEYS`)를 **의도적으로 복제**하고, 그 복제가 어긋나는 것은 랩탑 테스트가 `vision.core.wire`와 **직접 대조**해 잡는다(런타임은 격리, 검증은 대조). rclpy도 numpy도 import하지 않아 랩탑에서 그냥 단위테스트된다. **[2026-07-28] `/vision/landing_setpoint` 추가** — `VehiclePose`/`SetpointPlan` + 쿼터니언 순수 수학 4종(`quat_normalize`/`quat_rotate`/`quat_yaw`/`quat_from_yaw`) + `enu_yaw_to_ned_yaw`/`enu_to_pos_ned_n_e_hup` + `build_landing_setpoint()`. 🔴 **절대 좌표를 기억하지 않는다** — 라우터가 들고 있는 상태는 최신 `VehiclePose` 하나뿐이고 목표점은 매 레코드마다 `최신 pose + 그 순간의 상대오차`로 다시 계산된다(EKF 드리프트 상쇄). numpy 금지 제약 때문에 쿼터니언 회전을 수식으로 직접 폈고, 그래서 **로드리게스 공식 독립 재구현과 대조**하는 테스트를 따로 뒀다. 아래 "절대 setpoint" 하위 절 참조 |
+| `ros/shim_node.py` | **신설(2026-07-28, 같은 Phase 2)** — `shim_core`의 얇은 rclpy 어댑터. **저장소에서 rclpy를 import하는 유일한 파일**이고 컨테이너 안에서만 실행된다(`python3 -m vision.ros.shim_node`). 소켓 **클라이언트**(vision이 서버)라 재접속 루프를 이쪽이 갖고, EOF를 받으면 pose를 끊고 status만 ERROR로 낸다. 판단은 한 줄도 없다 — "계획 → msg 필드 대입"과 소켓 수명주기뿐이고, 그 **얇음 자체가 회귀테스트 대상**이다(`test_shim_core.py`가 이 파일을 **AST로 파싱해** msg 프레임 상수 참조·와이어 키 직접 읽기를 금지한다 — 소스 문자열 검색은 docstring 산문까지 잡아 쓸모없어진다). SIGTERM 핸들러는 `tools/h264_stream.py`와 동일 패턴. **[2026-07-28] `/mavros/local_position/pose` 구독 + `/vision/landing_setpoint` 발행 추가** — 구독이 생기면서 **executor 데몬 스레드가 하나 늘었다**("발행만 하니 spin 불필요"였던 전제가 깨짐). 소켓 폴링(`_POLL_S=0.2s`) 안에서 `spin_once`를 부르면 자세가 최대 0.2초 묵어 `attitude_stale_s`(0.25s) 예산의 80%를 까먹기 때문. `--no-landing-setpoint`를 주면 구독도 스레드도 안 만들어 이전 단일스레드 동작으로 정확히 되돌아간다 |
 | `utils/frame_source.py` | `FrameRecord` + `LiveFrameSource`/`DirFrameSource`/`BagFrameSource` 어댑터 + `open_dir_or_bag()` 팩토리 (§7.2/§7.5/§7.9 항목4). Live=실카메라(재시도 후 `ConnectionError`), Dir=녹화폴더(프레임파일+선택적 `telemetry.jsonl`), Bag=단일 비디오파일(+선택적 사이드카 `<basename>.jsonl`). **`LiveFrameSource`는 2026-07-24 카메라 브링업(`docs/vision_camera_bringup.md`) Phase 4에서 picamera2 백엔드로 재구현됨** — 이전 `cv2.VideoCapture` 구현은 V4L2 raw 경로와 비호환임이 실측 확인돼(`docs/vision_status.md` 2026-07-22b) 폐기. 생성자 인자도 `device`(cv2 정수/경로) → `camera_num`(picamera2 카메라 인덱스) + `resolution`(기본 `nominal.yaml`의 `image_size` 4608x2592와 일치, solvePnP 캘리브레이션과 어긋나지 않게)으로 교체. `create_still_configuration(main={"format": "RGB888", ...})` 요청이 실제로는 BGR 바이트순서를 준다는 picamera2 명명 역전(`tools/calib_capture.py`에서 실기체로 이미 확인된 사실)을 재사용해 별도 색공간 변환 없이 BGR 관례를 만족시킨다. picamera2는 이 `.venv`에 없는 RPi 전용 라이브러리라 `open()` 내부 지연 import로 격리(모듈 최상단 import 금지 — 그러면 이 `.venv`의 `DirFrameSource`/`BagFrameSource` 사용처까지 깨짐). 단위테스트는 `sys.modules`에 가짜 `picamera2` 모듈을 주입해 실기 없이 검증하고, 지연 import 격리 자체도 회귀테스트(소스 텍스트에 최상단 import 없음 + `sys.modules["picamera2"]=None`으로 강제 차단해도 모듈 import는 성공) 대상. **[2026-07-28] AF(오토포커스) 제어 추가 + 저장소 AF 단일 출처가 됨** — `af_mode`(기본 `continuous`)/`lens_position` 생성자 인자와 `AF_MODES`/`LENS_POSITION_MIN,MAX`/`validate_af_args`/`validate_lens_position`/`make_af_controls`가 여기 산다(`tools/h264_stream.py`가 여기서 import). 🔴 **실기체 미검증.** 아래 "LiveFrameSource AF 제어" 절 참조 |
 | `main.py` | CLI 진입점. 이미지/영상 자동 분기. `--log-dir`/`--log-name`으로 이중싱크 로거+JSONL 블랙박스 실행(항상 on). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `--calib`(기본 `calibration/cam109-imx708af75/nominal.yaml`)로 캘리브레이션을 1회 로드해 재사용, 확정 ArUco 검출이 있으면 `solve_target_pose()` 호출 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절). **§9 6번 상태머신 배선** — 실행 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나를 재사용(`_run_image`/`_run_video`/`_run_live` 전부, 단일 이미지 경로도 관측 1개짜리로 통과)해 매 프레임 `_build_observation()`으로 `Observation`을 만들고 `update()` 결과를 JSONL `state`/`command`에 싣는다(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절. **[2026-07-28] `--target-sink` 배선(인터페이스 Phase 1 마무리, §9 작업 V5)** — `--target-sink`/`--target-sink-host`/`--target-sink-port`로 `SocketTargetSink` opt-in(기본 꺼짐=`NullSink`), 세 실행경로(`_run_image`/`_run_video`/`_run_live`) 전부에서 매 프레임 `target`+`state_hint` 레코드 발행. 아래 "`--target-sink` 파이프라인 배선" 절. **[2026-07-28] bind 하드 페일 + 발행상태 오버레이(사용자 결정)** — 기동 실패 시 강등 없이 **종료코드 3**으로 즉사(stderr에 포트 포함), `--display`가 켜져 있으면 매 프레임 `draw_sink_status()`로 소비자 수/seq/드롭을 화면에 표시(`none`이면 비용 0). 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절 |
 | `replay.py` | 오프라인 재생 CLI(`python -m vision.replay <녹화폴더\|bag> --preset ...`, §7.9 (a)). `open_dir_or_bag`로 Dir/Bag 자동판별 → 동일 `Pipeline`으로 재생 → 로거+블랙박스 기록. **결정론적**(§7.5). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `main.py`와 동일한 `--calib`/`TargetEstimate`→`chosen.target_estimate` 배선(헬퍼는 상호 import 안 함 원칙에 따라 얇게 중복). **§9 6번 상태머신 배선** — `main.py`와 동일 원칙(얇게 중복)으로 재생 루프 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나 재사용, `record.telemetry.get("alt")`가 있으면 `Observation.agl_m`으로 흘려보내고 없으면 None으로 우아하게 degrade(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절. **[2026-07-28] `--target-sink` 배선 + 발행상태 오버레이** — `main.py`와 문자 그대로 같은 CLI 인자/기본 꺼짐/하드페일(exit 3). 🔴 **재생 경로에만 있는 가치: `telemetry.jsonl`의 AGL이 실려 `state_hint`가 `TERMINAL`까지 진행하는 유일한 경로**(main.py는 AGL 경로 자체가 없음). `_solve_target_chosen()` → `_solve_target_estimate()`로 교체(JSONL `chosen` 무변경). 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절 |
@@ -273,6 +273,118 @@ orientation이 **하나의 `frame_id`를 공유**하므로 body FLU 좌표 옆�
 1.6배뿐이라 헛경보가 난다. shim의 `stale_warn_s` 기본값을 **0.75s**(p95의 약 2.4배 =
 연속 3프레임 이상 누락)로 정한 근거가 이것이고, 회귀테스트가 이 관계를 고정한다.
 
+### 🔴 `/vision/landing_setpoint` — 상대 오차 → 절대 setpoint (2026-07-28, 사용자 확정 흐름)
+
+사용자 원안은 *"픽스호크 attitude 수신 → 연산 → 목표 setpoint → offboard_node 이동"* 이었고,
+**흐름은 그대로 두되 연산 지점만 소켓 뒤(이 ROS 그래프 안)로** 옮긴 절충안이 채택됐다.
+
+**소켓 앞(호스트)에서 안 하는 이유 3가지:**
+1. attitude가 소켓 왕복 + vision 발행주기(**실측 4.4Hz**)만큼 늦는다. 접근 중 10°/s 흔들림에
+   attitude 250ms 지연 = 2.5° = **10m AGL에서 44cm** — 30cm 요구를 지연 하나로 날린다.
+   같은 그래프 안이면 30Hz 자세를 지연 없이 받는다.
+2. 와이어(JSONL)가 절대좌표로 바뀌면 `mavros_msgs/LandingTarget` 네이티브 precision-land
+   **피벗 경로가 통째로 막힌다**(§8이 명시적 안전장치로 설계해 둔 카드). `position_flu`를
+   와이어에 유지하면 그 카드가 산다.
+3. attitude 역방향 채널을 만들면 vision이 FC에 의존하게 된다 — 지금은 FC가 죽어도 vision이
+   상대 pose를 계속 뱉는다.
+
+#### 🔴 절대 좌표를 **기억하지 않는다** (이 기능의 핵심 계약)
+
+정밀착륙에서 중요한 것은 절대 위치가 아니라 "타겟 대비 오차를 0으로 만드는 것"이다. 목표점을
+한 번 계산해 고정하면 **EKF 드리프트가 그대로 착륙 오차로 남는다.** 그래서 매 레코드마다
+`목표 = (그 순간의 최신 local_position/pose) + (그 순간의 상대 오차)`로 **다시 계산**한다 —
+드리프트가 현재위치와 목표점에 똑같이 실려 상쇄된다. `ShimRouter`가 보관하는 상태는 최신
+`VehiclePose` **하나뿐**이고 계산된 절대 좌표는 어디에도 저장되지 않는다(회귀테스트 대상).
+
+#### 변환 유도
+
+```
+① p_flu      : 와이어 `position_flu` — body FLU(x=전방, y=좌, z=상) 상대벡터
+② q_enu      : /mavros/local_position/pose 의 orientation = base_link(FLU) → map(ENU) 회전
+               (mavros 전역 관례로 ROS 쪽은 항상 FLU/ENU. FRD/NED 변환은 mavros가 자기 안에서)
+③ Δ_enu      = R(q_enu) · p_flu
+④ target_enu = pose.position_enu + Δ_enu        ← 🔴 매번 최신 pose로 다시 더한다
+⑤ 발행       : geometry_msgs/PoseStamped, frame_id="map"(ENU) — ②·④와 같은 프레임
+```
+
+| 토픽 | 타입 | 왜 |
+|---|---|---|
+| `/vision/landing_setpoint` | `geometry_msgs/PoseStamped` | **새 빌드 의존 0**(커스텀 msg를 만들면 이 shim이 `vision/`에 사는 이유 자체가 사라진다). `/vision/target_pose`가 `PoseWithCovarianceStamped`를 고른 것과 같은 논리 |
+
+**🔴 왜 `[N, E, h_up]`이 아니라 ENU인가.** `offboard_node._publish_pos_setpoint(pos_ned, ...)`의
+`pos_ned`는 `[N, E, h_up]`(3번째가 **위** 양수)인데 이건 NED도 ENU도 아닌 저장소 내부
+하이브리드다. 그 숫자를 `geometry_msgs/PoseStamped`(ROS 관례상 `frame_id`가 뜻하는 프레임)에
+담으면 **선언한 프레임과 값이 어긋나는 거짓말**이고, 이 저장소가 이미 당한 사고 유형(`pos_ned`
+vs `vel_ned`가 같은 접미사로 반대 부호 / cam_optical 쿼터니언을 body Pose에 안 싣기로 한 판단)과
+같은 종류다. ENU/`map`으로 내면 소비자는 **이미 저장소에 있는 관용구 한 줄**을 그대로 쓴다:
+
+```python
+# fc_ros/adapters/vehicle_state_bridge.py::update_from_pose 와 문자 그대로 같은 줄
+pos_ned = np.array([msg.pose.position.y, msg.pose.position.x, msg.pose.position.z])
+```
+
+그 `[N, E, h_up]` 삼중항도 `enu_to_pos_ned_n_e_hup()`(단일 출처)로 계산해 KeyValue로
+**진단용으로만** 수출한다 — 권위 있는 값은 PoseStamped 쪽이다.
+
+#### 🔴 setpoint의 orientation은 단위 쿼터니언이 아니라 **현재 기수방위**다
+
+`_publish_pos_setpoint` docstring이 못박은 실사고: *"orientation 미설정 시 ROS2 기본값(단위
+쿼터니언, ENU yaw=0 = NED yaw=90°)이 실제 헤딩과 무관하게 그대로 발행돼 OFFBOARD 진입 첫 틱에
+yaw 점프"*(2026-07-21 flight04 yaw 스핀 사고). 즉 **여기서 단위 쿼터니언은 "모름"이 아니라
+"동쪽을 보라"는 명령**이다. 그래서 그 순간 기체의 실제 yaw만 뽑은(roll/pitch=0) 쿼터니언을 실어
+"현재 헤딩 유지"를 뜻하게 한다 — 정사각 타겟은 90° 자기대칭이라 타겟에서 방위를 유도하는 것
+자체가 물리적으로 무의미하기도 하다.
+
+#### degrade — 3분법을 그대로 따른다
+
+| attitude 상태 | `/vision/landing_setpoint` | `/vision/target_pose` | `/vision/target_status` |
+|---|---|---|---|
+| 정상 | **발행** | 발행 | `vision/setpoint` = `OK` |
+| 아직 못 받음 | **침묵** | **그대로 발행** | `WARN` + `attitude_missing` |
+| stale | **침묵** | **그대로 발행** | `WARN` + `attitude_stale` |
+| 쿼터니언 노름 0 | **침묵** | **그대로 발행** | `WARN` + `attitude_invalid_quaternion` |
+| `valid=false` | **침묵**(좌표가 있어도) | 침묵 | `WARN` + `no_target` |
+
+🔴 **0이나 추측값을 채우지 않는다** — setpoint 자리의 0은 "기체 바로 아래로 가라"가 된다
+(`core/wire.py`가 "가장 위험한 거짓말"이라 부른 그것). 🔴 **상대 pose 경로는 attitude 유무와
+무관하게 계속 나간다** — 새 기능이 기존 경로를 죽이면 안 된다.
+사유를 `vision/target`이 아니라 **별도 `vision/setpoint` status**로 낸 이유: attitude 부재는
+"검출이 나쁘다"가 아니라 "절대화 경로가 막혔다"이고, target level에 태우면 mavros 없는 지상시험
+에서 level이 **항상** WARN이라 진짜 고장이 묻힌다(`not_for_closed_loop_30cm`과 같은 판단).
+
+#### `attitude_stale_s` = 0.25 — 🔴 위아래 양쪽에서 조인 값 (`stale_warn_s` 복사 아님)
+
+- **위(오차예산)에서:** 폐루프 바닥고도 AGL 3.0m(`closed_loop_floor_agl_m`=`terminal_agl_m`)에서
+  10°/s 흔들림 × 0.25s = 2.5° → 지상오차 `3.0·tan(2.5°) = 0.131m`, 30cm 요구의 절반 아래
+  (`core/frames.py` §4.5의 `지상오차=고도×tan(θ)` 식). 같은 지연이 10m AGL에서는 0.44m로
+  예산을 넘지만, 고고도 추정치로 **최종 커밋하지 않는 것**은 상태머신 커밋 게이트와
+  `closed_loop_floor_agl_m`이 이미 담당한다.
+- **아래(지터)에서:** 🔴 **실비행 rosbag 48건 실측** — `/mavros/local_position/pose` median
+  **29.93Hz**, 메시지 간격 median **33.1ms** / p95 **36.0ms** / p99 **37.2ms**(4개 bag 직접
+  측정). 0.25s는 p99의 **6.7배**라 정상 지터로는 안 뜬다. 실제로 걸리는 것은 드물게 관측된
+  수백 ms 드롭아웃(같은 bag들에서 최대 211/339/723/**2564**ms)뿐이고 그때 멈추는 것이 의도다.
+
+⚠️ `stale_warn_s`(0.75, vision 4.4Hz 근거)와 **근거가 다른 별개 값**이다 — 누가 "통일"하면 한쪽
+근거가 조용히 사라진다(회귀테스트로 고정).
+
+#### executor 스레드가 하나 늘었다
+
+예전엔 구독이 없어 spin을 안 돌렸는데, 구독은 spin 없이는 콜백이 안 뛴다. 소켓 폴링
+(`_POLL_S=0.2s`) 안에서 `spin_once`를 부르면 자세가 최대 0.2초 묵어 위 0.25s 예산의 80%를
+까먹으므로 **`SingleThreadedExecutor`를 데몬 스레드**에서 돌린다. 두 스레드가 만나는 곳은
+`ShimRouter._vehicle_pose` 하나뿐이고 락으로 보호된다(`VehiclePose`가 `frozen=True`인 것도
+같은 이유 — 완성된 객체를 통째로 갈아끼워 부분갱신 상태가 안 보이게).
+🔴 **`--no-landing-setpoint`면 구독도 스레드도 안 만든다** — 이전 동작으로 되돌리는 escape hatch.
+
+#### ⚠️ stamp 동기는 안 했다 (미검증/미구현으로 남긴 것)
+
+목표점은 **그 순간의 최신 자세**로 계산한다 — 레코드의 촬영시각(`stamp_wall_ns`)에 가장 가까운
+자세를 골라 쓰는 `message_filters`/pose 링버퍼 방식은 **구현하지 않았다.** 엄밀히는 정지 타겟의
+월드 좌표가 시불변이므로 촬영시각 자세를 쓰는 것이 맞지만, 세션 지시가 "매 레코드마다 최신
+pose"를 명시했고 드리프트 상쇄가 그쪽을 요구한다. **대신 어긋남을 숨기지 않고 수출한다** —
+`attitude_age_s` / `attitude_stamp_ns` KeyValue로 소비자가 직접 잰다. 실비행 데이터로 이 스큐가
+문제가 되는지 확인한 적은 **없다.**
+
 ### 실행
 
 ```bash
@@ -282,7 +394,11 @@ docker exec fc bash -lc '
 '
 ros2 topic echo /vision/target_pose
 ros2 topic echo /vision/target_status
+ros2 topic echo /vision/landing_setpoint
 ```
+
+⚠️ `docker exec fc bash -lc "python3 -c 'import rclpy'"`는 **ROS setup을 source하지 않아
+실패한다** — 반드시 `source /opt/ros/humble/setup.bash &&`를 앞에 붙일 것.
 
 ⚠️ 컨테이너 안 `DiagnosticStatus.level`은 msg상 `byte`라 rclpy가 **1바이트 `bytes`** 를
 요구한다(int를 넣으면 `AssertionError`). 실기체에서 실측 확인한 사항이다.
@@ -1305,7 +1421,7 @@ pytest vision/tests/ -q -k main # 특정만
 | core/frames `R_frd_cam`/`cam_to_flu` 등(인터페이스 Phase 1) | **★§4.3의 RT-1~RT-6를 그대로 구현**(RT-7 ENU 경로는 §4.4가 "vision은 NED 변환 안 함"으로 확정해 구현 자체가 없어 테스트도 없음). RT-1 모든 ψ에서 `RᵀR=I`·`det=+1` · RT-2 cam→frd→cam 및 cam→flu→frd→flu→cam 전체 체인 왕복(1e-9) · **RT-3~5 알려진 방향쌍**(정하방/이미지우측→기체우측/이미지위쪽→기체전방) — **부호 실수를 잡는 유일한 그물**(축 이름만 맞고 부호가 뒤집힌 회전행렬도 RT-1·RT-2는 통과한다, 파괴검증 D1이 Rz(+90)→Rz(-90)으로 실증) · 문서 리터럴 2개와 직접 대조(유도한 `R_flu_cam`이 문서값과 같은지) · ψ_m=90°가 전방 타겟을 실제로 우측으로 돌림(하드코딩 아님) · ψ 합성이 `Rz(ψ)·R(0)` · `MOUNT_YAW_PSI_M_MEASURED is False` 계약 회귀(실측 없이 뒤집으면 red) · FLU↔FRD involution · RT-6 쿼터니언 순서 왕복+항등구현 거부 · 비3차원 입력 `ValueError` · 결정론. **파괴검증 5종(D1~D5)으로 red 확인** | ✅ test_frames |
 | core/wire 와이어 포맷·페일세이프 계약(인터페이스 Phase 1) | **★왕복(핵심):** `TargetEstimate`/`Decision` → 레코드 → JSON 한 줄 → 파싱 → dataclass 복원이 **무손실**(uncertainty ndarray·meta·전체 provenance 포함) · 필수키 전량 존재(`REQUIRED_*_KEYS` 대조) · `position_flu`/`_frd`가 진짜 변환 결과(cam 복사면 red) + 계약의 ψ_m이 실제로 먹힘 · **JSONL 프레이밍**: 값에 실제 개행/유니코드가 섞여도 정확히 한 줄이고 `readline()`으로 분리·복원됨 · 인코딩 결정론 · **§5.3 confidence 게이트**: 기본 0.0(비활성)이고 ArUco의 confidence=1.0은 어떤 하한에서도 통과(=현재 no-op임을 고정), 켜면 실제로 거르고 레코드가 valid=false · **§5.5 `not_for_closed_loop_30cm`**: True여도 추정치를 무효화하지 않고 **바닥 고도**(기본 3.0=`terminal_agl_m`과 정렬)를 주며, False면 0.0으로 자동 해금 · **§5.4 valid=false 레코드**: 검출 상실을 침묵 대신 사유와 함께 알리고 **포즈는 0이 아니라 null**(0이면 "기체 바로 아래에 타겟" 이라는 최악의 거짓말) · **§6.3 command**: `command_hint`+`command_is_advisory`로 실리고 맨 이름 `command` 키는 **없어야 함** · 시계 2종+오프셋·원본 timestamp 보존 · `schema_version` 불일치 거절 · 레코드 타입 교차 거절 · numpy 누출 없이 `json.dumps` 통과. **파괴검증 8종(D6~D13)으로 red 확인** | ✅ test_wire |
 | utils/target_sink `SocketTargetSink`(인터페이스 Phase 1) | **실제 소켓만 사용(몽키패치 없음, `utils/stream.py` 관례):** 진짜 서버 기동 → 진짜 클라이언트 접속 → 진짜 JSON 바이트 수신·파싱 · 다중 클라이언트 브로드캐스트 · `seq` 단조증가(유실 감지 가능) · **비차단 계약(최우선)**: 소비자 없음/느린 소비자(한 바이트도 안 읽음) 둘 다에서 **단일 `publish()` 최대 지연**을 실측 — ⚠️ **총 시간이 아니라 최대 지연을 봐야 이빨이 생긴다**(직접 소켓 I/O로 망가뜨려도 버퍼가 찬 뒤 `send_timeout_s` 한 번만 멈추고 그 클라이언트를 끊어 총합에 스톨이 묻힌다, 파괴검증 D15에서 실측). 느린 소비자는 수신버퍼를 최소로 줄이고 ~12MB를 밀어 버퍼를 실제로 채운다 · 소비자 끊김 후에도 발행 측 무예외 + 죽은 클라이언트 정리 + **재접속** 가능 · 버스트에서 **최신 레코드 불유실** · **§5.4 EOF**: `stop()`/SIGTERM 종료 시 소비자가 즉시 EOF 수신 · **진짜 SIGTERM 송신**(`os.kill`)으로 graceful shutdown 검증(핸들러 복원 포함) + 워커 스레드에서 `install_signal_handlers()` 무예외 · 루프백 전용 바인드 회귀 · 포트 충돌은 침묵이 아니라 `OSError` · start/stop idempotent · `port=0` 임시포트 · `start()` 전/`stop()` 후 publish는 no-op. **bounded queue 드롭 의미론은 `_DropOldestQueue`를 소비 스레드 없이 결정론적으로 검증**(동시 소비 중 "몇 건 남았나"를 단언하면 근본적으로 플래키 — `test_blackbox.py`의 기존 플래키가 정확히 그 함정, 진단은 test 파일 하단 주석). **파괴검증 7종(D14~D20)으로 red 확인** | ✅ test_target_sink |
-| ros/shim_core `ShimRouter`(인터페이스 Phase 2) | **입력을 지어내지 않는다** — 레코드를 손으로 쓴 dict가 아니라 **진짜 생산자 코드**(`vision.core.wire`)로 만들어 넣는다 · **계약 대조**: 복제한 `SCHEMA_VERSION`/`REQUIRED_*_KEYS`/타입명이 `wire.py`와 일치(조용한 드리프트 차단) + `shim_core`가 vision·numpy·rclpy를 import하지 않음을 소스로 고정 · 🔴 `schema_version` 불일치 거절(pose 미생성) · 🔴 유도 입력이 `position_flu`(FRD면 y·z 부호 반전 — 두 값이 실제로 다름을 먼저 단언해 이빨 확보) · 🔴 EOF는 ERROR status만 내고 **pose를 절대 안 냄** + 보류 target 폐기 + 재접속 하트비트가 '생산자 사망'과 'shim 사망'을 가름 · 🔴 `LandingTarget.frame`이 정수 12(msg 상수 2/3이 아님) + `frame=12`에 **FLU**가 들어감 + 기본 꺼짐 + type 손실압축(fiducial/other) + angle/distance가 같은 벡터의 결정론적 투영 · §5.4 `valid=false`는 WARN status만(**좌표가 있어도** pose 미발행 — 게이트가 valid와 좌표존재 **둘 다**임을 고정) · **기본** `unknown_covariance`가 0이 아님(명시 config만 쓰면 기본값을 안 밟아 D6이 조용히 통과했었다) · 회전 공분산은 항상 '모름' · orientation은 단위 쿼터니언이고 원본은 KeyValue로 보존 · `not_for_closed_loop_30cm`이 level을 항상 WARN으로 만들지 않음 + floor 3.0/0.0 해금 · §6.3 `command_hint`+advisory, 맨 이름 `command` 키 부재 · target/state_hint가 **한 stamp로 함께** 나감 + 짝 없을 때 flush + frame_id 불일치 오배치 방지 · `header.stamp`는 wall, `age_s`는 monotonic · 초록구역 z 무보정 + `ground_agl_minus_vision_z_m` 수출 · 깨진 줄에 안 죽고 다음 줄 정상처리 · KeyValue 전부 문자열 + `json.loads` 왕복 · 결정론 · **shim_node 얇음 회귀(AST)**: msg 프레임 상수 참조 금지 · `lt.frame` 대입이 `plan.frame` 경유 1곳 · 와이어 키 직접 읽기 금지 · rclpy import는 shim_node 하나뿐 · `__init__.py` import 0. **파괴검증 10종(S-D1~D10)으로 red 확인** | ✅ test_shim_core |
+| ros/shim_core `ShimRouter`(인터페이스 Phase 2) | **입력을 지어내지 않는다** — 레코드를 손으로 쓴 dict가 아니라 **진짜 생산자 코드**(`vision.core.wire`)로 만들어 넣는다 · **계약 대조**: 복제한 `SCHEMA_VERSION`/`REQUIRED_*_KEYS`/타입명이 `wire.py`와 일치(조용한 드리프트 차단) + `shim_core`가 vision·numpy·rclpy를 import하지 않음을 소스로 고정 · 🔴 `schema_version` 불일치 거절(pose 미생성) · 🔴 유도 입력이 `position_flu`(FRD면 y·z 부호 반전 — 두 값이 실제로 다름을 먼저 단언해 이빨 확보) · 🔴 EOF는 ERROR status만 내고 **pose를 절대 안 냄** + 보류 target 폐기 + 재접속 하트비트가 '생산자 사망'과 'shim 사망'을 가름 · 🔴 `LandingTarget.frame`이 정수 12(msg 상수 2/3이 아님) + `frame=12`에 **FLU**가 들어감 + 기본 꺼짐 + type 손실압축(fiducial/other) + angle/distance가 같은 벡터의 결정론적 투영 · §5.4 `valid=false`는 WARN status만(**좌표가 있어도** pose 미발행 — 게이트가 valid와 좌표존재 **둘 다**임을 고정) · **기본** `unknown_covariance`가 0이 아님(명시 config만 쓰면 기본값을 안 밟아 D6이 조용히 통과했었다) · 회전 공분산은 항상 '모름' · orientation은 단위 쿼터니언이고 원본은 KeyValue로 보존 · `not_for_closed_loop_30cm`이 level을 항상 WARN으로 만들지 않음 + floor 3.0/0.0 해금 · §6.3 `command_hint`+advisory, 맨 이름 `command` 키 부재 · target/state_hint가 **한 stamp로 함께** 나감 + 짝 없을 때 flush + frame_id 불일치 오배치 방지 · `header.stamp`는 wall, `age_s`는 monotonic · 초록구역 z 무보정 + `ground_agl_minus_vision_z_m` 수출 · 깨진 줄에 안 죽고 다음 줄 정상처리 · KeyValue 전부 문자열 + `json.loads` 왕복 · 결정론 · **shim_node 얇음 회귀(AST)**: msg 프레임 상수 참조 금지 · `lt.frame` 대입이 `plan.frame` 경유 1곳 · 와이어 키 직접 읽기 금지 · rclpy import는 shim_node 하나뿐 · `__init__.py` import 0. **파괴검증 10종(S-D1~D10)으로 red 확인**. **[2026-07-28] `/vision/landing_setpoint`** — 🔴 **알려진 방향쌍이 유일한 그물**(축 이름만 맞고 부호가 뒤집힌 변환도 노름·왕복 검사는 통과한다): 기수 정북+전방 10m→정북 10m · 기수 정동+전방 10m→정동 10m(회전이 실제로 먹는지) · FLU +y(좌)→서쪽 · **아래 타겟이 `h_up`을 낮춘다**(`h_up`↔`D` 혼동) · **FRD를 먹이면 다른 값**(두 값이 실제로 다름을 먼저 단언해 이빨 확보) · **우롤 30° 3D 케이스**(yaw만으론 전치/켤레를 못 잡는다 — Rz는 부호가 뒤집혀도 축이 같다) · `quat_rotate`를 **로드리게스 numpy 재구현과 대조**(같은 파일 내 함수로 검증하면 같은 오타를 공유) · 🔴 **드리프트 상쇄**: 기체 위치를 바꿔가며 상대 델타는 동일하고 절대 목표점은 달라짐 + 라우터가 계산된 목표점을 상태로 갖지 않음 + pose 갱신만으론 발행 0 · **degrade 3전이**(없음/stale/노름0 전부 setpoint 침묵 + **상대 pose는 계속 발행** + 사유는 별도 `vision/setpoint` status로) + 임계 바로 안쪽은 통과 + `valid=false`는 **좌표가 있어도** 거절(DS-18이 green이던 pseudo를 잡아 추가 — pose 경로 D7과 같은 함정) + 발행 안 하면 좌표 키를 **아예 안 만든다**(0 채우기 금지) · setpoint 실패가 `vision/target` level을 안 올림(지상시험에서 상시 WARN 방지) · 🔴 **orientation이 단위 쿼터니언이 아니라 현재 기수방위**(flight04 yaw 스핀) + 롤 상태에서도 yaw만 · **기본값 실제 밟기**(인자 없는 `ShimRouter()`가 실제로 발행 + 기본 토픽/프레임 `map`≠`base_link`) + `attitude_stale_s` 기본값이 **실측 p99의 5배 이상**이고 **3m AGL 오차예산 15cm 미만**이며 `stale_warn_s` 복사가 아님 · 세 토픽 stamp 동기 · `[N,E,h_up]` 진단 삼중항. **파괴검증 19종(DS-1~DS-19)으로 red 확인 — 부호 파괴만 8종**(켤레/전치/FLU↔FRD/`h_up`↔`D`/N↔E/델타 뺄셈/`quat_yaw` atan2/ENU→NED yaw) | ✅ test_shim_core |
 | registry | 등록 이름 전부 실제 클래스 매핑(값이 실제 클래스 + `vision.modules` 소속 + **인자 없이 생성해 `__call__(state)->VisionState` 실호출**까지 — "매핑만 있고 파이프라인엔 못 쓰는 것" 배제)·중복 없음(**`ast`로 소스 원문 키를 센다** — dict 리터럴은 키가 겹치면 조용히 덮어써서 런타임 dict로는 중복이 있었다는 사실 자체가 안 남는다) · 같은 클래스를 두 이름으로 등록 금지 · **등록 누락 회귀**: `vision.modules.__all__` 전부 등록됨 + 커밋된 preset 7종이 참조하는 스텝 이름 전부 등록됨(미등록이면 `Pipeline.from_config`가 ValueError로 죽어 preset이 통째로 로드 불가). **파괴검증 5종(R-D1~D5)으로 red 확인** | ✅ test_registry |
 | color `ColorFilter` | 모드별 mask 생성·임계값 경계·meta | ✅ test_color (gray+color, 빨강 Hue랩어라운드 미지원은 §5.4 blind spot로 별도 회귀테스트 기록) |
 | illumination | current 변형·형상/채널 보존·meta | ❌ TODO |
