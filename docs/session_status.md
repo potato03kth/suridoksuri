@@ -2,7 +2,7 @@
 doc_type: session_status
 project: suridoksuri-1
 scope: FC 세션 유일 진입점 — 트랙 보드(병행 작업 상태) + 환경 절차
-last_updated: 2026-07-28
+last_updated: 2026-07-29
 ---
 
 # FC 세션 진입 상태 문서
@@ -26,18 +26,30 @@ last_updated: 2026-07-28
 
 ## 트랙 보드
 
-### 🎯 fc-정밀착륙 (F2) — ⏸ **잠정 보류** (구현·배포 완료, 검증 미완. **선행: 🛩 sitl-vtol 실기체 플래시**)
+### 🎯 fc-정밀착륙 (F2) — ▶ **재개 가능** (플래시 선행조건 해소. 단 **실비행 검증은 아직 불가** — 아래 새 선행조건 2건)
 
 > # 이 트랙을 재개한다면 → **`docs/fc_precision_land_handoff.md` 하나만 읽으면 된다.**
 > 계약·붙는 자리·함정·**구현된 것과 안 된 것**·재개 순서가 전부 거기 있고, **vision 도메인
 > 문서를 읽지 않아도 완주하도록** 썼다(도메인 컨텍스트 격리 유지).
 
-- **🔴 보류 사유 (2026-07-28 사용자 결정):** **천이 문제 해결(PX4 패치 실기체 플래시)이 먼저다.**
-  F2는 `HOLD` **이후**에 발동하는데, 거기 도달하려면 FW 순항 → 역천이 → HOLD를 거쳐야 한다 —
-  즉 **천이가 안 고쳐지면 F2 코드가 실행되는 지점까지 기체가 가지 못한다.** 게다가
-  `sitl_vtol_remediation_plan.md` §4-1 4번이 "첫 실비행에 미검증 변수를 둘로 만들지 말라"를
-  명문화하고 있어, 천이 패치와 정밀착륙을 같은 비행에서 처음 켜는 것 자체가 금지다.
-  **선행 작업은 🛩 sitl-vtol 트랙의 "①실기체 플래시 → ②비-정북 레그 실비행(R7)".**
+- **✅ 보류 해제 (2026-07-29):** 보류 사유였던 **"선행: 🛩 sitl-vtol 실기체 플래시"가 해소됐다.**
+  2026-07-28~29 F-17/F-4 패치본이 실기체에 올라갔고(CRSF RC 두절 사고 1건 발생·해소),
+  ulog 로 패치 정상작동까지 확인됐다 — 상세는 🛩 sitl-vtol 트랙 최신 블록 ·
+  `docs/px4_v6c_patch_build.md` §11.
+  - (원 보류 사유, 이력 보존) F2는 `HOLD` **이후**에 발동하는데 거기 도달하려면 FW 순항 →
+    역천이 → HOLD를 거쳐야 하므로, **천이가 안 고쳐지면 F2 코드가 실행되는 지점까지 기체가
+    가지 못한다.** 또 `sitl_vtol_remediation_plan.md` §4-1 4번이 "첫 실비행에 미검증 변수를 둘로
+    만들지 말라"를 명문화하고 있어 천이 패치와 정밀착륙을 같은 비행에서 처음 켜는 것은 금지다.
+- **🔴 그러나 선행 조건이 새로 생겼다 — 실비행 검증은 아직 못 한다 (2026-07-29):**
+  - **자기계 헤딩 의존 결함 미해결 (`5d55b3f`)** — 재캘리브레이션은 적용됐으나 지표가 악화됐다
+    (`test_ratio` 평균 1.97→2.62, `cs_mag_fault` ON 0%→92.7%). 원인은 전류 간섭이 아니라
+    **캘리 방향 커버리지**이며, 통과 기준은 **"재캘리 후 기수를 남쪽에 두고 `test_ratio<1` 확인"**.
+    이게 흔들리면 `_step_transition_fw` Phase 2 의 "헤딩 정렬 완료" 판정 근거 자체가 흔들린다.
+  - **배터리 게이트 부재 (`f8e951f`)** — flight02 는 `Emergency battery level` 이 t=8.64s(고도 약 4m)
+    부터 떠 있는 채로 50m 까지 올라가 천이를 시도했다. `offboard_node` 상태기계에 배터리 게이트가
+    없다. **F2 는 임무 끝단**(탐색 최악 171s 소요, 아래 시간예산 참조)이라 이 결함의 직격 대상이다.
+  - ⇒ **지금 재개해서 할 수 있는 것은 아래 "미검증 ①SITL 장애주입"과 잠정값 실측이다.**
+    `vision_landing:=true` 실비행은 위 2건 해소 후.
 - **✅ 구현·배포 완료 (`8cb0861`)** — `vision_landing:=false`(기본)면 종전 `HOLD → LANDING`과
   **완전히 동일**하다(구독조차 만들지 않는다). RPi 배포·검증까지 끝냈다(소스↔install md5 일치,
   import 통과, **QoS BEST_EFFORT 실기체 확인**). 즉 **지금 기체에 얹혀 있어도 무해**하다.
@@ -117,9 +129,31 @@ last_updated: 2026-07-28
 - **주의:** 최신 코드(작업 H 포함, `000f478`까지 커밋·푸시 완료)가 RPi에 **미전파** — RPi에서 `git pull` 필요(RPi 정본=호스트 `~/drone_ws/src/suridoksuri`, potato03kth). WSL(`~/suridoksuri-1`)은 이미 pull·재빌드 완료. `waypoints` 300 m·`v_cruise 20.0` 유지 결정(2026-06-30). V2/V5는 MAVROS 중지 필요(단독 링크). **작업 H가 실기체로 검증되기 전까지** 🚁 트랙의 "transition_alt를 낮게" 임시조치를 유지할 것 — SITL은 PASS했으나 실기체 미확인. **작업 H-2(AMSL 이륙고도 수정, `9451861`)는 단위테스트만 통과 — SITL 재검증 전이라 실비행 반영 금지.** geoid 리스크(MAVROS `geo.altitude`가 ellipsoid면 이륙 과상승) SITL 로그로 판별.
 - **참조:** `fc_ros/fc_ros/nodes/offboard_node.py`(`_step_arm_takeoff`) · `fc_bridge/execution/state_logic.py`(`takeoff_request_fields`) · `fc_bridge/planning/planner_runner.py`(resolve_planner_name) · `vtol_sim/…/straight_line_planner.py`·`eta3clothoid_v3_1_planner.py`(v3.3) · `tools/flight_logs/VERIFY.md`(V1~V5) · `flight_plan.md`·`sitl_verification_log.md`(작업 H) · `docs/flight_plan.md`(작업 G)
 
-### 🛩 sitl-vtol — ▶ 활성 (**2026-07-28: F-17/F-4 PX4 2줄 패치 빌드+SITL 검증 통과. 다음은 실기체 플래시(사용자 승인 대기) → R5**)
+### 🛩 sitl-vtol — ▶ 활성 (**2026-07-29: F-17/F-4 패치 실기체 플래시 ✅완료·해소 확인. 다음은 R5**)
 
-- **✅ 최신 (2026-07-28, PX4 패치 2단계 — 빌드·검증 완료, 플래시 미수행):** 재현절차 전문 **`docs/px4_v6c_patch_build.md`**.
+- **✅ 실기체 플래시 완료 (2026-07-28~29 — 사고 1건 발생·해소, 전문 `docs/px4_v6c_patch_build.md` §11):**
+  - **1차 플래시(사고):** 패치본 `…f17f4patch_20260728.px4` 는 교체 성공했으나 **ELRS 조종기가 완전히 두절**됐다.
+    순정 `px4_fmu-v6c_default` config 에 `CONFIG_DRIVERS_RC*` 가 하나도 없어 CRSF 드라이버가 안 들어간다
+    (`crsf_rc status` → command not found, `listener input_rc` → never published). 원 빌더가 바꾼 것은
+    **컴파일러만이 아니라 보드 config** 였다는 뜻 — §9-4/§10-4 「남는 의문」의 진짜 답(§11-3).
+  - **2차 플래시(해소, 현재 기체 탑재본):** `tools/px4/v6c_crsf_rc.patch` 로 `CONFIG_DRIVERS_RC_CRSF_RC=y`
+    추가 후 재빌드한 `…f17f4patch_crsf_20260728.px4`. 실측 — `Build datetime Jul 28 2026 20:27:22`
+    (**crsf 포함본 판별의 유일한 식별자**. Toolchain 10.3.1·git-hash `c890d9db0a` 는 사고본과도 같다) /
+    `crsf_rc status` = `/dev/ttyS1`(TELEM3, `RC_CRSF_PRT_CFG=103` 일치), RX 1120B·유효 CRC 80·**Invalid 0**.
+  - **파라미터 대조 결론: 잃은 것 없음.** 덤프 `logs/2026-07-28_px4_flash/px4_params_2026-07-28_final-crsf.json`(1438개).
+    원본(02:38, 1437개) 대비 **MISSING 0건** / ADDED 1건 `UXRCE_DDS_CFG=0`(의도 — FLASH 여유가 남아 uxrce 를
+    켠 채로 뒀다, 값 0·우리는 MAVROS 사용). 사고본(20:14, 1436개) 대비 ADDED 2건(`RC_CRSF_PRT_CFG`·`RC_CRSF_TEL_EN`)
+    은 EEPROM 잔존값이 드라이버 복귀와 함께 **재설정 없이 되살아난 것**. 개수 1436+2=1438 정합. `SYS_AUTOSTART=13000`·
+    스틱 1~4·ARM 12·KILL 11·FLTMODE 10 유지. **`RC_MAP_OFFB_SW 7→0`·`RC_MAP_TRANS_SW 8→7` 은 사용자 의도 변경(확인받음) — 결함 아님.**
+  - **✅ F-17 패치가 실기체에서 정상 작동함이 ulog 로 확인됐다** — `142150a`(flight02 재현검증)에서
+    `position_setpoint_triplet` 발행 **4건 전부 `course=NaN`**. 패치 전이라면 `course=0.0f`(= "정북 유지"
+    유효명령)가 나왔어야 한다. `ver all` 이 패치 여부를 자기신고하지 않는다는 §4-2 한계를 비행 거동이 메꿨다.
+  - **⚠ 다만 실비행 검증은 아직 못 한다 — 펌웨어 무관한 별개 미해결 2건:** 자기계 **헤딩 의존 오차**(`5d55b3f`,
+    재캘리 후에도 `test_ratio` 1.97→2.62·`cs_mag_fault` ON 0%→92.7%. 통과 기준은 "기수 남쪽에서 `test_ratio<1`") ·
+    **배터리 게이트 부재**(`f8e951f`, flight02 는 `Emergency battery level` 상태로 50m 까지 상승해 천이 시도).
+  - **다음:** ①위 2건 해소 ②비-정북 레그 실비행(R7) ③R5 에서 MC HOLD 수직가속 확인.
+
+- **✅ 그 전 (2026-07-28, PX4 패치 2단계 — 빌드·SITL 검증):** 재현절차 전문 **`docs/px4_v6c_patch_build.md`**.
   - **패치** `tools/px4/f17_f4_offboard_nan.patch` — `FixedWingModeManager.cpp` 오프보드 변환 블록에 `current.yaw = NAN` / `current.course = NAN` 2줄. **PX4 저장소엔 커밋하지 않는다**(우리 것이 아님) — 워킹트리에만 얹고 패치파일을 우리가 보관.
   - **빌드** `px4_fmu-v6c_default` 성공, 툴체인 `arm-none-eabi-gcc 10.3.1`(jammy universe, `ubuntu.sh --no-sim-tools`). **FLASH 98.65% = 1,939,520/1,966,080 B, 여유 25.9 KB, 패치비용 +8 B.** 경고 0건. `.px4` sha256 `f1c16e2b…`.
   - **🚨 펌웨어가 패치 여부를 자기신고하지 않는다** — PX4 버전헤더 생성이 `--dirty` 를 안 붙여 `git_identity` 가 순정과 **완전히 동일**하다(`v1.18.0-alpha1-592-gc890d9db0a`). **구별 수단은 sha256 뿐.** 플래시 직전 반드시 재확인.
@@ -130,7 +164,7 @@ last_updated: 2026-07-28
   - **⚠ 순수 A/B 는 아니다:** 기준선은 `3b52ac1`·`v_cruise 20`, 패치런은 `893a5eb`·`v_cruise 18`(R1·R2 포함). **A3 `node_log_cte` 7.2→14.6 은 R2 의 `_find_segment` 변경 탓**으로 본다(객관지표인 기하 cte 는 15.38→15.21 불변). **미규명 1건: MC HOLD 수직가속 상승**(A1 5.98→10.34, C2 6.71→11.73 m/s²; B8 은 불변) → R5 확인.
   - **하니스 개선 3건:** `run_scenario.py --launch-arg KEY=VALUE`(임시 파라미터로 yaml 안 고치게) · `meta.json` 에 `px4_dirty`/`px4_diff_sha256` 기록(커밋 해시만으론 워킹트리 패치를 구별 못 함) · `tools/sitl/f17_transition_probe.py` 정식 편입(종전 임시 스크립트 `/mnt/c/sitl7_xfer/f17_probe*.py` 는 소실돼 재현 불가였음. 기준선 21.78m/43.23m/43.6°/129.2° 를 정확히 재현하는 것으로 검증).
   - **⚠ WSL 클론 표류 원인 규명:** `/root/drone_ws/src/suridoksuri` 의 `remote.origin.fetch` 가 **mc-hw 브랜치 하나로 좁혀져** 있어 `git fetch origin` 이 조용히 성공하면서도 `origin/dev--vision-computing-module` 이 13커밋 뒤(`b1af926`)에 멈춰 있었다. 표준 refspec 으로 복구 후 `893a5eb` 정렬 완료(`.ulg` 135개 전량 보존, `git clean` 미사용).
-  - **다음:** ①**실기체 플래시 — 사용자 승인 후 별도 세션**(USB·QGC 필요) ②플래시 후 비-정북 레그 실비행(R7) ③R5 에서 MC HOLD 수직가속 확인.
+  - ~~**다음:** ①실기체 플래시 — 사용자 승인 후 별도 세션(USB·QGC 필요)~~ → **①은 2026-07-28~29 완료**(위 블록·§11). ②비-정북 레그 실비행(R7) ③R5 에서 MC HOLD 수직가속 확인.
 
 - **내용:** WSL SITL VTOL 검증. SITL-1~4 전부 PASS (2026-06-30) → SITL-7 전면 회귀 캠페인(`docs/sitl_vtol_campaign.md`)
 - **마지막:** **(2026-07-27, S3 — A3 6.5km 폭주 근본원인 규명 완료)** **결론: 우리 코드는 정상, PX4 상류 회귀 버그다.** `FixedWingModeManager.cpp:2107` 이 오프보드 `trajectory_setpoint`→`_pos_sp_triplet` 변환 시 구조체를 제로초기화하면서 `course` 필드에 NaN 을 넣지 않아 `course=0.0f` 가 남는다. `PositionSetpoint.msg:36` 규약은 "NaN=미사용"이므로 0.0 은 **"코스 0 rad(정북) 유지" 유효명령**으로 해석되고, `:577`/`:781` 코스 분기가 발화해 `navigateBearing` 이 **기체 현재위치를 지나는 무한직선**을 만든다(`:2782`) → lat/lon 은 한 번도 안 읽히고, 횡오차가 구조적으로 항상 0 이라 **경보·페일세이프가 안 걸린다.** A3 ulog 실측: OFFBOARD 431초 4310샘플 전부 `course_setpoint=4.371138829e-08 rad`(정북)·`signed_track_error=0.000000`, OFFBOARD 이탈 직후 t=567.3 에 진짜 오차 −6442.7m 출현. **회귀 계보 확정:** `8b3ef1cf9e`(2026-05-27 병합, 삽입) → `2e59c98b7c`(05-28, GUIDED_COURSE 가드로 차단) → **실기체 `c890d9db0a`(07-06, 가드 포함 = 안전)** → `1499238f1c`(07-17 병합, 가드 revert = 재삽입) → **SITL `9bb0d365c4`(07-23, 취약)**. 실기체가 178커밋 뒤라 우연히 무사한 것 — **PX4 업그레이드 금지.** **⚠ Phase 1 "성공" 5건 전건 무효:** A1/A2/A4/B1/B6 waypoint 가 **전부 정북 직선**이라 "정북으로만 나는" 버그가 그대로 통과했다. FW 경로추종은 한 번도 검증된 적 없다. **⚠ 실기체 FW+OFFBOARD 비행 실적 0건**(ulog 78건 전수 스캔, FW 구간 자체가 2.4초 수동 테스트 1건뿐) — "실기체에선 된다"는 소스 추론일 뿐 미검증. **✅ 우회로 실측 확보:** `setpoint_raw/local` 로 **위치+속도 동시 발행** → `FW_POSCTRL_MODE_AUTO_PATH`(`:392`) 진입해 코스 분기를 원천 회피, SITL 실측 **횡오차 0.2m·정동 90.0° 정확 추종**. 속도-only 는 기각(`FW_POSCTRL_MODE_OTHER` 로 빠져 **setpoint 발행 자체가 52.96초 정지** — 실측). 프로브 `tools/sitl/fw_offboard_probe.py`(비행코드 무수정), 궤적 `logs/2026-07-27_s3_fw_offboard_probe/`.
@@ -145,7 +179,7 @@ last_updated: 2026-07-28
   - 유일 근거였던 "횡오차 0.2m"는 PX4 내부 `track_err`(자기 지령 대비 자기 오차)라 우리 cte와 **범주가 다르다.**
   - R-f(업그레이드 취약성)만 **반증**됐다(12개월간 `control_auto_path()` 변경 0건). 그러나 R-a·R-c·R-e 봉쇄 불가로 §4-1 1항 불충족.
   - **기각 시 조치(확정):** 현행 위치-only 유지 + PX4 `c890d9db0a` 핀 + 업그레이드 필요 시 상류 한 줄(`course = NAN`). **F-17 패치에 `course = NAN`이 포함돼 있어, 그 패치를 플래시하면 이 잔비용도 사라진다.**
-- **다음(요약) — 2026-07-28 현재:** ①**R5(경로·고도)**: `_cruise_alt` 스칼라화(F-8)·천이 고도계단(F-9)·짧은경로 `_FW_LOOKAHEAD`(F-11)·`d_end_thresh` 기본값(F-10). **⚠ `d_end_thresh`를 ≈57로 키우면 폐회로가 깨진다** — `R2_closed` FOLLOWING 진입 시 종점까지 12.18m뿐이고 **런간 변동 포함 실제 최악 여유 0.6m**(관측대역 10.60~15.32m). 폐회로에서 반드시 함께 검증할 것. **미규명: MC HOLD 수직가속 상승**(A1 5.98→10.34, C2 6.71→11.73 m/s², B8 불변) ②**R6(선회 품질·정리)**: F-5(선회 중 고도침하 — **A안으로는 안 고쳐진다, 종방향 TECS 문제**)·F-7 헤딩정렬 마진·F-13 미사용 속도프로파일·**F-12 플래너 비동기화**(아래 참조) ③**F-17 실기체 플래시**(사용자 승인 대기, 준비 완료) ④미실측: `param_set` 주입·C9.
+- **다음(요약) — 2026-07-28 현재:** ①**R5(경로·고도)**: `_cruise_alt` 스칼라화(F-8)·천이 고도계단(F-9)·짧은경로 `_FW_LOOKAHEAD`(F-11)·`d_end_thresh` 기본값(F-10). **⚠ `d_end_thresh`를 ≈57로 키우면 폐회로가 깨진다** — `R2_closed` FOLLOWING 진입 시 종점까지 12.18m뿐이고 **런간 변동 포함 실제 최악 여유 0.6m**(관측대역 10.60~15.32m). 폐회로에서 반드시 함께 검증할 것. **미규명: MC HOLD 수직가속 상승**(A1 5.98→10.34, C2 6.71→11.73 m/s², B8 불변) ②**R6(선회 품질·정리)**: F-5(선회 중 고도침하 — **A안으로는 안 고쳐진다, 종방향 TECS 문제**)·F-7 헤딩정렬 마진·F-13 미사용 속도프로파일·**F-12 플래너 비동기화**(아래 참조) ③~~**F-17 실기체 플래시**(사용자 승인 대기, 준비 완료)~~ **→ ✅ 완료(2026-07-29, 위 최신 블록 참조)** ④미실측: `param_set` 주입·C9.
   - **완료·배포됨(재작업 금지):** 타임아웃 4종+거리상한 300m+F-15+F-16(R1, `ca8809d`) · `_find_segment` 창탐색+`_step_hold` 슬루+F-14+플래너 진행로그(R2, `2f024a7`) · `v_cruise` 정식값 **18.0**(`28a8701`). 전부 RPi5 반영·md5 대조 완료(`893a5eb`).
   - **`v_cruise`로 F-12를 못 고친다(실측 확정):** 18은 20의 **96~97%**다. "160배 민감"은 곡선이 아니라 **16↔17 계단**이고, ≤16이 싼 이유는 NR이 일찍 포기해 **경로가 변형**되기 때문이다(전장 L자 405.58m/폐회로 809.42m vs 이론 400/800). **F-12의 해법은 비동기화(R6)뿐.**
   - **회귀 시나리오 필수요건에 「비-정북 *천이*」 추가** — 캠페인 24런 중 비-정북 천이는 C2·B8 2건뿐이었다(A3/B4/B5는 코너가 있어도 첫 레그가 정북). §7-1의 "비-정북 *레그*"만으로는 F-17을 못 잡았다.
