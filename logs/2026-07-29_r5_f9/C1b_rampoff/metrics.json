@@ -1,0 +1,4955 @@
+{
+  "scenario_id": "C1b",
+  "run_dir": "/root/ws_r5b/src/suridoksuri/logs/2026-07-29_r5_f9/C1b_rampoff",
+  "ulog_file": "17_55_11.ulg",
+  "ulog_selection_note": null,
+  "ulog_error": null,
+  "resolved_params": {
+    "control_hz": 10.0,
+    "v_approach": 5.0,
+    "v_cruise": 18.0,
+    "transition_alt": 120.0,
+    "d_end_thresh": 10.0,
+    "wp0_heading_tol": 0.05,
+    "l1_dist": 20.0,
+    "waypoint_frame": "local",
+    "entry_mode": "pre_takeoff"
+  },
+  "waypoints": [
+    [
+      0.0,
+      0.0,
+      50.0
+    ],
+    [
+      300.0,
+      0.0,
+      50.0
+    ]
+  ],
+  "ulog_topics": [
+    "actuator_armed",
+    "actuator_controls_status_0",
+    "actuator_motors",
+    "actuator_outputs",
+    "actuator_servos",
+    "airspeed",
+    "airspeed_validated",
+    "airspeed_wind",
+    "battery_status",
+    "config_overrides",
+    "control_allocator_status",
+    "cpuload",
+    "differential_pressure",
+    "distance_sensor_mode_change_request",
+    "ekf2_timestamps",
+    "esc_status",
+    "estimator_aid_src_airspeed",
+    "estimator_aid_src_baro_hgt",
+    "estimator_aid_src_fake_hgt",
+    "estimator_aid_src_fake_pos",
+    "estimator_aid_src_gnss_hgt",
+    "estimator_aid_src_gnss_pos",
+    "estimator_aid_src_gnss_vel",
+    "estimator_aid_src_gravity",
+    "estimator_aid_src_mag",
+    "estimator_aid_src_sideslip",
+    "estimator_baro_bias",
+    "estimator_event_flags",
+    "estimator_fusion_control",
+    "estimator_gps_status",
+    "estimator_innovation_test_ratios",
+    "estimator_innovation_variances",
+    "estimator_innovations",
+    "estimator_sensor_bias",
+    "estimator_states",
+    "estimator_status",
+    "estimator_status_flags",
+    "event",
+    "failsafe_flags",
+    "failure_detector_status",
+    "fixed_wing_lateral_guidance_status",
+    "fixed_wing_lateral_setpoint",
+    "fixed_wing_lateral_status",
+    "fixed_wing_longitudinal_setpoint",
+    "flaps_setpoint",
+    "flight_phase_estimation",
+    "fw_virtual_attitude_setpoint",
+    "gain_compression",
+    "gripper",
+    "home_position",
+    "hover_thrust_estimate",
+    "landing_gear",
+    "landing_gear_wheel",
+    "lateral_control_configuration",
+    "logger_status",
+    "longitudinal_control_configuration",
+    "manual_control_setpoint",
+    "mc_virtual_attitude_setpoint",
+    "mission_result",
+    "navigator_status",
+    "offboard_control_mode",
+    "parameter_update",
+    "position_setpoint_triplet",
+    "rate_ctrl_status",
+    "rtl_status",
+    "rtl_time_estimate",
+    "sensor_accel",
+    "sensor_baro",
+    "sensor_combined",
+    "sensor_gps",
+    "sensor_gyro",
+    "sensor_gyro_fft",
+    "sensor_mag",
+    "sensor_selection",
+    "sensors_status_imu",
+    "spoilers_setpoint",
+    "system_power",
+    "takeoff_status",
+    "tecs_status",
+    "telemetry_status",
+    "timesync_status",
+    "trajectory_setpoint",
+    "transponder_report",
+    "vehicle_acceleration",
+    "vehicle_air_data",
+    "vehicle_angular_velocity",
+    "vehicle_angular_velocity_groundtruth",
+    "vehicle_attitude",
+    "vehicle_attitude_groundtruth",
+    "vehicle_attitude_setpoint",
+    "vehicle_command",
+    "vehicle_command_ack",
+    "vehicle_constraints",
+    "vehicle_control_mode",
+    "vehicle_global_position",
+    "vehicle_global_position_groundtruth",
+    "vehicle_gps_position",
+    "vehicle_imu",
+    "vehicle_imu_status",
+    "vehicle_land_detected",
+    "vehicle_local_position",
+    "vehicle_local_position_groundtruth",
+    "vehicle_local_position_setpoint",
+    "vehicle_magnetometer",
+    "vehicle_rates_setpoint",
+    "vehicle_status",
+    "vehicle_thrust_setpoint",
+    "vehicle_thrust_setpoint_virtual_fw",
+    "vehicle_thrust_setpoint_virtual_mc",
+    "vehicle_torque_setpoint",
+    "vehicle_torque_setpoint_virtual_fw",
+    "vehicle_torque_setpoint_virtual_mc",
+    "vtol_vehicle_status",
+    "wind",
+    "yaw_estimator_status"
+  ],
+  "ulog_duration_s": 564.036,
+  "time_alignment": {
+    "offset_s": 1785261304.7231293,
+    "scale": 1.0596565865510938,
+    "model": "wall_t = scale * ulog_t + offset_s",
+    "n_anchors": 3,
+    "max_abs_residual_s": 1.109813928604126,
+    "const_offset_spread_s": 5.148603439331055,
+    "anchors": [
+      {
+        "anchor": "COMPONENT_ARM_DISARM(400)",
+        "ulog_t": 24.552,
+        "wall_t": 1785261329.6345186,
+        "const_offset_s": 1785261305.0825186,
+        "fit_residual_s": -1.1052992343902588
+      },
+      {
+        "anchor": "NAV_TAKEOFF(22)",
+        "ulog_t": 24.828,
+        "wall_t": 1785261332.142097,
+        "const_offset_s": 1785261307.314097,
+        "fit_residual_s": 1.109813928604126
+      },
+      {
+        "anchor": "DO_VTOL_TRANSITION→FW(3000,p1=4)",
+        "ulog_t": 92.404,
+        "wall_t": 1785261402.635122,
+        "const_offset_s": 1785261310.231122,
+        "fit_residual_s": -0.004514455795288086
+      }
+    ],
+    "reason": null
+  },
+  "state_windows_ulog_s": {
+    "ARM_TAKEOFF": [
+      23.5089,
+      25.8753
+    ],
+    "CLIMBING": [
+      25.8753,
+      76.0721
+    ],
+    "TRANSITION_FW": [
+      76.0721,
+      94.9462
+    ],
+    "STREAMING": [
+      94.9462,
+      95.0566
+    ],
+    "FOLLOWING": [
+      95.0566,
+      564.036
+    ]
+  },
+  "completion": {
+    "states_seen": [
+      "ARM_TAKEOFF",
+      "CLIMBING",
+      "TRANSITION_FW",
+      "STREAMING",
+      "FOLLOWING"
+    ],
+    "order_is_subsequence_of_canonical": true,
+    "reached_done": false,
+    "pilot_takeover": false,
+    "override": false,
+    "exit_reason": "timeout",
+    "exit_code": 2,
+    "mission_span_s": 75.816,
+    "state_timeline": [
+      {
+        "state": "ARM_TAKEOFF",
+        "entry_wall_t": 1785261329.6345186,
+        "dwell_s": 2.5076
+      },
+      {
+        "state": "CLIMBING",
+        "entry_wall_t": 1785261332.142097,
+        "dwell_s": 53.1913
+      },
+      {
+        "state": "TRANSITION_FW",
+        "entry_wall_t": 1785261385.3334253,
+        "dwell_s": 20.0001
+      },
+      {
+        "state": "STREAMING",
+        "entry_wall_t": 1785261405.333506,
+        "dwell_s": 0.117
+      },
+      {
+        "state": "FOLLOWING",
+        "entry_wall_t": 1785261405.4504805,
+        "dwell_s": 488.985
+      }
+    ],
+    "disarm": {
+      "armed_at_ulog_s": 24.556,
+      "disarmed_at_ulog_s": null,
+      "armed_duration_s": null,
+      "value": false,
+      "reason": "로그 끝까지 disarm 되지 않음"
+    }
+  },
+  "vtol_state_sequence": {
+    "value": [
+      3,
+      1,
+      4
+    ],
+    "segments": [
+      {
+        "vtol_state": 3,
+        "name": "MC",
+        "t_start_ulog_s": 5.336,
+        "duration_s": 87.072
+      },
+      {
+        "vtol_state": 1,
+        "name": "TRANS_TO_FW",
+        "t_start_ulog_s": 92.408,
+        "duration_s": 2.516
+      },
+      {
+        "vtol_state": 4,
+        "name": "FW",
+        "t_start_ulog_s": 94.924,
+        "duration_s": 469.0
+      }
+    ],
+    "forward_transition_s": 2.516,
+    "back_transition_s": null,
+    "forward_ok_3_1_4": true,
+    "back_ok_4_2_3": false,
+    "reason": null
+  },
+  "setpoint_jump": {
+    "source_topic": "trajectory_setpoint",
+    "max_gap_s": 0.5,
+    "threshold_m": 1.5,
+    "threshold_note": "3 x v_approach(5.0) x dt(0.100s) — 계획서 4장. 참고: FW 순항 중 lookahead 목표점은 기체속도로 전진하므로 정상 상태에서도 약 v_cruise(18.0) x dt = 1.80m/틱 이 나온다",
+    "max_jump_m": 216.6758,
+    "max_rate_mps": 712.7493,
+    "n_violations": 96,
+    "n_violations_at_state_boundary": 4,
+    "boundary_violations_top": [
+      {
+        "ulog_t_s": 95.3,
+        "jump_m": 216.6758,
+        "rate_mps": 712.7493,
+        "dt_s": 0.304,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 95.7,
+        "jump_m": 3.6569,
+        "rate_mps": 18.2846,
+        "dt_s": 0.2,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 95.9,
+        "jump_m": 3.6237,
+        "rate_mps": 18.1186,
+        "dt_s": 0.2,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 95.5,
+        "jump_m": 3.537,
+        "rate_mps": 17.6852,
+        "dt_s": 0.2,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      }
+    ],
+    "top10": [
+      {
+        "ulog_t_s": 95.3,
+        "jump_m": 216.6758,
+        "rate_mps": 712.7493,
+        "dt_s": 0.304,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 133.668,
+        "jump_m": 5.3036,
+        "rate_mps": 26.5182,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 133.868,
+        "jump_m": 4.796,
+        "rate_mps": 23.9801,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 134.068,
+        "jump_m": 4.3495,
+        "rate_mps": 21.7476,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 134.268,
+        "jump_m": 3.9833,
+        "rate_mps": 19.9164,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 134.468,
+        "jump_m": 3.6603,
+        "rate_mps": 18.3014,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 95.7,
+        "jump_m": 3.6569,
+        "rate_mps": 18.2846,
+        "dt_s": 0.2,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 95.9,
+        "jump_m": 3.6237,
+        "rate_mps": 18.1186,
+        "dt_s": 0.2,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 95.5,
+        "jump_m": 3.537,
+        "rate_mps": 17.6852,
+        "dt_s": 0.2,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 96.1,
+        "jump_m": 3.5065,
+        "rate_mps": 17.5327,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      }
+    ],
+    "n_samples": 2696,
+    "resumption_gaps": [
+      {
+        "ulog_t_s": 94.996,
+        "gap_s": 16.46,
+        "distance_m": 307.9803,
+        "state": "STREAMING"
+      }
+    ],
+    "n_resumption_gaps": 1,
+    "reason": null,
+    "boundary_windows_available": true
+  },
+  "vertical_accel": {
+    "value": 2936.6353,
+    "peak_g": 299.4535,
+    "peak_at_ulog_s": 141.984,
+    "peak_state": "FOLLOWING",
+    "excluded_windows": [
+      "vtol_state=1 92.4~94.9s"
+    ],
+    "max_including_transition_mps2": 2936.6353,
+    "excl_touchdown": {
+      "value": null,
+      "reason": "disarm 시각을 몰라 접지 구간을 제외할 수 없음"
+    },
+    "reason": null
+  },
+  "decel": {
+    "value": null,
+    "reason": "역천이 구간(vtol_state==2 또는 TRANSITION_MC 상태창)을 특정할 수 없음 — 역천이가 일어나지 않았을 수 있다"
+  },
+  "heading": {
+    "target_chi_rad": 0.0,
+    "target_chi_deg": 0.0,
+    "target_source": "node.log '헤딩 정렬 완료 target=' 값",
+    "tol_rad": 0.05,
+    "window_ulog_s": [
+      76.0721,
+      94.9462
+    ],
+    "n_samples": 4716,
+    "err_at_window_start_deg": -97.08,
+    "max_abs_err_deg": 97.1179,
+    "final_abs_err_deg": 1.3592,
+    "first_within_tol_ulog_s": 90.38,
+    "align_time_s": 14.304,
+    "overshoot_rad_after_first_in_tol": 0.0,
+    "monotone_convergence": true,
+    "node_log_align": {
+      "t": 1785261402.6336215,
+      "target_deg": 0.0,
+      "current_deg": 2.3,
+      "err_deg": -2.3
+    },
+    "t_align_ulog_s": 92.3983,
+    "reason": null
+  },
+  "altitude": {
+    "z_ground_local_m": 0.0463,
+    "transition_alt_m": 120.0,
+    "climb": {
+      "max_agl_m": 119.3155,
+      "overshoot_pct": -0.5704,
+      "window_ulog_s": [
+        25.8753,
+        76.0721
+      ],
+      "reason": null
+    },
+    "climb_to_following": {
+      "max_agl_m": 120.7568,
+      "overshoot_pct": 0.6307,
+      "window_ulog_s": [
+        25.8753,
+        95.0566
+      ],
+      "reason": null
+    },
+    "transition_alt_loss": {
+      "value": 0.0843,
+      "agl_at_start_m": 120.7502,
+      "agl_min_m": 120.6659,
+      "window_ulog_s": [
+        92.408,
+        94.924
+      ],
+      "reason": null
+    },
+    "cruise_alt_dev": {
+      "ref_agl_m": 50.0463,
+      "ref_source": "waypoints[-1].z (EKF 로컬 절대, waypoint_frame=local) − 지면 h_up",
+      "mean_dev_m": -42.3563,
+      "max_abs_dev_m": 70.5869,
+      "min_agl_m": -3.4866,
+      "max_agl_m": 120.6332,
+      "window_ulog_s": [
+        95.0566,
+        564.036
+      ],
+      "reason": null
+    }
+  },
+  "cte": {
+    "node_log_cte": {
+      "n_samples": 236,
+      "max_m": 141.5,
+      "mean_m": 128.3631,
+      "p95_m": 140.4,
+      "signed_min_m": -141.5,
+      "signed_max_m": 53.9,
+      "first_m": -0.2,
+      "last_m": -140.4,
+      "note": "offboard_node 가 20틱마다 찍는 L1Guidance cte. max/mean/p95 는 절댓값, signed_* 는 부호 유지",
+      "reason": null
+    },
+    "geometric_cte": {
+      "n_samples": 58596,
+      "max_m": 141.5901,
+      "mean_m": 129.2951,
+      "p95_m": 140.3687,
+      "note": "원본 waypoints 직선 폴리라인 기준. VTOL 기본 플래너(eta3)는 코너를 곡선으로 잇기 때문에 이 값은 '계획경로 이탈'이 아니라 '직선 대비 편차'다 — 코너 구간에서 크게 나오는 것이 정상.",
+      "reason": null
+    }
+  },
+  "segment_index": {
+    "n_samples": 236,
+    "series": [
+      13,
+      45,
+      75,
+      105,
+      134,
+      163,
+      192,
+      221,
+      249,
+      278,
+      297,
+      299,
+      299,
+      299,
+      299,
+      299,
+      299,
+      299,
+      281,
+      243,
+      199,
+      202,
+      218,
+      227,
+      246,
+      275,
+      277,
+      278,
+      278,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277,
+      277
+    ],
+    "t_series": [
+      1785261405.5358,
+      1785261407.4352,
+      1785261409.4371,
+      1785261411.435,
+      1785261413.4366,
+      1785261415.4349,
+      1785261417.4352,
+      1785261419.4357,
+      1785261421.4353,
+      1785261423.4362,
+      1785261425.434,
+      1785261427.4344,
+      1785261429.4339,
+      1785261431.434,
+      1785261434.7343,
+      1785261436.7342,
+      1785261438.734,
+      1785261440.7344,
+      1785261442.7345,
+      1785261444.7349,
+      1785261446.7351,
+      1785261448.7349,
+      1785261450.735,
+      1785261452.735,
+      1785261454.7347,
+      1785261456.7345,
+      1785261458.7343,
+      1785261460.7345,
+      1785261462.7373,
+      1785261464.7346,
+      1785261468.0351,
+      1785261470.0346,
+      1785261472.0344,
+      1785261474.0343,
+      1785261476.0344,
+      1785261478.0344,
+      1785261480.0368,
+      1785261482.0352,
+      1785261484.0369,
+      1785261486.0365,
+      1785261488.0358,
+      1785261490.0368,
+      1785261492.0352,
+      1785261494.0362,
+      1785261496.0349,
+      1785261498.0362,
+      1785261501.3362,
+      1785261503.3367,
+      1785261505.3364,
+      1785261507.3357,
+      1785261509.3382,
+      1785261511.336,
+      1785261513.3349,
+      1785261515.335,
+      1785261517.3351,
+      1785261519.3366,
+      1785261521.3356,
+      1785261523.3367,
+      1785261525.3355,
+      1785261527.3351,
+      1785261529.3354,
+      1785261531.3368,
+      1785261534.6362,
+      1785261536.6352,
+      1785261538.6361,
+      1785261540.6363,
+      1785261542.6359,
+      1785261544.6359,
+      1785261546.6354,
+      1785261548.6351,
+      1785261550.6354,
+      1785261552.6353,
+      1785261554.6353,
+      1785261556.636,
+      1785261558.6367,
+      1785261560.6363,
+      1785261562.6363,
+      1785261564.6357,
+      1785261566.6355,
+      1785261570.0353,
+      1785261572.0355,
+      1785261574.0356,
+      1785261576.0365,
+      1785261578.0353,
+      1785261580.0361,
+      1785261582.036,
+      1785261584.0349,
+      1785261586.0365,
+      1785261588.0371,
+      1785261590.0354,
+      1785261592.0356,
+      1785261594.0356,
+      1785261596.0352,
+      1785261598.0368,
+      1785261600.0385,
+      1785261603.635,
+      1785261605.6369,
+      1785261607.6357,
+      1785261609.6357,
+      1785261611.6372,
+      1785261613.6352,
+      1785261615.636,
+      1785261617.6361,
+      1785261619.6354,
+      1785261621.6363,
+      1785261623.6351,
+      1785261625.6349,
+      1785261627.6352,
+      1785261629.635,
+      1785261631.6347,
+      1785261633.6355,
+      1785261636.8367,
+      1785261638.8353,
+      1785261640.8353,
+      1785261642.8366,
+      1785261644.836,
+      1785261646.8354,
+      1785261648.8356,
+      1785261650.8349,
+      1785261652.835,
+      1785261654.8367,
+      1785261656.8363,
+      1785261658.8359,
+      1785261660.8355,
+      1785261662.8358,
+      1785261664.8365,
+      1785261666.8362,
+      1785261670.0358,
+      1785261672.0366,
+      1785261674.0359,
+      1785261676.0356,
+      1785261678.0358,
+      1785261680.0373,
+      1785261682.0353,
+      1785261684.0355,
+      1785261686.0355,
+      1785261688.0354,
+      1785261690.0369,
+      1785261692.035,
+      1785261694.0356,
+      1785261696.0379,
+      1785261698.0356,
+      1785261700.0353,
+      1785261703.4535,
+      1785261705.444,
+      1785261707.435,
+      1785261709.4359,
+      1785261711.4357,
+      1785261713.4354,
+      1785261715.4348,
+      1785261717.4359,
+      1785261719.436,
+      1785261721.4373,
+      1785261723.4352,
+      1785261725.4363,
+      1785261727.4355,
+      1785261729.4353,
+      1785261731.4362,
+      1785261733.4374,
+      1785261735.4361,
+      1785261738.8352,
+      1785261740.836,
+      1785261742.8358,
+      1785261744.8356,
+      1785261746.8346,
+      1785261748.835,
+      1785261750.8351,
+      1785261752.836,
+      1785261754.8362,
+      1785261756.837,
+      1785261758.8355,
+      1785261760.8349,
+      1785261762.8371,
+      1785261764.8374,
+      1785261766.8351,
+      1785261768.836,
+      1785261772.2357,
+      1785261774.2357,
+      1785261776.2353,
+      1785261778.2349,
+      1785261780.2347,
+      1785261782.2349,
+      1785261784.2373,
+      1785261786.235,
+      1785261788.2354,
+      1785261790.2372,
+      1785261792.2361,
+      1785261794.2359,
+      1785261796.2355,
+      1785261798.235,
+      1785261800.2358,
+      1785261802.235,
+      1785261805.6358,
+      1785261807.6349,
+      1785261809.6366,
+      1785261811.6352,
+      1785261813.6353,
+      1785261815.6351,
+      1785261817.6356,
+      1785261819.6367,
+      1785261821.6365,
+      1785261823.635,
+      1785261825.6353,
+      1785261827.6366,
+      1785261829.6351,
+      1785261831.636,
+      1785261833.6354,
+      1785261835.6353,
+      1785261837.6351,
+      1785261840.9359,
+      1785261842.9354,
+      1785261844.9346,
+      1785261846.9348,
+      1785261848.9349,
+      1785261850.9346,
+      1785261852.9347,
+      1785261854.935,
+      1785261856.9349,
+      1785261858.9349,
+      1785261860.9348,
+      1785261862.9346,
+      1785261864.9356,
+      1785261866.9348,
+      1785261868.9347,
+      1785261870.9353,
+      1785261874.4361,
+      1785261876.4349,
+      1785261878.4352,
+      1785261880.4352,
+      1785261882.4361,
+      1785261884.4356,
+      1785261886.435,
+      1785261888.4351,
+      1785261890.4356,
+      1785261892.4352,
+      1785261894.4355
+    ],
+    "first": 13,
+    "last": 277,
+    "monotonic_nondecreasing": false,
+    "n_backward": 4,
+    "backward_events": [
+      {
+        "t": 1785261442.7344747,
+        "from": 299,
+        "to": 281,
+        "delta": -18
+      },
+      {
+        "t": 1785261444.7348595,
+        "from": 281,
+        "to": 243,
+        "delta": -38
+      },
+      {
+        "t": 1785261446.7350814,
+        "from": 243,
+        "to": 199,
+        "delta": -44
+      },
+      {
+        "t": 1785261464.7346265,
+        "from": 278,
+        "to": 277,
+        "delta": -1
+      }
+    ],
+    "max_backward_step": -44,
+    "max_forward_step": 32,
+    "n_tick_jump_warnings": 0,
+    "tick_jump_warnings": [],
+    "reason": null
+  },
+  "node_log": {
+    "present": true,
+    "state_events": [
+      {
+        "state": "ARM_TAKEOFF",
+        "t": 1785261329.6345186,
+        "msg": "ARM 요청"
+      },
+      {
+        "state": "CLIMBING",
+        "t": 1785261332.142097,
+        "msg": "CommandTOL 이륙 요청 alt=120.0m AMSL (지면 0.0+120.0) -> CLIMBING"
+      },
+      {
+        "state": "TRANSITION_FW",
+        "t": 1785261385.3334253,
+        "msg": "운용 고도 120.0m 도달 → transition_fw"
+      },
+      {
+        "state": "STREAMING",
+        "t": 1785261405.333506,
+        "msg": "FW 전환 완료 -> STREAMING"
+      },
+      {
+        "state": "FOLLOWING",
+        "t": 1785261405.4504805,
+        "msg": "OFFBOARD 확인 → FOLLOWING"
+      }
+    ],
+    "all_state_events": [
+      {
+        "state": "ARM_TAKEOFF",
+        "t": 1785261329.6345186,
+        "msg": "ARM 요청"
+      },
+      {
+        "state": "CLIMBING",
+        "t": 1785261332.142097,
+        "msg": "CommandTOL 이륙 요청 alt=120.0m AMSL (지면 0.0+120.0) -> CLIMBING"
+      },
+      {
+        "state": "TRANSITION_FW",
+        "t": 1785261385.3334253,
+        "msg": "운용 고도 120.0m 도달 → transition_fw"
+      },
+      {
+        "state": "STREAMING",
+        "t": 1785261405.333506,
+        "msg": "FW 전환 완료 -> STREAMING"
+      },
+      {
+        "state": "FOLLOWING",
+        "t": 1785261405.4504805,
+        "msg": "OFFBOARD 확인 → FOLLOWING"
+      }
+    ],
+    "warnings": [
+      {
+        "pattern": "정렬 구간 OFFBOARD 이탈 → 재요청 (mode=AUTO.LOITER)",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785261387.4341407,
+        "last_t": 1785261387.4341407,
+        "sample": "정렬 구간 OFFBOARD 이탈 → 재요청 (mode=AUTO.LOITER)"
+      },
+      {
+        "pattern": "⚠️ 천이고도와 경로고도가 #m 어긋난다 (transition_alt=#m vs 경로 순항고도, 현재 #m → #m). 램프가 계단은 막지만 기체는 이 고도차를 순항 중에 메워야 한다 — 의도한 값인지 확인할 것",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785261402.6341205,
+        "last_t": 1785261402.6341205,
+        "sample": "⚠️ 천이고도와 경로고도가 70.7m 어긋난다 (transition_alt=120.0m vs 경로 순항고도, 현재 120.7m → 50.0m). 램프가 계단은 막지만 기체는 이 고도차를 순항 중에 메워야 한다 — 의도한 값인지 확인할 것"
+      },
+      {
+        "pattern": "[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785261894.4354875,
+        "last_t": 1785261894.4354875,
+        "first_line": 536,
+        "sample": "[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)",
+        "raw_stdout": true,
+        "after_sigint": true
+      }
+    ],
+    "errors": [
+      {
+        "pattern": "[offboard_node#] Traceback (most recent call last):",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785261894.4354875,
+        "last_t": 1785261894.4354875,
+        "first_line": 539,
+        "sample": "[offboard_node-2] Traceback (most recent call last):",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[telemetry_node#] Traceback (most recent call last):",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785261894.4354875,
+        "last_t": 1785261894.4354875,
+        "first_line": 543,
+        "sample": "[telemetry_node-1] Traceback (most recent call last):",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[offboard_node#] KeyboardInterrupt",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785261894.4354875,
+        "last_t": 1785261894.4354875,
+        "first_line": 558,
+        "sample": "[offboard_node-2] KeyboardInterrupt",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[telemetry_node#] KeyboardInterrupt",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785261894.4354875,
+        "last_t": 1785261894.4354875,
+        "first_line": 575,
+        "sample": "[telemetry_node-1] KeyboardInterrupt",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[ERROR] [telemetry_node#]: process has died [pid #, exit code #, cmd '/root/ws_r#b/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __node:=telemetry_node",
+        "level": "ERROR",
+        "count": 1,
+        "first_t": 1785261894.4354875,
+        "last_t": 1785261894.4354875,
+        "first_line": 593,
+        "sample": "[ERROR] [telemetry_node-1]: process has died [pid 1348, exit code -2, cmd '/root/ws_r5b/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __node:=telemetry_node'].",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[ERROR] [offboard_node#]: process has died [pid #, exit code #, cmd '/root/ws_r#b/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node:=offboard_node --",
+        "level": "ERROR",
+        "count": 1,
+        "first_t": 1785261894.4354875,
+        "last_t": 1785261894.4354875,
+        "first_line": 594,
+        "sample": "[ERROR] [offboard_node-2]: process has died [pid 1350, exit code -2, cmd '/root/ws_r5b/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node:=offboard_node --params-file /root/ws_r5b/install/fc_ros/share/fc_ros/params/fc_ros_params.yaml --params-file /tmp/launch_params_2aoykwcc'].",
+        "raw_stdout": true,
+        "after_sigint": true
+      }
+    ],
+    "heading_align": {
+      "t": 1785261402.6336215,
+      "target_deg": 0.0,
+      "current_deg": 2.3,
+      "err_deg": -2.3
+    },
+    "path_origin": null,
+    "takeoff_request": {
+      "t": 1785261332.142097,
+      "target_amsl": 120.0,
+      "ground_amsl": 0.0,
+      "transition_alt": 120.0
+    },
+    "cte_samples": [
+      {
+        "t": 1785261405.535843,
+        "tick": 0,
+        "mode": "OFFBOARD",
+        "cte": -0.2,
+        "pos": [
+          13.3,
+          -0.2
+        ],
+        "tgt": [
+          83.3,
+          0.0
+        ],
+        "seg": 13
+      },
+      {
+        "t": 1785261407.4352221,
+        "tick": 20,
+        "mode": "OFFBOARD",
+        "cte": -0.5,
+        "pos": [
+          45.2,
+          -0.5
+        ],
+        "tgt": [
+          115.2,
+          0.0
+        ],
+        "seg": 45
+      },
+      {
+        "t": 1785261409.4370964,
+        "tick": 40,
+        "mode": "OFFBOARD",
+        "cte": -0.3,
+        "pos": [
+          75.1,
+          -0.3
+        ],
+        "tgt": [
+          145.1,
+          0.0
+        ],
+        "seg": 75
+      },
+      {
+        "t": 1785261411.435018,
+        "tick": 60,
+        "mode": "OFFBOARD",
+        "cte": -0.1,
+        "pos": [
+          106.0,
+          -0.1
+        ],
+        "tgt": [
+          176.0,
+          0.0
+        ],
+        "seg": 105
+      },
+      {
+        "t": 1785261413.436604,
+        "tick": 80,
+        "mode": "OFFBOARD",
+        "cte": 0.1,
+        "pos": [
+          135.0,
+          0.1
+        ],
+        "tgt": [
+          205.0,
+          0.0
+        ],
+        "seg": 134
+      },
+      {
+        "t": 1785261415.4348836,
+        "tick": 100,
+        "mode": "OFFBOARD",
+        "cte": 0.2,
+        "pos": [
+          164.0,
+          0.2
+        ],
+        "tgt": [
+          234.0,
+          0.0
+        ],
+        "seg": 163
+      },
+      {
+        "t": 1785261417.4352446,
+        "tick": 120,
+        "mode": "OFFBOARD",
+        "cte": 0.2,
+        "pos": [
+          192.9,
+          0.2
+        ],
+        "tgt": [
+          262.9,
+          0.0
+        ],
+        "seg": 192
+      },
+      {
+        "t": 1785261419.435684,
+        "tick": 140,
+        "mode": "OFFBOARD",
+        "cte": 0.2,
+        "pos": [
+          221.5,
+          0.2
+        ],
+        "tgt": [
+          291.5,
+          0.0
+        ],
+        "seg": 221
+      },
+      {
+        "t": 1785261421.4352622,
+        "tick": 160,
+        "mode": "OFFBOARD",
+        "cte": 0.1,
+        "pos": [
+          249.9,
+          0.1
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 249
+      },
+      {
+        "t": 1785261423.4362342,
+        "tick": 180,
+        "mode": "OFFBOARD",
+        "cte": -0.7,
+        "pos": [
+          278.0,
+          -0.7
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 278
+      },
+      {
+        "t": 1785261425.4339597,
+        "tick": 200,
+        "mode": "OFFBOARD",
+        "cte": -23.2,
+        "pos": [
+          297.2,
+          -23.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 297
+      },
+      {
+        "t": 1785261427.4343812,
+        "tick": 220,
+        "mode": "OFFBOARD",
+        "cte": -46.8,
+        "pos": [
+          314.1,
+          -46.8
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785261429.433913,
+        "tick": 240,
+        "mode": "OFFBOARD",
+        "cte": -67.1,
+        "pos": [
+          339.3,
+          -67.1
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785261431.4340158,
+        "tick": 260,
+        "mode": "OFFBOARD",
+        "cte": -50.3,
+        "pos": [
+          376.3,
+          -50.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785261434.7342875,
+        "tick": 280,
+        "mode": "OFFBOARD",
+        "cte": -24.3,
+        "pos": [
+          367.8,
+          -24.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785261436.7342403,
+        "tick": 300,
+        "mode": "OFFBOARD",
+        "cte": -7.6,
+        "pos": [
+          349.2,
+          -7.6
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785261438.7339842,
+        "tick": 320,
+        "mode": "OFFBOARD",
+        "cte": -0.4,
+        "pos": [
+          322.8,
+          -0.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785261440.7343519,
+        "tick": 340,
+        "mode": "OFFBOARD",
+        "cte": 20.3,
+        "pos": [
+          303.6,
+          20.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785261442.7344747,
+        "tick": 360,
+        "mode": "OFFBOARD",
+        "cte": 40.2,
+        "pos": [
+          281.0,
+          40.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 281
+      },
+      {
+        "t": 1785261444.7348595,
+        "tick": 380,
+        "mode": "OFFBOARD",
+        "cte": 53.9,
+        "pos": [
+          243.7,
+          53.9
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 243
+      },
+      {
+        "t": 1785261446.7350814,
+        "tick": 400,
+        "mode": "OFFBOARD",
+        "cte": 22.6,
+        "pos": [
+          199.4,
+          22.6
+        ],
+        "tgt": [
+          269.4,
+          0.0
+        ],
+        "seg": 199
+      },
+      {
+        "t": 1785261448.7348547,
+        "tick": 420,
+        "mode": "OFFBOARD",
+        "cte": -18.0,
+        "pos": [
+          202.3,
+          -18.0
+        ],
+        "tgt": [
+          272.3,
+          0.0
+        ],
+        "seg": 202
+      },
+      {
+        "t": 1785261450.7350123,
+        "tick": 440,
+        "mode": "OFFBOARD",
+        "cte": -57.4,
+        "pos": [
+          218.1,
+          -57.4
+        ],
+        "tgt": [
+          288.1,
+          0.0
+        ],
+        "seg": 218
+      },
+      {
+        "t": 1785261452.7349908,
+        "tick": 460,
+        "mode": "OFFBOARD",
+        "cte": -116.4,
+        "pos": [
+          227.3,
+          -116.4
+        ],
+        "tgt": [
+          297.3,
+          0.0
+        ],
+        "seg": 227
+      },
+      {
+        "t": 1785261454.734679,
+        "tick": 480,
+        "mode": "OFFBOARD",
+        "cte": -134.9,
+        "pos": [
+          246.4,
+          -134.9
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 246
+      },
+      {
+        "t": 1785261456.7344663,
+        "tick": 500,
+        "mode": "OFFBOARD",
+        "cte": -136.9,
+        "pos": [
+          276.0,
+          -136.9
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 275
+      },
+      {
+        "t": 1785261458.7342892,
+        "tick": 520,
+        "mode": "OFFBOARD",
+        "cte": -141.5,
+        "pos": [
+          277.7,
+          -141.5
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261460.7345288,
+        "tick": 540,
+        "mode": "OFFBOARD",
+        "cte": -140.8,
+        "pos": [
+          278.1,
+          -140.8
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 278
+      },
+      {
+        "t": 1785261462.737338,
+        "tick": 560,
+        "mode": "OFFBOARD",
+        "cte": -140.5,
+        "pos": [
+          278.1,
+          -140.5
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 278
+      },
+      {
+        "t": 1785261464.7346265,
+        "tick": 580,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          278.0,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261468.0351331,
+        "tick": 600,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          278.0,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261470.0345676,
+        "tick": 620,
+        "mode": "OFFBOARD",
+        "cte": -140.2,
+        "pos": [
+          277.9,
+          -140.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261472.0344465,
+        "tick": 640,
+        "mode": "OFFBOARD",
+        "cte": -140.2,
+        "pos": [
+          277.9,
+          -140.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261474.0343356,
+        "tick": 660,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261476.034411,
+        "tick": 680,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261478.0343525,
+        "tick": 700,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261480.0367765,
+        "tick": 720,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261482.0352294,
+        "tick": 740,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261484.0368698,
+        "tick": 760,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261486.0364914,
+        "tick": 780,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261488.0358207,
+        "tick": 800,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261490.0367877,
+        "tick": 820,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261492.0351906,
+        "tick": 840,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261494.0361843,
+        "tick": 860,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261496.0349498,
+        "tick": 880,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261498.0361514,
+        "tick": 900,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261501.3362486,
+        "tick": 920,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261503.336715,
+        "tick": 940,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261505.336423,
+        "tick": 960,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261507.335724,
+        "tick": 980,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261509.3382392,
+        "tick": 1000,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261511.3359942,
+        "tick": 1020,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261513.3349197,
+        "tick": 1040,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261515.3350127,
+        "tick": 1060,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261517.3351235,
+        "tick": 1080,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261519.336623,
+        "tick": 1100,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261521.3355649,
+        "tick": 1120,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261523.3366745,
+        "tick": 1140,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261525.3354938,
+        "tick": 1160,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261527.3350577,
+        "tick": 1180,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261529.3353784,
+        "tick": 1200,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261531.3367698,
+        "tick": 1220,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261534.6362417,
+        "tick": 1240,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261536.6352375,
+        "tick": 1260,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261538.6360905,
+        "tick": 1280,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261540.6363397,
+        "tick": 1300,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261542.6359203,
+        "tick": 1320,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261544.6359034,
+        "tick": 1340,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261546.6353643,
+        "tick": 1360,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261548.6351063,
+        "tick": 1380,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261550.6354103,
+        "tick": 1400,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261552.6353474,
+        "tick": 1420,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261554.635331,
+        "tick": 1440,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261556.6360142,
+        "tick": 1460,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261558.6367183,
+        "tick": 1480,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261560.6363297,
+        "tick": 1500,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261562.6363304,
+        "tick": 1520,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261564.6357317,
+        "tick": 1540,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261566.6355066,
+        "tick": 1560,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261570.0352511,
+        "tick": 1580,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261572.0355046,
+        "tick": 1600,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261574.0355794,
+        "tick": 1620,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261576.036507,
+        "tick": 1640,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261578.0353165,
+        "tick": 1660,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261580.0361419,
+        "tick": 1680,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261582.0360048,
+        "tick": 1700,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261584.0349271,
+        "tick": 1720,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261586.0364633,
+        "tick": 1740,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261588.0371268,
+        "tick": 1760,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261590.0353553,
+        "tick": 1780,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261592.0356054,
+        "tick": 1800,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261594.0355732,
+        "tick": 1820,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261596.0351706,
+        "tick": 1840,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261598.03681,
+        "tick": 1860,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261600.038528,
+        "tick": 1880,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.8,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261603.6349685,
+        "tick": 1900,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261605.6369472,
+        "tick": 1920,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261607.6356769,
+        "tick": 1940,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261609.6357439,
+        "tick": 1960,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261611.6371617,
+        "tick": 1980,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.8,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261613.6352084,
+        "tick": 2000,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261615.635951,
+        "tick": 2020,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261617.6360867,
+        "tick": 2040,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261619.6354206,
+        "tick": 2060,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261621.6362631,
+        "tick": 2080,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261623.635064,
+        "tick": 2100,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261625.6348994,
+        "tick": 2120,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261627.635162,
+        "tick": 2140,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261629.6350071,
+        "tick": 2160,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261631.6347437,
+        "tick": 2180,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261633.6355085,
+        "tick": 2200,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261636.836667,
+        "tick": 2220,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261638.8353333,
+        "tick": 2240,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261640.8352835,
+        "tick": 2260,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261642.8366086,
+        "tick": 2280,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261644.8360302,
+        "tick": 2300,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261646.8353777,
+        "tick": 2320,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261648.8356154,
+        "tick": 2340,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261650.8349047,
+        "tick": 2360,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261652.834961,
+        "tick": 2380,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261654.836701,
+        "tick": 2400,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261656.836312,
+        "tick": 2420,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261658.8358598,
+        "tick": 2440,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261660.8355336,
+        "tick": 2460,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261662.8358426,
+        "tick": 2480,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261664.8364952,
+        "tick": 2500,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261666.8361673,
+        "tick": 2520,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261670.0358005,
+        "tick": 2540,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261672.0365567,
+        "tick": 2560,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261674.035926,
+        "tick": 2580,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261676.0355585,
+        "tick": 2600,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261678.035846,
+        "tick": 2620,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261680.0373485,
+        "tick": 2640,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261682.0353022,
+        "tick": 2660,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261684.0354807,
+        "tick": 2680,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261686.0355434,
+        "tick": 2700,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261688.0353842,
+        "tick": 2720,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261690.0369406,
+        "tick": 2740,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261692.0350146,
+        "tick": 2760,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261694.0355682,
+        "tick": 2780,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261696.0378613,
+        "tick": 2800,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261698.0355716,
+        "tick": 2820,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261700.0352738,
+        "tick": 2840,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261703.4534607,
+        "tick": 2860,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261705.4440055,
+        "tick": 2880,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261707.4350255,
+        "tick": 2900,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261709.4358609,
+        "tick": 2920,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261711.4357243,
+        "tick": 2940,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261713.4353676,
+        "tick": 2960,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261715.4347897,
+        "tick": 2980,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261717.4358888,
+        "tick": 3000,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261719.4359972,
+        "tick": 3020,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261721.4372873,
+        "tick": 3040,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261723.4351528,
+        "tick": 3060,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261725.4363325,
+        "tick": 3080,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261727.4354734,
+        "tick": 3100,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261729.4352589,
+        "tick": 3120,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261731.4362035,
+        "tick": 3140,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261733.4373894,
+        "tick": 3160,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261735.436129,
+        "tick": 3180,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261738.835188,
+        "tick": 3200,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261740.8359742,
+        "tick": 3220,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261742.835784,
+        "tick": 3240,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261744.8356433,
+        "tick": 3260,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261746.8346355,
+        "tick": 3280,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261748.834977,
+        "tick": 3300,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261750.835132,
+        "tick": 3320,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261752.8360023,
+        "tick": 3340,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261754.8361545,
+        "tick": 3360,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261756.8370106,
+        "tick": 3380,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261758.8354702,
+        "tick": 3400,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261760.834875,
+        "tick": 3420,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261762.8371413,
+        "tick": 3440,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261764.8374147,
+        "tick": 3460,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261766.8350947,
+        "tick": 3480,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261768.835975,
+        "tick": 3500,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261772.2356768,
+        "tick": 3520,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261774.2357397,
+        "tick": 3540,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261776.235321,
+        "tick": 3560,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261778.2348902,
+        "tick": 3580,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261780.2346535,
+        "tick": 3600,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261782.2348638,
+        "tick": 3620,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261784.2373257,
+        "tick": 3640,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261786.235012,
+        "tick": 3660,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261788.2353904,
+        "tick": 3680,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261790.237182,
+        "tick": 3700,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261792.236087,
+        "tick": 3720,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.8,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261794.235901,
+        "tick": 3740,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261796.2355173,
+        "tick": 3760,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261798.2350037,
+        "tick": 3780,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261800.2358124,
+        "tick": 3800,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261802.235011,
+        "tick": 3820,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261805.6357715,
+        "tick": 3840,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261807.634947,
+        "tick": 3860,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261809.636611,
+        "tick": 3880,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261811.6352324,
+        "tick": 3900,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261813.6353128,
+        "tick": 3920,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261815.6351361,
+        "tick": 3940,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261817.6356175,
+        "tick": 3960,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261819.636698,
+        "tick": 3980,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261821.6364913,
+        "tick": 4000,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261823.6349726,
+        "tick": 4020,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261825.6353328,
+        "tick": 4040,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261827.6365678,
+        "tick": 4060,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261829.6350741,
+        "tick": 4080,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261831.6360006,
+        "tick": 4100,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.8,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261833.635388,
+        "tick": 4120,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.8,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261835.6352854,
+        "tick": 4140,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.8,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261837.6351304,
+        "tick": 4160,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.8,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261840.9359252,
+        "tick": 4180,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261842.9353979,
+        "tick": 4200,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261844.9346223,
+        "tick": 4220,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261846.9348452,
+        "tick": 4240,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261848.9349349,
+        "tick": 4260,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261850.934585,
+        "tick": 4280,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261852.9347265,
+        "tick": 4300,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261854.9349754,
+        "tick": 4320,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261856.9348552,
+        "tick": 4340,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261858.9348745,
+        "tick": 4360,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261860.9348452,
+        "tick": 4380,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261862.93461,
+        "tick": 4400,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261864.9356456,
+        "tick": 4420,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261866.9347613,
+        "tick": 4440,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261868.9346895,
+        "tick": 4460,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261870.9352696,
+        "tick": 4480,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261874.4360614,
+        "tick": 4500,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261876.4348562,
+        "tick": 4520,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261878.4351923,
+        "tick": 4540,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261880.435215,
+        "tick": 4560,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261882.4360983,
+        "tick": 4580,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261884.4355974,
+        "tick": 4600,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261886.4350247,
+        "tick": 4620,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261888.435134,
+        "tick": 4640,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261890.4355867,
+        "tick": 4660,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261892.435208,
+        "tick": 4680,
+        "mode": "OFFBOARD",
+        "cte": -140.3,
+        "pos": [
+          277.9,
+          -140.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      },
+      {
+        "t": 1785261894.4354875,
+        "tick": 4700,
+        "mode": "OFFBOARD",
+        "cte": -140.4,
+        "pos": [
+          277.9,
+          -140.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 277
+      }
+    ],
+    "hold_samples": [],
+    "offboard_reacquire": [
+      {
+        "t": 1785261387.4341407,
+        "msg": "정렬 구간 OFFBOARD 이탈 → 재요청 (mode=AUTO.LOITER)"
+      }
+    ],
+    "timeouts": [],
+    "planner_nr_residual_m": [],
+    "segment_jumps": [],
+    "line_count": 594,
+    "t_first": 1785261329.5040324,
+    "t_last": 1785261894.4354875
+  },
+  "mavros_log": {
+    "present": true,
+    "warnings": [
+      {
+        "pattern": "FCU: EVENT # with args ########################################-",
+        "level": "ERROR",
+        "count": 34,
+        "first_t": 1785261311.9863207,
+        "last_t": 1785261459.9066591,
+        "sample": "FCU: EVENT 7791755 with args -255-1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "FCU: UNK(#): EVENT # with args ########################################-",
+        "level": "WARN",
+        "count": 28,
+        "first_t": 1785261313.154854,
+        "last_t": 1785261459.906746,
+        "sample": "FCU: UNK(8): EVENT 11047904 with args -0-0-0-18-1-128-0-0-0-0-58-1-128-0-58-1-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "TM: Time jump detected. Resetting time synchroniser.",
+        "level": "ERROR",
+        "count": 11,
+        "first_t": 1785261363.603593,
+        "last_t": 1785261877.0599654,
+        "sample": "TM: Time jump detected. Resetting time synchroniser.",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: unicast request timeout, retries left #",
+        "level": "WARN",
+        "count": 5,
+        "first_t": 1785261311.3410113,
+        "last_t": 1785261318.433909,
+        "sample": "VER: unicast request timeout, retries left 2",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: broadcast request timeout, retries left #",
+        "level": "WARN",
+        "count": 4,
+        "first_t": 1785261309.4210916,
+        "last_t": 1785261315.549192,
+        "sample": "VER: broadcast request timeout, retries left 4",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: command plugin service call failed!",
+        "level": "ERROR",
+        "count": 4,
+        "first_t": 1785261316.5218341,
+        "last_t": 1785261319.3817248,
+        "sample": "VER: command plugin service call failed!",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "CMD: Unexpected command #, result #",
+        "level": "WARN",
+        "count": 2,
+        "first_t": 1785261312.301962,
+        "last_t": 1785261387.3419218,
+        "sample": "CMD: Unexpected command 520, result 3",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "PR: Failed to get parameter type: CBRK_SUPPLY_CHK",
+        "level": "WARN",
+        "count": 2,
+        "first_t": 1785261318.155649,
+        "last_t": 1785261322.1549933,
+        "sample": "PR: Failed to get parameter type: CBRK_SUPPLY_CHK",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: your FCU don't support AUTOPILOT_VERSION, switched to default capabilities",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785261319.3818057,
+        "last_t": 1785261319.3818057,
+        "sample": "VER: your FCU don't support AUTOPILOT_VERSION, switched to default capabilities",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "TM: RTT too high for timesync: # ms.",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785261324.123971,
+        "last_t": 1785261324.123971,
+        "sample": "TM: RTT too high for timesync: 505.09 ms.",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "UAS Executor terminated",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785261894.9152718,
+        "last_t": 1785261894.9152718,
+        "sample": "UAS Executor terminated",
+        "known_cosmetic": false
+      }
+    ],
+    "line_count": 289
+  },
+  "verdict": [
+    {
+      "item": "완주 (DONE 도달)",
+      "status": "FAIL",
+      "criterion": "DONE 상태 도달",
+      "detail": "관측 상태: ARM_TAKEOFF → CLIMBING → TRANSITION_FW → STREAMING → FOLLOWING; 종료사유=timeout"
+    },
+    {
+      "item": "disarm 확인",
+      "status": "FAIL",
+      "criterion": "ulog arming_state 2→1",
+      "detail": "로그 끝까지 disarm 되지 않음"
+    },
+    {
+      "item": "상태 순서",
+      "status": "PASS",
+      "criterion": "정상 순서의 부분수열",
+      "detail": "ARM_TAKEOFF → CLIMBING → TRANSITION_FW → STREAMING → FOLLOWING"
+    },
+    {
+      "item": "vtol_state 시퀀스",
+      "status": "FAIL",
+      "criterion": "3→1→4, 4→2→3",
+      "detail": "seq=[3, 1, 4], 정천이 2.516s / 역천이 Nones"
+    },
+    {
+      "item": "setpoint 점프",
+      "status": "FAIL",
+      "criterion": "상태 경계 ±1s 에서 1.5m 초과 점프 없음",
+      "detail": "임계 1.5m, 경계±1s 위반 4건 / 전체 위반 96건 / 샘플 2696개, 최대 216.6758m (712.7493 m/s). 경계 최대: 216.6758m@95.3s(FOLLOWING), 3.6569m@95.7s(FOLLOWING), 3.6237m@95.9s(FOLLOWING). 스트림 재개 갭 1건은 별도 집계"
+    },
+    {
+      "item": "수직 가속",
+      "status": "FAIL",
+      "criterion": "천이 제외 |az| ≤ 0.5g (4.90 m/s²)",
+      "detail": "피크 |az|=2936.6353 m/s² (299.4535g) @141.984s state=FOLLOWING; 접지 제외값 없음(disarm 시각을 몰라 접지 구간을 제외할 수 없음)"
+    },
+    {
+      "item": "역천이 감속률",
+      "status": "NULL",
+      "criterion": "≤ 0.3g (2.94 m/s²)",
+      "detail": "역천이 구간(vtol_state==2 또는 TRANSITION_MC 상태창)을 특정할 수 없음 — 역천이가 일어나지 않았을 수 있다"
+    },
+    {
+      "item": "TRANSITION_FW 헤딩",
+      "status": "PASS",
+      "criterion": "단조수렴 + err ≤ 2.9°",
+      "detail": "시작오차 -97.08° → 정렬 14.304s 소요, 최대 97.1179°, tol 진입 후 재증가 0.0 rad, 단조수렴=True"
+    },
+    {
+      "item": "CLIMBING 오버슈트",
+      "status": "PASS",
+      "criterion": "≤ +10%",
+      "detail": "최대 AGL 119.3155m vs transition_alt 120.0m → -0.5704%"
+    },
+    {
+      "item": "정천이 고도손실",
+      "status": "PASS",
+      "criterion": "≤ 5m",
+      "detail": "120.7502m → 최저 120.6659m (손실 0.0843m)"
+    },
+    {
+      "item": "순항 고도편차",
+      "status": "FAIL",
+      "criterion": "±3m",
+      "detail": "기준 AGL 50.0463m, 평균편차 -42.3563m, 최대 |편차| 70.5869m"
+    },
+    {
+      "item": "FW cte",
+      "status": "WARN",
+      "criterion": "직선 ≤ 2m (코너는 별도 기록)",
+      "detail": "최대 |cte| 141.5m 평균 128.3631m (부호 -141.5~53.9m, n=236) — 코너 오버슈트 포함값"
+    },
+    {
+      "item": "경고/타임아웃",
+      "status": "WARN",
+      "criterion": "무해성 판단은 사람이 한다(계획서 5장)",
+      "detail": "node.log 13건/9종, mavros.log 93건/11종 — verdict 하단 목록 참조"
+    }
+  ]
+}

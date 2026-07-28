@@ -18,6 +18,10 @@ node_modules/
 # /root/drone_ws/src/suridoksuri/logs/2026-07-27_sitl_vtol_campaign/<id>/ 에 남고
 # 파일명은 meta.json 의 "ulogs" 에 기록된다.
 logs/2026-07-27_sitl_vtol_campaign/**/*.ulg
+# 같은 이유로 R5 F-9 검증 런(2026-07-29)의 ulog 도 제외. 이쪽은 C1b 가
+# FOLLOWING 을 못 벗어나 540s 를 채우는 바람에 런 1건이 **161MB** 다.
+# 원본은 WSL Ubuntu-22.04 /root/ws_r5b/src/suridoksuri/logs/2026-07-29_r5_f9/<id>/.
+logs/2026-07-29_r5_f9/**/*.ulg
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

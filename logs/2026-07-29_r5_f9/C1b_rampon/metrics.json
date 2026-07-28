@@ -1,0 +1,4963 @@
+{
+  "scenario_id": "C1b",
+  "run_dir": "/root/ws_r5b/src/suridoksuri/logs/2026-07-29_r5_f9/C1b_rampon",
+  "ulog_file": "18_05_54.ulg",
+  "ulog_selection_note": null,
+  "ulog_error": null,
+  "resolved_params": {
+    "control_hz": 10.0,
+    "v_approach": 5.0,
+    "v_cruise": 18.0,
+    "transition_alt": 120.0,
+    "d_end_thresh": 10.0,
+    "wp0_heading_tol": 0.05,
+    "l1_dist": 20.0,
+    "waypoint_frame": "local",
+    "entry_mode": "pre_takeoff"
+  },
+  "waypoints": [
+    [
+      0.0,
+      0.0,
+      50.0
+    ],
+    [
+      300.0,
+      0.0,
+      50.0
+    ]
+  ],
+  "ulog_topics": [
+    "actuator_armed",
+    "actuator_controls_status_0",
+    "actuator_motors",
+    "actuator_outputs",
+    "actuator_servos",
+    "airspeed",
+    "airspeed_validated",
+    "airspeed_wind",
+    "battery_status",
+    "config_overrides",
+    "control_allocator_status",
+    "cpuload",
+    "differential_pressure",
+    "distance_sensor_mode_change_request",
+    "ekf2_timestamps",
+    "esc_status",
+    "estimator_aid_src_airspeed",
+    "estimator_aid_src_baro_hgt",
+    "estimator_aid_src_fake_hgt",
+    "estimator_aid_src_fake_pos",
+    "estimator_aid_src_gnss_hgt",
+    "estimator_aid_src_gnss_pos",
+    "estimator_aid_src_gnss_vel",
+    "estimator_aid_src_gravity",
+    "estimator_aid_src_mag",
+    "estimator_aid_src_sideslip",
+    "estimator_baro_bias",
+    "estimator_event_flags",
+    "estimator_fusion_control",
+    "estimator_gps_status",
+    "estimator_innovation_test_ratios",
+    "estimator_innovation_variances",
+    "estimator_innovations",
+    "estimator_sensor_bias",
+    "estimator_states",
+    "estimator_status",
+    "estimator_status_flags",
+    "event",
+    "failsafe_flags",
+    "failure_detector_status",
+    "fixed_wing_lateral_guidance_status",
+    "fixed_wing_lateral_setpoint",
+    "fixed_wing_lateral_status",
+    "fixed_wing_longitudinal_setpoint",
+    "flaps_setpoint",
+    "flight_phase_estimation",
+    "fw_virtual_attitude_setpoint",
+    "gain_compression",
+    "gripper",
+    "home_position",
+    "hover_thrust_estimate",
+    "landing_gear",
+    "landing_gear_wheel",
+    "lateral_control_configuration",
+    "logger_status",
+    "longitudinal_control_configuration",
+    "manual_control_setpoint",
+    "mc_virtual_attitude_setpoint",
+    "mission_result",
+    "navigator_status",
+    "offboard_control_mode",
+    "parameter_update",
+    "position_setpoint_triplet",
+    "rate_ctrl_status",
+    "rtl_status",
+    "rtl_time_estimate",
+    "sensor_accel",
+    "sensor_baro",
+    "sensor_combined",
+    "sensor_gps",
+    "sensor_gyro",
+    "sensor_gyro_fft",
+    "sensor_mag",
+    "sensor_selection",
+    "sensors_status_imu",
+    "spoilers_setpoint",
+    "system_power",
+    "takeoff_status",
+    "tecs_status",
+    "telemetry_status",
+    "timesync_status",
+    "trajectory_setpoint",
+    "transponder_report",
+    "vehicle_acceleration",
+    "vehicle_air_data",
+    "vehicle_angular_velocity",
+    "vehicle_angular_velocity_groundtruth",
+    "vehicle_attitude",
+    "vehicle_attitude_groundtruth",
+    "vehicle_attitude_setpoint",
+    "vehicle_command",
+    "vehicle_command_ack",
+    "vehicle_constraints",
+    "vehicle_control_mode",
+    "vehicle_global_position",
+    "vehicle_global_position_groundtruth",
+    "vehicle_gps_position",
+    "vehicle_imu",
+    "vehicle_imu_status",
+    "vehicle_land_detected",
+    "vehicle_local_position",
+    "vehicle_local_position_groundtruth",
+    "vehicle_local_position_setpoint",
+    "vehicle_magnetometer",
+    "vehicle_rates_setpoint",
+    "vehicle_status",
+    "vehicle_thrust_setpoint",
+    "vehicle_thrust_setpoint_virtual_fw",
+    "vehicle_thrust_setpoint_virtual_mc",
+    "vehicle_torque_setpoint",
+    "vehicle_torque_setpoint_virtual_fw",
+    "vehicle_torque_setpoint_virtual_mc",
+    "vtol_vehicle_status",
+    "wind",
+    "yaw_estimator_status"
+  ],
+  "ulog_duration_s": 564.036,
+  "time_alignment": {
+    "offset_s": 1785261948.3949525,
+    "scale": 1.059309477935374,
+    "model": "wall_t = scale * ulog_t + offset_s",
+    "n_anchors": 3,
+    "max_abs_residual_s": 0.02231121063232422,
+    "const_offset_spread_s": 3.9492359161376953,
+    "anchors": [
+      {
+        "anchor": "COMPONENT_ARM_DISARM(400)",
+        "ulog_t": 25.236,
+        "wall_t": 1785261975.1496692,
+        "const_offset_s": 1785261949.913669,
+        "fit_residual_s": 0.021982669830322266
+      },
+      {
+        "anchor": "NAV_TAKEOFF(22)",
+        "ulog_t": 26.224,
+        "wall_t": 1785261976.151973,
+        "const_offset_s": 1785261949.927973,
+        "fit_residual_s": -0.02231121063232422
+      },
+      {
+        "anchor": "DO_VTOL_TRANSITION→FW(3000,p1=4)",
+        "ulog_t": 92.188,
+        "wall_t": 1785262046.050905,
+        "const_offset_s": 1785261953.862905,
+        "fit_residual_s": 0.00033020973205566406
+      }
+    ],
+    "reason": null
+  },
+  "state_windows_ulog_s": {
+    "ARM_TAKEOFF": [
+      25.2568,
+      26.2029
+    ],
+    "CLIMBING": [
+      26.2029,
+      75.2886
+    ],
+    "TRANSITION_FW": [
+      75.2886,
+      94.6405
+    ],
+    "STREAMING": [
+      94.6405,
+      94.7443
+    ],
+    "FOLLOWING": [
+      94.7443,
+      564.036
+    ]
+  },
+  "completion": {
+    "states_seen": [
+      "ARM_TAKEOFF",
+      "CLIMBING",
+      "TRANSITION_FW",
+      "STREAMING",
+      "FOLLOWING"
+    ],
+    "order_is_subsequence_of_canonical": true,
+    "reached_done": false,
+    "pilot_takeover": false,
+    "override": false,
+    "exit_reason": "timeout",
+    "exit_code": 2,
+    "mission_span_s": 73.6089,
+    "state_timeline": [
+      {
+        "state": "ARM_TAKEOFF",
+        "entry_wall_t": 1785261975.1496692,
+        "dwell_s": 1.0023
+      },
+      {
+        "state": "CLIMBING",
+        "entry_wall_t": 1785261976.151973,
+        "dwell_s": 51.9969
+      },
+      {
+        "state": "TRANSITION_FW",
+        "entry_wall_t": 1785262028.1489112,
+        "dwell_s": 20.4996
+      },
+      {
+        "state": "STREAMING",
+        "entry_wall_t": 1785262048.648514,
+        "dwell_s": 0.11
+      },
+      {
+        "state": "FOLLOWING",
+        "entry_wall_t": 1785262048.7585354,
+        "dwell_s": 494.2923
+      }
+    ],
+    "disarm": {
+      "armed_at_ulog_s": 25.244,
+      "disarmed_at_ulog_s": null,
+      "armed_duration_s": null,
+      "value": false,
+      "reason": "로그 끝까지 disarm 되지 않음"
+    }
+  },
+  "vtol_state_sequence": {
+    "value": [
+      3,
+      1,
+      4
+    ],
+    "segments": [
+      {
+        "vtol_state": 3,
+        "name": "MC",
+        "t_start_ulog_s": 6.328,
+        "duration_s": 85.864
+      },
+      {
+        "vtol_state": 1,
+        "name": "TRANS_TO_FW",
+        "t_start_ulog_s": 92.192,
+        "duration_s": 2.504
+      },
+      {
+        "vtol_state": 4,
+        "name": "FW",
+        "t_start_ulog_s": 94.696,
+        "duration_s": 469.008
+      }
+    ],
+    "forward_transition_s": 2.504,
+    "back_transition_s": null,
+    "forward_ok_3_1_4": true,
+    "back_ok_4_2_3": false,
+    "reason": null
+  },
+  "setpoint_jump": {
+    "source_topic": "trajectory_setpoint",
+    "max_gap_s": 0.5,
+    "threshold_m": 1.5,
+    "threshold_note": "3 x v_approach(5.0) x dt(0.100s) — 계획서 4장. 참고: FW 순항 중 lookahead 목표점은 기체속도로 전진하므로 정상 상태에서도 약 v_cruise(18.0) x dt = 1.80m/틱 이 나온다",
+    "max_jump_m": 5.8617,
+    "max_rate_mps": 29.3083,
+    "n_violations": 97,
+    "n_violations_at_state_boundary": 4,
+    "boundary_violations_top": [
+      {
+        "ulog_t_s": 95.488,
+        "jump_m": 3.6733,
+        "rate_mps": 18.3667,
+        "dt_s": 0.2,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 95.688,
+        "jump_m": 3.6509,
+        "rate_mps": 18.2546,
+        "dt_s": 0.2,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 95.288,
+        "jump_m": 3.548,
+        "rate_mps": 17.7398,
+        "dt_s": 0.2,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 95.088,
+        "jump_m": 3.2406,
+        "rate_mps": 16.8782,
+        "dt_s": 0.192,
+        "near_state_boundary": true,
+        "state": "FOLLOWING"
+      }
+    ],
+    "top10": [
+      {
+        "ulog_t_s": 133.692,
+        "jump_m": 5.8617,
+        "rate_mps": 29.3083,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 134.492,
+        "jump_m": 5.5579,
+        "rate_mps": 27.7895,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 133.892,
+        "jump_m": 5.5176,
+        "rate_mps": 27.588,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 134.092,
+        "jump_m": 5.1889,
+        "rate_mps": 25.9444,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 106.78,
+        "jump_m": 4.443,
+        "rate_mps": 14.8102,
+        "dt_s": 0.3,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 108.58,
+        "jump_m": 4.4224,
+        "rate_mps": 14.9407,
+        "dt_s": 0.296,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 108.964,
+        "jump_m": 4.3059,
+        "rate_mps": 15.1616,
+        "dt_s": 0.284,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 134.692,
+        "jump_m": 4.2552,
+        "rate_mps": 21.2762,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 134.292,
+        "jump_m": 3.9376,
+        "rate_mps": 19.688,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      },
+      {
+        "ulog_t_s": 134.892,
+        "jump_m": 3.7852,
+        "rate_mps": 18.9262,
+        "dt_s": 0.2,
+        "near_state_boundary": false,
+        "state": "FOLLOWING"
+      }
+    ],
+    "n_samples": 2695,
+    "resumption_gaps": [
+      {
+        "ulog_t_s": 94.896,
+        "gap_s": 16.72,
+        "distance_m": 80.309,
+        "state": "FOLLOWING"
+      }
+    ],
+    "n_resumption_gaps": 1,
+    "reason": null,
+    "boundary_windows_available": true
+  },
+  "vertical_accel": {
+    "value": 5661.4712,
+    "peak_g": 577.3094,
+    "peak_at_ulog_s": 141.456,
+    "peak_state": "FOLLOWING",
+    "excluded_windows": [
+      "vtol_state=1 92.2~94.7s"
+    ],
+    "max_including_transition_mps2": 5661.4712,
+    "excl_touchdown": {
+      "value": null,
+      "reason": "disarm 시각을 몰라 접지 구간을 제외할 수 없음"
+    },
+    "reason": null
+  },
+  "decel": {
+    "value": null,
+    "reason": "역천이 구간(vtol_state==2 또는 TRANSITION_MC 상태창)을 특정할 수 없음 — 역천이가 일어나지 않았을 수 있다"
+  },
+  "heading": {
+    "target_chi_rad": 0.0,
+    "target_chi_deg": 0.0,
+    "target_source": "node.log '헤딩 정렬 완료 target=' 값",
+    "tol_rad": 0.05,
+    "window_ulog_s": [
+      75.2886,
+      94.6405
+    ],
+    "n_samples": 4831,
+    "err_at_window_start_deg": -93.0308,
+    "max_abs_err_deg": 93.1414,
+    "final_abs_err_deg": 1.0552,
+    "first_within_tol_ulog_s": 90.224,
+    "align_time_s": 14.932,
+    "overshoot_rad_after_first_in_tol": 0.0,
+    "monotone_convergence": true,
+    "node_log_align": {
+      "t": 1785262046.0488555,
+      "target_deg": 0.0,
+      "current_deg": 2.4,
+      "err_deg": -2.4
+    },
+    "t_align_ulog_s": 92.1864,
+    "reason": null
+  },
+  "altitude": {
+    "z_ground_local_m": -0.0361,
+    "transition_alt_m": 120.0,
+    "climb": {
+      "max_agl_m": 119.0109,
+      "overshoot_pct": -0.8243,
+      "window_ulog_s": [
+        26.2029,
+        75.2886
+      ],
+      "reason": null
+    },
+    "climb_to_following": {
+      "max_agl_m": 121.8634,
+      "overshoot_pct": 1.5528,
+      "window_ulog_s": [
+        26.2029,
+        94.7443
+      ],
+      "reason": null
+    },
+    "transition_alt_loss": {
+      "value": 0.0,
+      "agl_at_start_m": 121.5796,
+      "agl_min_m": 121.5796,
+      "window_ulog_s": [
+        92.192,
+        94.696
+      ],
+      "reason": null
+    },
+    "cruise_alt_dev": {
+      "ref_agl_m": 49.9639,
+      "ref_source": "waypoints[-1].z (EKF 로컬 절대, waypoint_frame=local) − 지면 h_up",
+      "mean_dev_m": -42.1802,
+      "max_abs_dev_m": 71.8838,
+      "min_agl_m": -2.6792,
+      "max_agl_m": 121.8477,
+      "window_ulog_s": [
+        94.7443,
+        564.036
+      ],
+      "reason": null
+    }
+  },
+  "cte": {
+    "node_log_cte": {
+      "n_samples": 236,
+      "max_m": 136.3,
+      "mean_m": 122.1517,
+      "p95_m": 133.3,
+      "signed_min_m": -136.3,
+      "signed_max_m": 55.6,
+      "first_m": -0.1,
+      "last_m": -133.3,
+      "note": "offboard_node 가 20틱마다 찍는 L1Guidance cte. max/mean/p95 는 절댓값, signed_* 는 부호 유지",
+      "reason": null
+    },
+    "geometric_cte": {
+      "n_samples": 58639,
+      "max_m": 137.0108,
+      "mean_m": 123.0613,
+      "p95_m": 133.2886,
+      "note": "원본 waypoints 직선 폴리라인 기준. VTOL 기본 플래너(eta3)는 코너를 곡선으로 잇기 때문에 이 값은 '계획경로 이탈'이 아니라 '직선 대비 편차'다 — 코너 구간에서 크게 나오는 것이 정상.",
+      "reason": null
+    }
+  },
+  "segment_index": {
+    "n_samples": 236,
+    "series": [
+      11,
+      43,
+      73,
+      103,
+      133,
+      162,
+      191,
+      220,
+      248,
+      276,
+      297,
+      299,
+      299,
+      299,
+      299,
+      299,
+      299,
+      299,
+      282,
+      249,
+      196,
+      199,
+      222,
+      246,
+      253,
+      255,
+      255,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254,
+      254
+    ],
+    "t_series": [
+      1785262048.8509,
+      1785262050.7563,
+      1785262052.7508,
+      1785262054.7514,
+      1785262056.7515,
+      1785262058.7529,
+      1785262060.7526,
+      1785262062.7512,
+      1785262064.7502,
+      1785262066.7498,
+      1785262068.7493,
+      1785262070.75,
+      1785262074.6493,
+      1785262076.6508,
+      1785262078.6497,
+      1785262080.6496,
+      1785262082.6494,
+      1785262084.6491,
+      1785262086.6496,
+      1785262088.6536,
+      1785262090.6518,
+      1785262092.6522,
+      1785262094.6513,
+      1785262096.6512,
+      1785262098.6517,
+      1785262100.6505,
+      1785262102.6504,
+      1785262104.6513,
+      1785262106.6508,
+      1785262110.4509,
+      1785262112.4505,
+      1785262114.4525,
+      1785262116.4503,
+      1785262118.4505,
+      1785262120.4521,
+      1785262122.4506,
+      1785262124.4506,
+      1785262126.4503,
+      1785262128.4505,
+      1785262130.4509,
+      1785262132.4516,
+      1785262134.4505,
+      1785262136.4513,
+      1785262138.4504,
+      1785262140.4505,
+      1785262144.151,
+      1785262146.1506,
+      1785262148.1505,
+      1785262150.1514,
+      1785262152.1508,
+      1785262154.1507,
+      1785262156.1514,
+      1785262158.1526,
+      1785262160.1511,
+      1785262162.1576,
+      1785262164.1518,
+      1785262166.1512,
+      1785262168.1503,
+      1785262170.1511,
+      1785262172.1506,
+      1785262174.1513,
+      1785262177.7508,
+      1785262179.7526,
+      1785262181.7513,
+      1785262183.7524,
+      1785262185.7524,
+      1785262187.7518,
+      1785262189.7511,
+      1785262191.7506,
+      1785262193.7513,
+      1785262195.7506,
+      1785262197.7503,
+      1785262199.7508,
+      1785262201.7509,
+      1785262203.7513,
+      1785262205.7502,
+      1785262207.7507,
+      1785262211.4512,
+      1785262213.4522,
+      1785262215.4512,
+      1785262217.4505,
+      1785262219.4516,
+      1785262221.4516,
+      1785262223.4504,
+      1785262225.4504,
+      1785262227.4516,
+      1785262229.4512,
+      1785262231.4518,
+      1785262233.4505,
+      1785262235.4543,
+      1785262237.4511,
+      1785262239.4514,
+      1785262241.4507,
+      1785262245.0511,
+      1785262247.0532,
+      1785262249.0507,
+      1785262251.0508,
+      1785262253.0518,
+      1785262255.0512,
+      1785262257.0511,
+      1785262259.0526,
+      1785262261.05,
+      1785262263.051,
+      1785262265.051,
+      1785262267.0505,
+      1785262269.0511,
+      1785262271.0514,
+      1785262273.0507,
+      1785262275.0509,
+      1785262277.0551,
+      1785262280.653,
+      1785262282.6511,
+      1785262284.6512,
+      1785262286.6507,
+      1785262288.6506,
+      1785262290.6511,
+      1785262292.6514,
+      1785262294.6505,
+      1785262296.651,
+      1785262298.6517,
+      1785262300.6513,
+      1785262302.6515,
+      1785262304.6504,
+      1785262306.6502,
+      1785262308.6506,
+      1785262310.6506,
+      1785262314.2515,
+      1785262316.251,
+      1785262318.2508,
+      1785262320.2537,
+      1785262322.2502,
+      1785262324.25,
+      1785262326.2504,
+      1785262328.2502,
+      1785262330.2519,
+      1785262332.2524,
+      1785262334.2513,
+      1785262336.2505,
+      1785262338.2519,
+      1785262340.2517,
+      1785262342.2508,
+      1785262344.2524,
+      1785262347.8504,
+      1785262349.8512,
+      1785262351.8509,
+      1785262353.8508,
+      1785262355.8514,
+      1785262357.851,
+      1785262359.8502,
+      1785262361.8513,
+      1785262363.8519,
+      1785262365.8505,
+      1785262367.851,
+      1785262369.8508,
+      1785262371.8508,
+      1785262373.851,
+      1785262375.8511,
+      1785262377.8517,
+      1785262381.5554,
+      1785262383.5507,
+      1785262385.5505,
+      1785262387.5516,
+      1785262389.5506,
+      1785262391.5519,
+      1785262393.5515,
+      1785262395.5504,
+      1785262397.5519,
+      1785262399.5505,
+      1785262401.5506,
+      1785262403.5518,
+      1785262405.5519,
+      1785262407.5508,
+      1785262409.5534,
+      1785262411.5506,
+      1785262415.0526,
+      1785262417.0513,
+      1785262419.052,
+      1785262421.0508,
+      1785262423.0508,
+      1785262425.0508,
+      1785262427.0524,
+      1785262429.0524,
+      1785262431.0517,
+      1785262433.0509,
+      1785262435.0505,
+      1785262438.2514,
+      1785262440.2511,
+      1785262442.2508,
+      1785262444.2516,
+      1785262446.2525,
+      1785262448.2516,
+      1785262450.2647,
+      1785262452.2507,
+      1785262454.2512,
+      1785262456.2516,
+      1785262458.2509,
+      1785262460.251,
+      1785262462.251,
+      1785262464.2537,
+      1785262466.2506,
+      1785262468.2542,
+      1785262471.9519,
+      1785262473.9516,
+      1785262475.9514,
+      1785262477.9513,
+      1785262479.9507,
+      1785262481.9504,
+      1785262483.9508,
+      1785262485.9509,
+      1785262487.9502,
+      1785262489.9504,
+      1785262491.9511,
+      1785262493.9514,
+      1785262495.9514,
+      1785262497.9503,
+      1785262499.9523,
+      1785262501.9504,
+      1785262505.4504,
+      1785262507.4528,
+      1785262509.452,
+      1785262511.4519,
+      1785262513.4513,
+      1785262515.4525,
+      1785262517.4509,
+      1785262519.451,
+      1785262521.4507,
+      1785262523.4525,
+      1785262525.4504,
+      1785262527.4507,
+      1785262529.4513,
+      1785262531.4515,
+      1785262533.4514,
+      1785262535.4527,
+      1785262539.0507,
+      1785262541.0523,
+      1785262543.0509
+    ],
+    "first": 11,
+    "last": 254,
+    "monotonic_nondecreasing": false,
+    "n_backward": 4,
+    "backward_events": [
+      {
+        "t": 1785262086.64957,
+        "from": 299,
+        "to": 282,
+        "delta": -17
+      },
+      {
+        "t": 1785262088.6536314,
+        "from": 282,
+        "to": 249,
+        "delta": -33
+      },
+      {
+        "t": 1785262090.651767,
+        "from": 249,
+        "to": 196,
+        "delta": -53
+      },
+      {
+        "t": 1785262104.651312,
+        "from": 255,
+        "to": 254,
+        "delta": -1
+      }
+    ],
+    "max_backward_step": -53,
+    "max_forward_step": 32,
+    "n_tick_jump_warnings": 0,
+    "tick_jump_warnings": [],
+    "reason": null
+  },
+  "node_log": {
+    "present": true,
+    "state_events": [
+      {
+        "state": "ARM_TAKEOFF",
+        "t": 1785261975.1496692,
+        "msg": "ARM 요청"
+      },
+      {
+        "state": "CLIMBING",
+        "t": 1785261976.151973,
+        "msg": "CommandTOL 이륙 요청 alt=120.0m AMSL (지면 -0.0+120.0) -> CLIMBING"
+      },
+      {
+        "state": "TRANSITION_FW",
+        "t": 1785262028.1489112,
+        "msg": "운용 고도 120.0m 도달 → transition_fw"
+      },
+      {
+        "state": "STREAMING",
+        "t": 1785262048.648514,
+        "msg": "FW 전환 완료 -> STREAMING"
+      },
+      {
+        "state": "FOLLOWING",
+        "t": 1785262048.7585354,
+        "msg": "OFFBOARD 확인 → FOLLOWING"
+      }
+    ],
+    "all_state_events": [
+      {
+        "state": "ARM_TAKEOFF",
+        "t": 1785261975.1496692,
+        "msg": "ARM 요청"
+      },
+      {
+        "state": "CLIMBING",
+        "t": 1785261976.151973,
+        "msg": "CommandTOL 이륙 요청 alt=120.0m AMSL (지면 -0.0+120.0) -> CLIMBING"
+      },
+      {
+        "state": "TRANSITION_FW",
+        "t": 1785262028.1489112,
+        "msg": "운용 고도 120.0m 도달 → transition_fw"
+      },
+      {
+        "state": "STREAMING",
+        "t": 1785262048.648514,
+        "msg": "FW 전환 완료 -> STREAMING"
+      },
+      {
+        "state": "FOLLOWING",
+        "t": 1785262048.7585354,
+        "msg": "OFFBOARD 확인 → FOLLOWING"
+      }
+    ],
+    "warnings": [
+      {
+        "pattern": "/mavros/cmd/arming 서비스 없음",
+        "level": "WARN",
+        "count": 10,
+        "first_t": 1785261974.149491,
+        "last_t": 1785261975.0492797,
+        "sample": "/mavros/cmd/arming 서비스 없음"
+      },
+      {
+        "pattern": "정렬 구간 OFFBOARD 이탈 → 재요청 (mode=AUTO.LOITER)",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785262030.2497187,
+        "last_t": 1785262030.2497187,
+        "sample": "정렬 구간 OFFBOARD 이탈 → 재요청 (mode=AUTO.LOITER)"
+      },
+      {
+        "pattern": "⚠️ 천이고도와 경로고도가 #m 어긋난다 (transition_alt=#m vs 경로 순항고도, 현재 #m → #m). 램프가 계단은 막지만 기체는 이 고도차를 순항 중에 메워야 한다 — 의도한 값인지 확인할 것",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785262046.0499082,
+        "last_t": 1785262046.0499082,
+        "sample": "⚠️ 천이고도와 경로고도가 71.6m 어긋난다 (transition_alt=120.0m vs 경로 순항고도, 현재 121.6m → 50.0m). 램프가 계단은 막지만 기체는 이 고도차를 순항 중에 메워야 한다 — 의도한 값인지 확인할 것"
+      },
+      {
+        "pattern": "[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785262543.050872,
+        "last_t": 1785262543.050872,
+        "first_line": 549,
+        "sample": "[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)",
+        "raw_stdout": true,
+        "after_sigint": true
+      }
+    ],
+    "errors": [
+      {
+        "pattern": "[offboard_node#] Traceback (most recent call last):",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785262543.050872,
+        "last_t": 1785262543.050872,
+        "first_line": 552,
+        "sample": "[offboard_node-2] Traceback (most recent call last):",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[telemetry_node#] Traceback (most recent call last):",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785262543.050872,
+        "last_t": 1785262543.050872,
+        "first_line": 554,
+        "sample": "[telemetry_node-1] Traceback (most recent call last):",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[offboard_node#] KeyboardInterrupt",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785262543.050872,
+        "last_t": 1785262543.050872,
+        "first_line": 577,
+        "sample": "[offboard_node-2] KeyboardInterrupt",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[telemetry_node#] KeyboardInterrupt",
+        "level": "ERROR",
+        "count": 2,
+        "first_t": 1785262543.050872,
+        "last_t": 1785262543.050872,
+        "first_line": 586,
+        "sample": "[telemetry_node-1] KeyboardInterrupt",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[ERROR] [telemetry_node#]: process has died [pid #, exit code #, cmd '/root/ws_r#b/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __node:=telemetry_node",
+        "level": "ERROR",
+        "count": 1,
+        "first_t": 1785262543.050872,
+        "last_t": 1785262543.050872,
+        "first_line": 610,
+        "sample": "[ERROR] [telemetry_node-1]: process has died [pid 1321, exit code -2, cmd '/root/ws_r5b/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __node:=telemetry_node'].",
+        "raw_stdout": true,
+        "after_sigint": true
+      },
+      {
+        "pattern": "[ERROR] [offboard_node#]: process has died [pid #, exit code #, cmd '/root/ws_r#b/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node:=offboard_node --",
+        "level": "ERROR",
+        "count": 1,
+        "first_t": 1785262543.050872,
+        "last_t": 1785262543.050872,
+        "first_line": 611,
+        "sample": "[ERROR] [offboard_node-2]: process has died [pid 1323, exit code -2, cmd '/root/ws_r5b/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node:=offboard_node --params-file /root/ws_r5b/install/fc_ros/share/fc_ros/params/fc_ros_params.yaml --params-file /tmp/launch_params_nip1l4ai'].",
+        "raw_stdout": true,
+        "after_sigint": true
+      }
+    ],
+    "heading_align": {
+      "t": 1785262046.0488555,
+      "target_deg": 0.0,
+      "current_deg": 2.4,
+      "err_deg": -2.4
+    },
+    "path_origin": null,
+    "takeoff_request": {
+      "t": 1785261976.151973,
+      "target_amsl": 120.0,
+      "ground_amsl": -0.0,
+      "transition_alt": 120.0
+    },
+    "cte_samples": [
+      {
+        "t": 1785262048.8509057,
+        "tick": 0,
+        "mode": "OFFBOARD",
+        "cte": -0.1,
+        "pos": [
+          11.6,
+          -0.1
+        ],
+        "tgt": [
+          81.6,
+          0.0
+        ],
+        "seg": 11
+      },
+      {
+        "t": 1785262050.756288,
+        "tick": 20,
+        "mode": "OFFBOARD",
+        "cte": -0.1,
+        "pos": [
+          43.4,
+          -0.1
+        ],
+        "tgt": [
+          113.4,
+          0.0
+        ],
+        "seg": 43
+      },
+      {
+        "t": 1785262052.7508142,
+        "tick": 40,
+        "mode": "OFFBOARD",
+        "cte": -0.1,
+        "pos": [
+          73.1,
+          -0.1
+        ],
+        "tgt": [
+          143.1,
+          0.0
+        ],
+        "seg": 73
+      },
+      {
+        "t": 1785262054.7514224,
+        "tick": 60,
+        "mode": "OFFBOARD",
+        "cte": -0.1,
+        "pos": [
+          103.7,
+          -0.1
+        ],
+        "tgt": [
+          173.7,
+          0.0
+        ],
+        "seg": 103
+      },
+      {
+        "t": 1785262056.7514894,
+        "tick": 80,
+        "mode": "OFFBOARD",
+        "cte": -0.1,
+        "pos": [
+          133.5,
+          -0.1
+        ],
+        "tgt": [
+          203.5,
+          0.0
+        ],
+        "seg": 133
+      },
+      {
+        "t": 1785262058.7528963,
+        "tick": 100,
+        "mode": "OFFBOARD",
+        "cte": -0.1,
+        "pos": [
+          162.9,
+          -0.1
+        ],
+        "tgt": [
+          232.9,
+          0.0
+        ],
+        "seg": 162
+      },
+      {
+        "t": 1785262060.7526007,
+        "tick": 120,
+        "mode": "OFFBOARD",
+        "cte": -0.2,
+        "pos": [
+          191.6,
+          -0.2
+        ],
+        "tgt": [
+          261.6,
+          0.0
+        ],
+        "seg": 191
+      },
+      {
+        "t": 1785262062.7512202,
+        "tick": 140,
+        "mode": "OFFBOARD",
+        "cte": -0.2,
+        "pos": [
+          220.2,
+          -0.2
+        ],
+        "tgt": [
+          290.2,
+          0.0
+        ],
+        "seg": 220
+      },
+      {
+        "t": 1785262064.750216,
+        "tick": 160,
+        "mode": "OFFBOARD",
+        "cte": -0.2,
+        "pos": [
+          248.5,
+          -0.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 248
+      },
+      {
+        "t": 1785262066.7498436,
+        "tick": 180,
+        "mode": "OFFBOARD",
+        "cte": -0.7,
+        "pos": [
+          276.7,
+          -0.7
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 276
+      },
+      {
+        "t": 1785262068.7492867,
+        "tick": 200,
+        "mode": "OFFBOARD",
+        "cte": -21.6,
+        "pos": [
+          297.1,
+          -21.6
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 297
+      },
+      {
+        "t": 1785262070.749995,
+        "tick": 220,
+        "mode": "OFFBOARD",
+        "cte": -46.0,
+        "pos": [
+          313.9,
+          -46.0
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785262074.6493347,
+        "tick": 240,
+        "mode": "OFFBOARD",
+        "cte": -65.4,
+        "pos": [
+          338.0,
+          -65.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785262076.6508312,
+        "tick": 260,
+        "mode": "OFFBOARD",
+        "cte": -51.9,
+        "pos": [
+          376.8,
+          -51.9
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785262078.6497042,
+        "tick": 280,
+        "mode": "OFFBOARD",
+        "cte": -23.5,
+        "pos": [
+          369.2,
+          -23.5
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785262080.6496174,
+        "tick": 300,
+        "mode": "OFFBOARD",
+        "cte": -7.0,
+        "pos": [
+          350.6,
+          -7.0
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785262082.6494284,
+        "tick": 320,
+        "mode": "OFFBOARD",
+        "cte": -0.3,
+        "pos": [
+          324.5,
+          -0.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785262084.6490989,
+        "tick": 340,
+        "mode": "OFFBOARD",
+        "cte": 18.4,
+        "pos": [
+          304.0,
+          18.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 299
+      },
+      {
+        "t": 1785262086.64957,
+        "tick": 360,
+        "mode": "OFFBOARD",
+        "cte": 40.2,
+        "pos": [
+          282.8,
+          40.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 282
+      },
+      {
+        "t": 1785262088.6536314,
+        "tick": 380,
+        "mode": "OFFBOARD",
+        "cte": 55.6,
+        "pos": [
+          249.3,
+          55.6
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 249
+      },
+      {
+        "t": 1785262090.651767,
+        "tick": 400,
+        "mode": "OFFBOARD",
+        "cte": 32.3,
+        "pos": [
+          196.4,
+          32.3
+        ],
+        "tgt": [
+          266.4,
+          0.0
+        ],
+        "seg": 196
+      },
+      {
+        "t": 1785262092.6522293,
+        "tick": 420,
+        "mode": "OFFBOARD",
+        "cte": -20.7,
+        "pos": [
+          199.5,
+          -20.7
+        ],
+        "tgt": [
+          269.5,
+          0.0
+        ],
+        "seg": 199
+      },
+      {
+        "t": 1785262094.651325,
+        "tick": 440,
+        "mode": "OFFBOARD",
+        "cte": -63.1,
+        "pos": [
+          222.7,
+          -63.1
+        ],
+        "tgt": [
+          292.7,
+          0.0
+        ],
+        "seg": 222
+      },
+      {
+        "t": 1785262096.651185,
+        "tick": 460,
+        "mode": "OFFBOARD",
+        "cte": -122.3,
+        "pos": [
+          246.8,
+          -122.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 246
+      },
+      {
+        "t": 1785262098.6517048,
+        "tick": 480,
+        "mode": "OFFBOARD",
+        "cte": -136.3,
+        "pos": [
+          253.4,
+          -136.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 253
+      },
+      {
+        "t": 1785262100.6504622,
+        "tick": 500,
+        "mode": "OFFBOARD",
+        "cte": -133.6,
+        "pos": [
+          255.2,
+          -133.6
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 255
+      },
+      {
+        "t": 1785262102.650373,
+        "tick": 520,
+        "mode": "OFFBOARD",
+        "cte": -133.4,
+        "pos": [
+          255.1,
+          -133.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 255
+      },
+      {
+        "t": 1785262104.651312,
+        "tick": 540,
+        "mode": "OFFBOARD",
+        "cte": -133.4,
+        "pos": [
+          254.9,
+          -133.4
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262106.6508484,
+        "tick": 560,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.8,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262110.4508615,
+        "tick": 580,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.8,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262112.4504833,
+        "tick": 600,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.8,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262114.4525156,
+        "tick": 620,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.8,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262116.4502718,
+        "tick": 640,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.8,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262118.4504776,
+        "tick": 660,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.8,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262120.452113,
+        "tick": 680,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.8,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262122.4506,
+        "tick": 700,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.8,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262124.4505978,
+        "tick": 720,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.8,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262126.4503136,
+        "tick": 740,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.8,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262128.4504638,
+        "tick": 760,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262130.4509459,
+        "tick": 780,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262132.4515715,
+        "tick": 800,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.8,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262134.4504793,
+        "tick": 820,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262136.4513352,
+        "tick": 840,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262138.4504313,
+        "tick": 860,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262140.4504845,
+        "tick": 880,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262144.1509972,
+        "tick": 900,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262146.1506138,
+        "tick": 920,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262148.1505308,
+        "tick": 940,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262150.1513638,
+        "tick": 960,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262152.1508214,
+        "tick": 980,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262154.150676,
+        "tick": 1000,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262156.151409,
+        "tick": 1020,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262158.1526368,
+        "tick": 1040,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262160.1511168,
+        "tick": 1060,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262162.1575887,
+        "tick": 1080,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.8,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262164.151757,
+        "tick": 1100,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.8,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262166.151172,
+        "tick": 1120,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.8,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262168.150294,
+        "tick": 1140,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.8,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262170.1510983,
+        "tick": 1160,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262172.1506126,
+        "tick": 1180,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262174.1513472,
+        "tick": 1200,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262177.750825,
+        "tick": 1220,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262179.7525818,
+        "tick": 1240,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262181.7512732,
+        "tick": 1260,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262183.7523832,
+        "tick": 1280,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262185.7524405,
+        "tick": 1300,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262187.7517724,
+        "tick": 1320,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262189.7511148,
+        "tick": 1340,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262191.7506251,
+        "tick": 1360,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262193.751272,
+        "tick": 1380,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262195.7505746,
+        "tick": 1400,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262197.7502754,
+        "tick": 1420,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262199.7508142,
+        "tick": 1440,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262201.7509375,
+        "tick": 1460,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262203.7513258,
+        "tick": 1480,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262205.7501748,
+        "tick": 1500,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262207.7507222,
+        "tick": 1520,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262211.451206,
+        "tick": 1540,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262213.4521627,
+        "tick": 1560,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262215.4512126,
+        "tick": 1580,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262217.4505265,
+        "tick": 1600,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262219.4515522,
+        "tick": 1620,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262221.4515574,
+        "tick": 1640,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262223.4504378,
+        "tick": 1660,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262225.4504373,
+        "tick": 1680,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262227.4515805,
+        "tick": 1700,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262229.4512029,
+        "tick": 1720,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262231.4517758,
+        "tick": 1740,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262233.4505439,
+        "tick": 1760,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262235.4542975,
+        "tick": 1780,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262237.451069,
+        "tick": 1800,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262239.4514163,
+        "tick": 1820,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262241.4506958,
+        "tick": 1840,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262245.0511098,
+        "tick": 1860,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262247.0531635,
+        "tick": 1880,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262249.0507407,
+        "tick": 1900,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262251.0507894,
+        "tick": 1920,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262253.0517526,
+        "tick": 1940,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262255.051163,
+        "tick": 1960,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262257.051068,
+        "tick": 1980,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262259.0526161,
+        "tick": 2000,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262261.0499883,
+        "tick": 2020,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262263.0509815,
+        "tick": 2040,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262265.0509717,
+        "tick": 2060,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262267.050469,
+        "tick": 2080,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.8,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262269.0510585,
+        "tick": 2100,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262271.051414,
+        "tick": 2120,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262273.0507364,
+        "tick": 2140,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262275.050902,
+        "tick": 2160,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262277.0551019,
+        "tick": 2180,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262280.653047,
+        "tick": 2200,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262282.6511126,
+        "tick": 2220,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262284.6511805,
+        "tick": 2240,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262286.6506553,
+        "tick": 2260,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262288.6506243,
+        "tick": 2280,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262290.65114,
+        "tick": 2300,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262292.6514313,
+        "tick": 2320,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262294.650467,
+        "tick": 2340,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.8,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262296.6510394,
+        "tick": 2360,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.8,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262298.651692,
+        "tick": 2380,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.8,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262300.6512778,
+        "tick": 2400,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262302.651476,
+        "tick": 2420,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262304.650402,
+        "tick": 2440,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262306.650195,
+        "tick": 2460,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262308.6505601,
+        "tick": 2480,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262310.6506472,
+        "tick": 2500,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262314.25151,
+        "tick": 2520,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262316.2510085,
+        "tick": 2540,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262318.2508008,
+        "tick": 2560,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262320.2536771,
+        "tick": 2580,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262322.250162,
+        "tick": 2600,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262324.249971,
+        "tick": 2620,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262326.250364,
+        "tick": 2640,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262328.2502048,
+        "tick": 2660,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262330.2519302,
+        "tick": 2680,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262332.252383,
+        "tick": 2700,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262334.2512736,
+        "tick": 2720,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262336.2504692,
+        "tick": 2740,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.8,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262338.2518914,
+        "tick": 2760,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262340.251706,
+        "tick": 2780,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262342.250761,
+        "tick": 2800,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262344.2524357,
+        "tick": 2820,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262347.8504488,
+        "tick": 2840,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262349.8511932,
+        "tick": 2860,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262351.8509173,
+        "tick": 2880,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262353.8508258,
+        "tick": 2900,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262355.8514388,
+        "tick": 2920,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262357.8510435,
+        "tick": 2940,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262359.850187,
+        "tick": 2960,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262361.8512778,
+        "tick": 2980,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262363.8518898,
+        "tick": 3000,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262365.850487,
+        "tick": 3020,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262367.8509839,
+        "tick": 3040,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262369.8508458,
+        "tick": 3060,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262371.8508282,
+        "tick": 3080,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262373.8509946,
+        "tick": 3100,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262375.8511095,
+        "tick": 3120,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262377.8517127,
+        "tick": 3140,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262381.555352,
+        "tick": 3160,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262383.5506558,
+        "tick": 3180,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262385.5505168,
+        "tick": 3200,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262387.5515769,
+        "tick": 3220,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262389.550588,
+        "tick": 3240,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262391.551932,
+        "tick": 3260,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262393.5514588,
+        "tick": 3280,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262395.5504394,
+        "tick": 3300,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262397.5518725,
+        "tick": 3320,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262399.5504522,
+        "tick": 3340,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.8,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262401.5506043,
+        "tick": 3360,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262403.5518079,
+        "tick": 3380,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262405.5519247,
+        "tick": 3400,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262407.5507605,
+        "tick": 3420,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262409.553424,
+        "tick": 3440,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262411.5505948,
+        "tick": 3460,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262415.0526412,
+        "tick": 3480,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262417.0512784,
+        "tick": 3500,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262419.0520492,
+        "tick": 3520,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262421.0508327,
+        "tick": 3540,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262423.0508046,
+        "tick": 3560,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262425.0507648,
+        "tick": 3580,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.8,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262427.0524235,
+        "tick": 3600,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262429.0524082,
+        "tick": 3620,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262431.051683,
+        "tick": 3640,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262433.0508933,
+        "tick": 3660,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262435.0505166,
+        "tick": 3680,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262438.2513754,
+        "tick": 3700,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262440.25114,
+        "tick": 3720,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262442.250834,
+        "tick": 3740,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262444.2516196,
+        "tick": 3760,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262446.2524703,
+        "tick": 3780,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262448.251644,
+        "tick": 3800,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262450.2646651,
+        "tick": 3820,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262452.2507288,
+        "tick": 3840,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262454.251214,
+        "tick": 3860,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262456.2515984,
+        "tick": 3880,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262458.2508967,
+        "tick": 3900,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262460.2509608,
+        "tick": 3920,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262462.2509935,
+        "tick": 3940,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262464.2536733,
+        "tick": 3960,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262466.2505803,
+        "tick": 3980,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262468.254238,
+        "tick": 4000,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262471.9518628,
+        "tick": 4020,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262473.951647,
+        "tick": 4040,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262475.9513593,
+        "tick": 4060,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262477.9513037,
+        "tick": 4080,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262479.9507113,
+        "tick": 4100,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262481.9504464,
+        "tick": 4120,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262483.9507914,
+        "tick": 4140,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262485.9508553,
+        "tick": 4160,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262487.9501584,
+        "tick": 4180,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262489.9504342,
+        "tick": 4200,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262491.9511213,
+        "tick": 4220,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262493.9514167,
+        "tick": 4240,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262495.951357,
+        "tick": 4260,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262497.9503438,
+        "tick": 4280,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262499.9522736,
+        "tick": 4300,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262501.9503965,
+        "tick": 4320,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262505.4504247,
+        "tick": 4340,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262507.4528494,
+        "tick": 4360,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262509.4520404,
+        "tick": 4380,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262511.4519093,
+        "tick": 4400,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262513.4512806,
+        "tick": 4420,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262515.4524906,
+        "tick": 4440,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262517.4508638,
+        "tick": 4460,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262519.4509614,
+        "tick": 4480,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262521.4507022,
+        "tick": 4500,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262523.4525344,
+        "tick": 4520,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262525.4503589,
+        "tick": 4540,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262527.4506664,
+        "tick": 4560,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262529.4513388,
+        "tick": 4580,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262531.4514701,
+        "tick": 4600,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262533.4513507,
+        "tick": 4620,
+        "mode": "OFFBOARD",
+        "cte": -133.2,
+        "pos": [
+          254.9,
+          -133.2
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262535.4527307,
+        "tick": 4640,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262539.0506968,
+        "tick": 4660,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262541.052281,
+        "tick": 4680,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      },
+      {
+        "t": 1785262543.050872,
+        "tick": 4700,
+        "mode": "OFFBOARD",
+        "cte": -133.3,
+        "pos": [
+          254.9,
+          -133.3
+        ],
+        "tgt": [
+          300.0,
+          0.0
+        ],
+        "seg": 254
+      }
+    ],
+    "hold_samples": [],
+    "offboard_reacquire": [
+      {
+        "t": 1785262030.2497187,
+        "msg": "정렬 구간 OFFBOARD 이탈 → 재요청 (mode=AUTO.LOITER)"
+      }
+    ],
+    "timeouts": [],
+    "planner_nr_residual_m": [],
+    "segment_jumps": [],
+    "line_count": 611,
+    "t_first": 1785261974.0108576,
+    "t_last": 1785262543.050872
+  },
+  "mavros_log": {
+    "present": true,
+    "warnings": [
+      {
+        "pattern": "FCU: EVENT # with args ########################################-",
+        "level": "ERROR",
+        "count": 29,
+        "first_t": 1785261954.2175941,
+        "last_t": 1785262100.1837711,
+        "sample": "FCU: EVENT 7791755 with args -255-1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "FCU: UNK(#): EVENT # with args ########################################-",
+        "level": "WARN",
+        "count": 22,
+        "first_t": 1785261955.1690996,
+        "last_t": 1785262100.1843941,
+        "sample": "FCU: UNK(8): EVENT 11047904 with args -0-0-0-18-1-128-0-0-0-0-58-1-128-0-58-1-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "TM: Time jump detected. Resetting time synchroniser.",
+        "level": "ERROR",
+        "count": 11,
+        "first_t": 1785262009.4614873,
+        "last_t": 1785262520.0156336,
+        "sample": "TM: Time jump detected. Resetting time synchroniser.",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: unicast request timeout, retries left #",
+        "level": "WARN",
+        "count": 6,
+        "first_t": 1785261953.1477656,
+        "last_t": 1785261960.7607725,
+        "sample": "VER: unicast request timeout, retries left 2",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: broadcast request timeout, retries left #",
+        "level": "WARN",
+        "count": 4,
+        "first_t": 1785261951.3433516,
+        "last_t": 1785261957.9652712,
+        "sample": "VER: broadcast request timeout, retries left 4",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: command plugin service call failed!",
+        "level": "ERROR",
+        "count": 4,
+        "first_t": 1785261958.8556113,
+        "last_t": 1785261961.7001224,
+        "sample": "VER: command plugin service call failed!",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "TM: RTT too high for timesync: # ms.",
+        "level": "WARN",
+        "count": 3,
+        "first_t": 1785261967.6838107,
+        "last_t": 1785261967.9337335,
+        "sample": "TM: RTT too high for timesync: 2040.80 ms.",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "CMD: Unexpected command #, result #",
+        "level": "WARN",
+        "count": 2,
+        "first_t": 1785261954.0490587,
+        "last_t": 1785262030.1599312,
+        "sample": "CMD: Unexpected command 520, result 3",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "VER: your FCU don't support AUTOPILOT_VERSION, switched to default capabilities",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785261961.700257,
+        "last_t": 1785261961.700257,
+        "sample": "VER: your FCU don't support AUTOPILOT_VERSION, switched to default capabilities",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "PR: Failed to get parameter type: CBRK_SUPPLY_CHK",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785261961.9647646,
+        "last_t": 1785261961.9647646,
+        "sample": "PR: Failed to get parameter type: CBRK_SUPPLY_CHK",
+        "known_cosmetic": false
+      },
+      {
+        "pattern": "UAS Executor terminated",
+        "level": "WARN",
+        "count": 1,
+        "first_t": 1785262543.9565327,
+        "last_t": 1785262543.9565327,
+        "sample": "UAS Executor terminated",
+        "known_cosmetic": false
+      }
+    ],
+    "line_count": 274
+  },
+  "verdict": [
+    {
+      "item": "완주 (DONE 도달)",
+      "status": "FAIL",
+      "criterion": "DONE 상태 도달",
+      "detail": "관측 상태: ARM_TAKEOFF → CLIMBING → TRANSITION_FW → STREAMING → FOLLOWING; 종료사유=timeout"
+    },
+    {
+      "item": "disarm 확인",
+      "status": "FAIL",
+      "criterion": "ulog arming_state 2→1",
+      "detail": "로그 끝까지 disarm 되지 않음"
+    },
+    {
+      "item": "상태 순서",
+      "status": "PASS",
+      "criterion": "정상 순서의 부분수열",
+      "detail": "ARM_TAKEOFF → CLIMBING → TRANSITION_FW → STREAMING → FOLLOWING"
+    },
+    {
+      "item": "vtol_state 시퀀스",
+      "status": "FAIL",
+      "criterion": "3→1→4, 4→2→3",
+      "detail": "seq=[3, 1, 4], 정천이 2.504s / 역천이 Nones"
+    },
+    {
+      "item": "setpoint 점프",
+      "status": "FAIL",
+      "criterion": "상태 경계 ±1s 에서 1.5m 초과 점프 없음",
+      "detail": "임계 1.5m, 경계±1s 위반 4건 / 전체 위반 97건 / 샘플 2695개, 최대 5.8617m (29.3083 m/s). 경계 최대: 3.6733m@95.488s(FOLLOWING), 3.6509m@95.688s(FOLLOWING), 3.548m@95.288s(FOLLOWING). 스트림 재개 갭 1건은 별도 집계"
+    },
+    {
+      "item": "수직 가속",
+      "status": "FAIL",
+      "criterion": "천이 제외 |az| ≤ 0.5g (4.90 m/s²)",
+      "detail": "피크 |az|=5661.4712 m/s² (577.3094g) @141.456s state=FOLLOWING; 접지 제외값 없음(disarm 시각을 몰라 접지 구간을 제외할 수 없음)"
+    },
+    {
+      "item": "역천이 감속률",
+      "status": "NULL",
+      "criterion": "≤ 0.3g (2.94 m/s²)",
+      "detail": "역천이 구간(vtol_state==2 또는 TRANSITION_MC 상태창)을 특정할 수 없음 — 역천이가 일어나지 않았을 수 있다"
+    },
+    {
+      "item": "TRANSITION_FW 헤딩",
+      "status": "PASS",
+      "criterion": "단조수렴 + err ≤ 2.9°",
+      "detail": "시작오차 -93.0308° → 정렬 14.932s 소요, 최대 93.1414°, tol 진입 후 재증가 0.0 rad, 단조수렴=True"
+    },
+    {
+      "item": "CLIMBING 오버슈트",
+      "status": "PASS",
+      "criterion": "≤ +10%",
+      "detail": "최대 AGL 119.0109m vs transition_alt 120.0m → -0.8243%"
+    },
+    {
+      "item": "정천이 고도손실",
+      "status": "PASS",
+      "criterion": "≤ 5m",
+      "detail": "121.5796m → 최저 121.5796m (손실 0.0m)"
+    },
+    {
+      "item": "순항 고도편차",
+      "status": "FAIL",
+      "criterion": "±3m",
+      "detail": "기준 AGL 49.9639m, 평균편차 -42.1802m, 최대 |편차| 71.8838m"
+    },
+    {
+      "item": "FW cte",
+      "status": "WARN",
+      "criterion": "직선 ≤ 2m (코너는 별도 기록)",
+      "detail": "최대 |cte| 136.3m 평균 122.1517m (부호 -136.3~55.6m, n=236) — 코너 오버슈트 포함값"
+    },
+    {
+      "item": "경고/타임아웃",
+      "status": "WARN",
+      "criterion": "무해성 판단은 사람이 한다(계획서 5장)",
+      "detail": "node.log 23건/10종, mavros.log 84건/11종 — verdict 하단 목록 참조"
+    }
+  ]
+}

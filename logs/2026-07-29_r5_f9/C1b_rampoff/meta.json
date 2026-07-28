@@ -1,0 +1,124 @@
+{
+  "scenario_id": "C1b",
+  "desc": "천이고도 민감도 — 고(120m). 경로는 A1",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "120.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local",
+    "alt_slew_rate": "0.0",
+    "range_limit_m": "1200.0"
+  },
+  "launch_args_scenario": {
+    "transition_alt": "120.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local"
+  },
+  "launch_args_cli": [
+    "alt_slew_rate=0.0",
+    "range_limit_m=1200.0"
+  ],
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=120.0",
+    "waypoints:=[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame:=local",
+    "alt_slew_rate:=0.0",
+    "range_limit_m:=1200.0"
+  ],
+  "home": null,
+  "timeout_s": 540.0,
+  "inject_spec": [],
+  "started_utc": "2026-07-28T17:54:58.841459+00:00",
+  "run_id": "C1b_rampoff",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_dirty": true,
+  "px4_diff_sha256": "f8aeff376e20a4b6",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-27T16:56:00.949333+00:00",
+  "px4_gz_world": null,
+  "px4_gz_worlds_dir": null,
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "94989b6",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785261312\n    nanosec: 665864474\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: CMODE(50593792)\nsystem_status: 0\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-28T17:55:28.625908+00:00",
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 1.0,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785261329.6345186,
+      "t_since_launch_s": 1.2,
+      "t_since_node_alive_s": 0.2,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785261332.142097,
+      "t_since_launch_s": 2.2,
+      "t_since_node_alive_s": 1.2,
+      "msg": "CommandTOL 이륙 요청 alt=120.0m AMSL (지면 0.0+120.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785261385.3334253,
+      "t_since_launch_s": 53.87,
+      "t_since_node_alive_s": 52.87,
+      "msg": "운용 고도 120.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785261405.333506,
+      "t_since_launch_s": 72.49,
+      "t_since_node_alive_s": 71.49,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785261405.4504805,
+      "t_since_launch_s": 72.69,
+      "t_since_node_alive_s": 71.69,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    }
+  ],
+  "warn_count": 2,
+  "error_count": 0,
+  "range_guard": {
+    "enabled": true,
+    "limit_m": 1500.0,
+    "samples": 94,
+    "max_horiz_m": 359.4,
+    "max_at_local_enu": [
+      -14.6,
+      359.1,
+      72.7
+    ],
+    "breach": null
+  },
+  "exit_reason": "timeout",
+  "exit_code": 2,
+  "ended_utc": "2026-07-28T18:04:54.711912+00:00",
+  "elapsed_s": 570.2,
+  "ulogs": [
+    "17_55_11.ulg"
+  ]
+}

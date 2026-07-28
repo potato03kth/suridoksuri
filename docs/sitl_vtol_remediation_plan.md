@@ -326,7 +326,7 @@ S3의 프로브(`logs/2026-07-27_s3_fw_offboard_probe/`, `tools/sitl/fw_offboard
 1. **`_cruise_alt` 스칼라화 해소** (F-8) — 플래너가 이미 만드는 `alt_arr`/`gamma_ref`를 쓴다.
    A4로 실증됨(중간 WP z=80m가 완전히 버려짐).
 2. **천이 고도 계단** (F-9) — `transition_alt ≠ waypoints[-1].z`일 때 첫 틱 ±30/−70m 계단. 램프로 완화.
-   → **[코드] 완료 (2026-07-29). ⚠️ SITL 미검증 — 실기체 배포 금지.**
+   → **✅ 완료 (2026-07-29) — SITL 수정 전/후 비교 통과.**
    - 계단이 터지는 자리는 `_step_transition_fw` **Phase 3 첫 틱**이다. Phase 1·2는 속도
      setpoint(hover)라 위치 setpoint 의 고도 성분이 **아예 없다가**, 헤딩 정렬이 끝난 틱에
      `offboard_node.py` Phase 3 의 `_publish_pos_setpoint`(수정 후 `:1189~1191`)가
@@ -347,7 +347,35 @@ S3의 프로브(`logs/2026-07-27_s3_fw_offboard_probe/`, `tools/sitl/fw_offboard
      `transition_alt` 유실(U+00A0)을 로그로 잡을 수 있는 두 번째 그물.
    - 테스트: `fc_bridge/tests/test_state_logic.py` 10건 + `fc_ros/test/test_params.py` 7건 신규,
      fc_bridge 231 + fc_ros 209 전건 통과(파괴검증으로 red→green 확인).
-   - **남은 것: SITL C1a/C1b 수정 전후 비교** (`PX4_DIR=/root/PX4-vehicle` 필수).
+   - **SITL 검증 완료** — `logs/2026-07-29_r5_f9/`(notes.md 에 전문). `PX4_DIR=/root/PX4-vehicle`
+     `c890d9db0a`, 저장소 `94989b6`. **같은 빌드에서 `--launch-arg alt_slew_rate=0.0`(=수정 전)과
+     기본값 3.0 만 바꾼 순수 A/B** — 파라미터의 "0 이하 = 비활성" 규약이 그대로 A/B 스위치가 된다.
+     신설 프로브 `tools/sitl/f9_alt_probe.py`(`setpoint_jump` 3D 노름은 F-6 에 가려 F-9 를 못 본다):
+
+     | 지표 | C1a off→on | C1b off→on |
+     |---|---|---|
+     | **첫 틱 고도 계단** | **+29.331 → +7.628 m (−74%)** | **−70.631 → −8.291 m (−88%)** |
+     | 기체 고도 수렴(±3m) | 15.35 → 16.66 s | 36.28 → 36.47 s |
+     | 순항 고도편차 평균 | −12.02 → −12.49 m | −42.36 → −42.18 m |
+     | node cte 최대 | 0.6 → 0.3 m | 141.5 → 136.3 m |
+     | 수직가속(접지제외) | 0.9243 → 0.9372 g | 산출불가 |
+     | 완주 | DONE → DONE | timeout → timeout |
+
+     **회귀 0건** — 완주·상태순서·`vtol_state` 시퀀스 전부 유지. **고도 수렴이 늦어지지 않은 것이
+     핵심**이다(+1.31s / +0.19s): `alt_slew_rate` 3.0 을 기체 실측 수직속도보다 빠르게 잡은
+     근거가 실측으로 확인됐다. 1.5 로 낮췄으면 C1b 70m 수렴에 47s 가 걸려 기체(36s)를 앞질렀다.
+   - **잔여 계단 7.6~8.3m 는 램프 결함이 아니다** — 램프는 노드의 첫 FW setpoint 시점에 시작하는데
+     PX4 `trajectory_setpoint` 에 유한 position 이 실리는 건 2.5~2.8초 뒤(천이 중)라, 그 사이
+     개루프로 벌어진 `3.0 × 2.5~2.8` 이다. 더 줄이려면 `vtol_state==FW` 전까지 램프를 기체 고도에
+     재고정해야 하는데 **새 패턴이라 R5 범위 밖으로 남긴다.**
+   - 🔴 **이 A/B 에서 드러난 별개 회귀 — F-10 으로 이관:** C1b 가 **on/off 양쪽 모두**
+     FOLLOWING 을 469초 내내 못 벗어나고 cte 136~141m, `min_agl` −2.7~−3.5m(접지)로 끝난다.
+     캠페인 `C1b_pxvehicle` 는 2바퀴 돌고 **완주**했었다(FOLLOWING 43.5s). 수정 전에서도 같으므로
+     F-9 탓이 아니며, **캠페인 이후 R1/R2/`v_cruise` 18 구간에서 생긴 회귀**로 보인다.
+   - ⚠️ **하니스 함정(실측):** 시나리오 사이 `wsl --terminate Ubuntu-22.04` 를 건너뛰면
+     `set_preflight_bypass` 가 `readback=None` 으로 실패하고 offboard_node 가
+     `/mavros/cmd/arming 서비스 없음` 을 10Hz 로 무한 반복해 ARM 조차 못 한다. README 의
+     "시나리오 사이 정리"는 권고가 아니라 **필수**다.
 3. **짧은 경로 `_FW_LOOKAHEAD` 적응** (F-11) — 70m 고정이 40m 경로에서 추종 구간을 없앤다.
    경로 전장에 대한 상한을 두는 정도로.
 4. **`d_end_thresh` 기본값** (§4 결정 5) — 통과량 ≈ `57 − thresh`.
