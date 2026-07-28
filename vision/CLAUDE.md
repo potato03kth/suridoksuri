@@ -1273,6 +1273,124 @@ nominal.yaml과 같은 보수적 값**을 유지한다 — 합성이라고 해�
 코드 쪽 재발은 `tests/test_deprecations.py`가 막는다(파일 부재 + import 불가 + 저장소 전체에
 `pixel_to_gps` 문자열 재등장 없음). 문서 쪽은 FC 세션이 정리해야 한다.
 
+---
+
+## 착륙점 기하 — 기체 크기 기반 재설계 (2026-07-28, `modules/distress_box.py`)
+
+**드러난 결함(사용자와의 설계 논의).** 2026-07-28에 **기체 최외곽(다리/프롭 끝) 반경이 0.5m를
+초과한다**는 사실이 처음 확정됐다. 이걸 기존 착륙점 규칙에 대입하니 구조적 결함이 나왔다:
+
+```
+매트 3.0m × 3.0m (반변 1.5m), 0.105m 라이즈드 플랫폼 / 흰 박스 정중앙 0.20m
+옛 착륙점 = 매트 bbox 모서리를 중심 쪽으로 interior_margin_ratio(0.3)만큼 당긴 점
+          = 중심에서 (±1.05, ±1.05) m
+착륙점 → 매트 가장자리 여유 = 1.5 − 1.05 = 0.45 m  <  R (>0.5 m)
+⇒ 유도 오차가 정확히 0이어도 기체가 매트 밖으로 삐져나간다.
+```
+
+매트는 페인트 선이 아니라 **0.105m 라이즈드 구조물**이라 가장자리에 반쯤 걸치면 기울어져
+넘어진다 — 표면적 실패가 아니라 진짜 사고다. `interior_margin_ratio=0.3`은 "대회측 미회신이라
+잠정값"으로 들어간 숫자였고 **기체 크기를 한 번도 고려한 적이 없었다.**
+
+### 대체: 거리 `d`를 비율이 아니라 물리량에서 도출한다
+
+부등식 유도 전문·전제·"정중앙 박스가 하한의 최악 경우"인 이유는
+`modules/distress_box.py::compute_landing_window()` docstring에 있다(여기서 중복 서술하지 않는다).
+요지만:
+
+| | 재는 방향 | 부등식 |
+|---|---|---|
+| 하한 (박스를 밟지 않는다) | **대각선** — 착륙점은 `(d,d)`, 박스 모서리는 `b·√2` | `√2·d − b·√2 ≥ R` ⟺ `d ≥ b + R/√2` |
+| 상한 (매트를 벗어나지 않는다) | **축 방향** — 최단거리는 `M − d`다 | `M − d ≥ R + δ` ⟺ `d ≤ M − R − δ` |
+
+🔴 **방향을 바꿔 재면 조용히 위험해진다.** 상한을 대각선으로 재면 여유를 √2배 과대평가해
+"안전하다"고 착각한다(파괴검증 D3이 실제로 그 실수를 재현한다).
+
+착륙점 픽셀은 `착륙점 = 매트중심 + (d/M)·(고른 모서리 − 매트중심)`으로 낸다 — 모서리 선택
+규칙(가장 먼 모서리)·`tie_tolerance_ratio`·`corner_hysteresis`는 **무변경**이고, 바뀐 것은
+"고른 모서리에서 얼마나 안쪽으로 당기는가"뿐이다. bbox가 원근으로 정사각이 아니어도 축별
+스케일이 각각 반영돼 별도 분기가 필요 없다.
+
+### 🔴 이 매트에는 절벽이 있다 (설계 발견)
+
+`R`에 대해 두 부등식을 풀면 안전창이 존재하는 상한이 나온다:
+
+```
+R_max = (M − δ − b) / (1 + 1/√2) = (1.5 − 0.30 − 0.10) / 1.7071 = 0.6444 m
+```
+
+**실측 R이 0.6444m를 넘으면 3m 매트 위에 "박스 옆" 착륙점이 아예 존재하지 않는다.** 아는 사실이
+"0.5m 초과"뿐이므로 이건 가설이 아니라 **실측으로 닫아야 하는 최우선 항목**이다. 코드는 이 값을
+`aircraft_radius_max_feasible_m`으로 매 검출 meta에 실어 보낸다.
+
+수치 실증(δ=0.30, b=0.10, M=1.5 기본값):
+
+| R (m) | d_min | d_max | feasible | 채택 d (중점) | 박스 여유 | 매트 여유 | 옛 규칙(d=1.05) 가장자리 여유 |
+|---|---|---|---|---|---|---|---|
+| 0.30 | 0.3121 | 0.9000 | ✅ | 0.6061 | +0.4157 | +0.5939 | +0.150 |
+| 0.50 | 0.4536 | 0.7000 | ✅ | 0.5768 | +0.1743 | +0.4232 | **−0.050** ❌ |
+| **0.60**(기본) | 0.5243 | 0.6000 | ✅ | **0.5621** | +0.0536 | +0.3379 | **−0.150** ❌ |
+| 0.70 | 0.5950 | 0.5000 | ❌ **해 없음** | — | — | — | **−0.250** ❌ |
+| 1.00 | 0.8071 | 0.2000 | ❌ **해 없음** | — | — | — | **−0.550** ❌ |
+
+### 🔴 안전창이 비면 지어내지 않고 **거절**한다
+
+- 그 검출을 `state.detections`에서 빼고 `reject_reasons`에 **`landing_point_infeasible`**
+  (`no_white_pixels`와 다른 문자열 — §5.4 사유 뭉개기 금지)을 넣는다.
+- 계산된 하한/상한/R 전량을 `state.meta["white_box_detector"]["landing_point_infeasible"]`에
+  남긴다. **상위(`main.py`/`replay.py`)가 이걸 읽어 `valid=false`+사유로 발행하는 배선은 아직
+  없다** — 다음 세션 몫이고, 지금은 검출이 0건이 되어 기존 `no_target_detection` 경로로 나간다.
+- **거절이 필수인 이유:** 착륙점만 빼고 검출을 남기면 `modules/distress_mat.py`가
+  `landing_point_px` 부재를 보고 **매트 중심으로 우아하게 degrade**한다 — 매트 중심은 바로 그
+  흰 박스 위다. "해가 없다"가 "박스 위에 내려라"로 조용히 뒤집힌다(파괴검증 D5).
+
+### 🔴 `R` 기본값은 미측정 공칭값이다 (`core/frames.py` ψ_m 패턴)
+
+`AIRCRAFT_RADIUS_M_DEFAULT = 0.60` + **`AIRCRAFT_RADIUS_MEASURED = False`**. 저장소 어디에도
+기체 치수가 없고(`CA_ROTOR*_PX/PY`는 ±1.0 정규화 값이라 팔 길이가 아니다) 사용자가 준 정보는
+"0.5m 초과"뿐이다. 값을 지어내지 않고 파라미터로 빼두되 "미측정" 플래그가 진단 meta
+(`landing_geometry.aircraft_radius_measured`)까지 전파된다. 방향의 비대칭이 보수적 선택을
+정한다 — **작게 잡으면 매트를 넘어 사고, 크게 잡으면 착륙점이 안 나와 임무 실패(안전)**.
+
+`δ`(`LANDING_DRIFT_ALLOWANCE_M_DEFAULT = 0.30`)는 지어낸 값이 아니라 `docs/vision_plan.md` §1의
+요구사항 **"최종 정확도 <30cm"** 이다. ⚠️ 달성이 확인된 오차가 아니라 **요구 오차**다.
+
+### `interior_margin_ratio` 폐기 — 하위호환 no-op
+
+**물리 도출값이 항상 이긴다.** 둘 다 조용히 적용되면 어느 쪽이 이겼는지 모른 채 같은 결함이
+재발하므로 "둘 다 적용"은 선택지가 아니었다. 그렇다고 인자를 없애면 이 키를 주는 기존 preset
+yaml이 `Pipeline.from_config`에서 `TypeError`로 죽는데, **비행 직전 프리셋 로드가 통째로 실패하는
+것이 더 나쁘다**고 판단해 인자는 계속 받되 값을 무시한다. 무시는 침묵이 아니다 — 생성자에서
+`DeprecationWarning`을 내고 `state.meta["white_box_detector"]["interior_margin_ratio_ignored"]`로
+blackbox까지 알린다(§7.4). `presets/distress_fine.yaml`에서는 제거했다.
+
+### 관측성
+
+- 확정 검출: `det.meta["white_box_detector"]["landing_geometry"]` — `d_m`/`d_min_m`/`d_max_m`/
+  `aircraft_radius_m`/`aircraft_radius_measured`/`drift_allowance_m`/`mat_size_m`/
+  `white_box_size_m`/`safety_window_bias`/`box_clearance_m`/`mat_edge_margin_m`/
+  `aircraft_radius_max_feasible_m`/`box_center_offset_m`/`px_per_m`.
+- ⚠️ **정상 경로의 `state.meta["white_box_detector"]` 형태는 일부러 안 바꿨다** — 골든셋
+  `labels.json`이 이 dict를 통째로 동등비교하므로, 여기에 물리 파라미터를 넣으면 R 기본값이
+  골든 픽스처에까지 복제돼 "단일 출처" 원칙이 깨진다.
+- `box_center_offset_m`은 하한 유도가 전제한 "박스는 매트 정중앙"(§2)을 **사후 검증**하라고
+  있는 값이다.
+
+### 종단간 실측 (2026-07-28, 로컬)
+
+골든 `distress/fine` 프레임 3장 재생 + 합성 카메라(`synthetic_calib/canvas460.yaml`):
+
+```
+fine   distress_landing_point  position = [-0.5590, -0.5590, 10.0088]
+coarse distress_mat_center     position = [ 0.0000,  0.0000, 10.0088]
+수평 오프셋 0.7906 m  → 축당 d = 0.5590 m   (이론 0.5621 / 옛 규칙 1.0500)
+하한: √2·d = 0.7906 ≥ b√2+R = 0.7414 ✅   상한: d = 0.5590 ≤ M−R−δ = 0.6000 ✅
+```
+
+이론값과의 0.3% 차이는 `RectDetector`의 매트 bbox 픽셀 양자화(301px vs 300px) 탓이고
+안전창 슬랙(박스 +0.049m / 가장자리 +0.341m)이 흡수한다. 산출물은
+`vision/results/landing_geometry_demo/`.
+
 ## VisionState 필드 사용 규칙
 
 ```
@@ -1437,7 +1555,7 @@ pytest vision/tests/ -q -k main # 특정만
 | vertiport_ring `RedRingDetector` | 빨강 Hue 양끝 게이팅(랩어라운드 대응)·최소외접원 피팅·중심/반지름 meta | ✅ test_vertiport_ring |
 | 버티포트 coarse 캐스케이드 통합(`presets/vertiport_coarse.yaml`) | 3단 전체 파이프라인 end-to-end·단계별 meta 기록·빈 이미지 0검출 | ✅ test_vertiport_cascade |
 | ArUco fine 프리셋 통합(`presets/vertiport_fine.yaml`, ArUco Phase 4) | `Pipeline.from_config` 실로드·ID 23 검출+코너·다른 ID 거절·빈 이미지 0검출(coarse와 독립 실행) | ✅ test_vertiport_fine |
-| distress_box `WhiteBoxDetector`(§5.3 fine, 2026-07-25) | 매트 내 흰 박스 확인·`landing_point_px`가 매트 bbox 내부에 있음·박스가 매트 좌상단에 치우치면 착륙점이 반대편(우하단)으로 밀림·박스 없음/너무 큼/너무 작음/종횡비 초과 각각 거절+reject_reasons 기록·detections 2개(확정1+거절1) 혼합·빈 detections·zero bbox·original/current/mask 비변형(선언 필드 계약)·결정론. **[2026-07-28] 등거리 축퇴 완화**(위 "착륙점 등거리 축퇴 완화" 절) — 완화 끈 옛 동작이 실제로 매트 반대편까지 점프함(고친 대상 못 박기)·기본값에서 1px 흔들림 10프레임에 착륙점 불변·`tie_tolerance_ratio=0` + `corner_hysteresis=False`가 옛 동작과 정확히 일치·편심 박스는 여전히 반대편 선택(`corner_tie_count==1`)·슈미트 트리거 무진동(전환 경계를 **해석식 아닌 실측 스캔**으로 찾아 대조군이 실제로 진동함을 먼저 확인)·히스테리시스 상태 인스턴스 격리+`reset()`+실제 배선 여부·매트 2개 IoU 교차오염 없음·진단 3종·JSON 직렬화. **파괴검증 D1/D2/D3/D4/D5로 red 확인** | ✅ test_distress_box |
+| distress_box `WhiteBoxDetector`(§5.3 fine, 2026-07-25) | 매트 내 흰 박스 확인·`landing_point_px`가 매트 bbox 내부에 있음·박스가 매트 좌상단에 치우치면 착륙점이 반대편(우하단)으로 밀림·박스 없음/너무 큼/너무 작음/종횡비 초과 각각 거절+reject_reasons 기록·detections 2개(확정1+거절1) 혼합·빈 detections·zero bbox·original/current/mask 비변형(선언 필드 계약)·결정론. **[2026-07-28] 등거리 축퇴 완화**(위 "착륙점 등거리 축퇴 완화" 절) — 완화 끈 옛 동작이 실제로 매트 반대편까지 점프함(고친 대상 못 박기)·기본값에서 1px 흔들림 10프레임에 착륙점 불변·`tie_tolerance_ratio=0` + `corner_hysteresis=False`가 옛 동작과 정확히 일치·편심 박스는 여전히 반대편 선택(`corner_tie_count==1`)·슈미트 트리거 무진동(전환 경계를 **해석식 아닌 실측 스캔**으로 찾아 대조군이 실제로 진동함을 먼저 확인)·히스테리시스 상태 인스턴스 격리+`reset()`+실제 배선 여부·매트 2개 IoU 교차오염 없음·진단 3종·JSON 직렬화. **파괴검증 D1/D2/D3/D4/D5로 red 확인**. **[2026-07-28] 착륙점 기하 — 기체 크기 기반 재설계**(아래 "착륙점 기하 — 기체 크기 기반 재설계" 절) — 산출 착륙점을 **렌더링된 실제 파이프라인**에서 재 두 부등식(하한은 √2 대각선, 상한은 축 방향)을 R=0.3/0.5/0.6 전부에서 동시 만족·옛 규칙(d=1.05m)이 **R의 알려진 하한 0.5m에서조차** 매트를 넘음을 못 박기(고친 대상 재현)·안전창 경계 손계산 4점(R=0.3/0.5/0.7/1.0, R=0.7·1.0은 infeasible) + 절벽 `aircraft_radius_max_feasible_m=0.6444` 고정·**안전창이 비면 착륙점을 지어내지 않고 거절**(사유 `landing_point_infeasible`, `no_white_pixels`와 구분, 하한/상한/R이 meta에 남고 JSON 직렬화 가능)·🔴 **거절이 필수인 이유를 실제 `DistressMatGeometry` 통과로 증명**(착륙점만 빼고 남기면 매트 중심=박스 위로 조용히 degrade)·정상 경로의 `state.meta` 형태 불변(골든 labels.json 동등비교 보호)·🔴 **인자 0개 생성자로 기본값을 직접 밟는 테스트**(기대값은 상수 재참조가 아닌 손계산 리터럴 0.562132)·`AIRCRAFT_RADIUS_MEASURED is False` + 기본값이 알려진 하한 0.5m 초과 + 미측정 플래그의 meta 전파·매트/박스/드리프트/bias 각각이 실제로 착륙점을 움직임(하드코딩이면 red)·박스 중심 오프셋 수출(정중앙 전제 사후검증)·생성자 인자 검증·`interior_margin_ratio` 폐기(주면 `DeprecationWarning` + 무시 + meta 통보, 물리 도출값이 항상 이김)·preset yaml 값과 모듈 기본값 대조. **파괴검증 17종(D1~D17)으로 red 확인** | ✅ test_distress_box |
 | distress_mat `DistressMatGeometry`(초록구역 pose, 2026-07-28) | 코너 순서 정규화가 **실측 approxPolyDP 순서**(반시계)를 시계방향·TL시작으로 바꾸는지(항등이면 red) · 입력 회전/감김 8가지 조합에 불변 · 축퇴 사각형/4점 아님 거절 · coarse는 매트 중심 degrade + `landing_point_source` 명시 · fine은 `white_box_detector`의 `landing_point_px`를 **그대로 소비**(재구현 금지) · 생성자 `size_m`/`platform_height_m`이 실제로 meta에 반영(하드코딩이면 red) · `plane_reference="mat_top_surface"` · 선언 필드 계약(검출 개수 불변, original/current/mask 무변형) · meta 네임스페이스 · 빈 입력 · 결정론 · JSON 직렬화(numpy 누출 없음). **파괴검증 D1/D1b/D3b/D8로 red 확인** | ✅ test_distress_mat |
 | ② 조난자 fine 프리셋 통합(`presets/distress_fine.yaml`, 2026-07-25) | `distress_coarse.yaml` 뒤에 `white_box_detector` 캐스케이드 실로드·매트+박스 실제 확정·`Detection.meta`에 `landing_point_px` 실제 기록(`Pipeline.from_config` 경유, 클래스 직접 호출 아님) | ✅ test_replay(`test_distress_fine_preset_confirmed_detection_carries_landing_point_meta`) |
 | utils/image_loader | 경로→BGR ndarray(shape/dtype + **채널 순서가 실제로 BGR인지를 3분할 B/G/R 띠로 왕복 확인** — 여기서 RGB로 뒤집히면 뒤의 HSV 색 검출이 통째로 어긋난다)·PNG 무손실 왕복(임의 정규화 없음)·`Path` 객체 수용·1채널 원본도 3채널로 확장·결정론 · 없는 파일→`FileNotFoundError`(메시지에 경로 포함)·디렉터리/쓰레기 바이트/0바이트→조용한 None이 아니라 `ValueError`. **파괴검증 5종(I-D1~D5)으로 red 확인** | ✅ test_image_loader |

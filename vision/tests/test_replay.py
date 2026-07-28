@@ -618,7 +618,11 @@ def test_replay_distress_fine_pose_is_the_landing_point_not_the_mat_centre(tmp_p
     assert fine["target_type"] == "distress_landing_point"
     lateral = math.hypot(fine["position"][0] - centre["position"][0],
                          fine["position"][1] - centre["position"][1])
-    assert lateral == pytest.approx(1.05 * math.sqrt(2), rel=0.05), (
+    # 기대값은 기체 크기 기반 안전창에서 도출한다(2026-07-28 재설계 — 옛 1.05m는
+    # interior_margin_ratio=0.3 시절 값이고 R>0.5m 기체가 매트를 넘는 착륙점이었다).
+    from vision.modules.distress_box import compute_landing_window
+    expected_d = compute_landing_window(3.0, 0.20, 0.60, 0.30, 0.5)["d_m"]
+    assert lateral == pytest.approx(expected_d * math.sqrt(2), rel=0.05), (
         f"착륙점이 매트 중심에서 밀려나지 않았다(수평차 {lateral:.3f}m)"
     )
 

@@ -38,6 +38,26 @@
 #     대부분을 채우는 오탐(예: 조명 반사로 마스킹된 초록 매트 자체 일부)은 배제.
 #   min_solidity=0.85 — 박스는 꽉 찬 사각형이라 볼록성(solidity)이 높아야 함.
 #   max_aspect_ratio=1.4 — 박스는 정사각형에 가까움(20cm 정사각 추정) — 원근 왜곡 여유 반영.
+#
+# --- 🔴 착륙점 거리 — 기체 크기 기반 안전창 (2026-07-28 재설계) ---
+# 예전엔 interior_margin_ratio=0.3(무차원 잠정값)이 착륙점 거리를 정했고 **기체 크기를 한 번도
+# 고려하지 않았다** — 중심에서 1.05m 지점이라 매트 가장자리 여유가 0.45m뿐인데, 기체 최외곽
+# 반경은 0.5m를 **초과**한다(2026-07-28 확정). 유도 오차가 0이어도 기체가 0.105m 라이즈드
+# 플랫폼 밖으로 삐져나가 넘어진다. 그래서 거리 d를 물리량에서 도출한다(부등식 유도는
+# modules/distress_box.py::compute_landing_window docstring):
+#     하한(박스 회피, 대각선으로 잰다) : d >= b + R/√2
+#     상한(매트 이탈 회피, 축으로 잰다): d <= 매트반변 − R − δ
+# 기본값(mat 3.0 / box 0.20 / R 0.60 / δ 0.30)에서 d ∈ [0.5243, 0.6000] m, 중점 0.5621 m.
+#
+# ⚠️ 아래 네 값은 **modules/distress_box.py의 모듈 상수와 같아야 한다** — 조용한 드리프트는
+# tests/test_distress_box.py::test_preset_matches_module_defaults 가 red로 막는다.
+#   aircraft_radius_m: 🔴 **미측정 공칭값**. 아는 사실은 "0.5m 초과"뿐이다(AIRCRAFT_RADIUS_MEASURED
+#     = False가 진단 meta까지 전파된다). 실측이 0.6444m를 넘으면 이 매트에 안전창이 아예 없다.
+#   drift_allowance_m: docs/vision_plan.md §1 "최종 정확도 <30cm" 요구치.
+#   mat_size_m / white_box_size_m: vision_plan.md §2 실측 확정 스펙(3.0m / 0.20m).
+#   safety_window_bias: 0.5 = 안전창 중점(0=하한, 1=상한). 두 부등식 어느 쪽도 편들지 않는다.
+# interior_margin_ratio는 폐기됐다 — 주면 무시되고 DeprecationWarning이 난다(물리 도출값이 항상
+# 이긴다. 둘 다 조용히 적용되면 어느 쪽이 이겼는지 모른 채 같은 결함이 재발한다).
 pipeline:
   color_filter:
     mode: color
@@ -63,7 +83,11 @@ pipeline:
     min_solidity: 0.85
     max_aspect_ratio: 1.4
     roi_margin: 0.05
-    interior_margin_ratio: 0.3
+    mat_size_m: 3.0
+    white_box_size_m: 0.20
+    aircraft_radius_m: 0.60
+    drift_allowance_m: 0.30
+    safety_window_bias: 0.5
 
   # 상대 pose 산출용 기하 태깅 (modules/distress_mat.py) — distress_coarse.yaml과 같은 스텝이지만
   # **반드시 white_box_detector 뒤**에 와야 한다. 앞에 두면 아직 meta["white_box_detector"]가

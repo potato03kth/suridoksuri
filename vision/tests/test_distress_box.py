@@ -271,8 +271,10 @@ def test_legacy_selection_jumps_across_the_mat_under_1px_jitter():
     """
     legacy = WhiteBoxDetector(tie_tolerance_ratio=0.0, corner_hysteresis=False)
     points = _landing_sequence(legacy)
-    # 매트가 300px(=3.0m)이므로 200px 초과 점프는 매트 반대편으로 건너뛴 것이다.
-    assert _max_jump_px(points) > 200.0
+    # 매트가 300px(=3.0m)이므로 100px(=1.0m) 초과 점프는 매트 반대편으로 건너뛴 것이다.
+    # (2026-07-28 기체 크기 기반 재설계로 착륙점이 중심에 더 가까워져 대각 점프 자체가
+    #  2·d·√2 = 1.59m ≈ 159px로 줄었다 — 옛 임계 200px는 그 변화만으로 red가 됐었다.)
+    assert _max_jump_px(points) > 100.0
     assert len(set(points)) > 1
 
 
@@ -412,3 +414,309 @@ def test_landing_point_meta_is_json_serializable():
 
     state = WhiteBoxDetector()(_state_with_mat(_draw_centered_box))
     json.dumps(state.detections[0].meta["white_box_detector"])
+
+
+# ===========================================================================
+# 착륙점 기하 — 기체 크기 기반 재설계 (2026-07-28)
+#
+# 예전 착륙점 거리는 `interior_margin_ratio`(무차원 잠정값 0.3) 하나로 정해졌고 **기체 크기를
+# 한 번도 고려하지 않았다**. 기체 최외곽 반경이 0.5m를 초과함이 확정되며 구조적 결함이 드러났다
+# (중심에서 1.05m -> 매트 가장자리 여유 0.45m < R). 이제 거리 d를 물리량에서 도출한다:
+#     하한(박스 회피, **대각선**으로 잰다)     : √2·d − b·√2 ≥ R  ⟺  d ≥ b + R/√2
+#     상한(매트 이탈 회피, **축 방향**으로 잰다): M − d ≥ R + δ    ⟺  d ≤ M − R − δ
+# 유도·전제는 `modules/distress_box.py::compute_landing_window` docstring.
+# ===========================================================================
+
+import math
+
+import pytest
+
+from vision.modules.distress_box import (
+    AIRCRAFT_RADIUS_M_DEFAULT,
+    AIRCRAFT_RADIUS_MEASURED,
+    DISTRESS_WHITE_BOX_SIZE_M,
+    LANDING_DRIFT_ALLOWANCE_M_DEFAULT,
+    compute_landing_window,
+)
+
+_SQRT2 = math.sqrt(2.0)
+_MAT_SIZE_M = 3.0          # 실측 확정 스펙 (vision_plan.md §2)
+
+
+def _landing_distance_m(detector, mat_size_m=_MAT_SIZE_M, bbox=_MAT_BBOX):
+    """**렌더링된 실제 파이프라인**으로 착륙점을 얻어 매트 중심 기준 축당 거리(m)로 환산한다.
+
+    순수 함수(`compute_landing_window`)만 검증하면 "계산은 맞는데 착륙점에 안 쓰인다"는 배선
+    결함을 통째로 놓친다 — 그래서 실제 `__call__` 산출물을 잰다.
+    """
+    state = detector(_state_with_mat(_draw_centered_box, bbox=bbox))
+    assert len(state.detections) == 1, "안전창이 있는 설정인데 확정되지 않았다"
+    x, y, w, h = bbox
+    lx, ly = state.detections[0].meta["white_box_detector"]["landing_point_px"]
+    px_per_m_x, px_per_m_y = w / mat_size_m, h / mat_size_m
+    dx = abs(lx - (x + w / 2.0)) / px_per_m_x
+    dy = abs(ly - (y + h / 2.0)) / px_per_m_y
+    assert dx == pytest.approx(dy, abs=1e-6), "착륙점이 대각선 위에 있지 않다"
+    return dx
+
+
+@pytest.mark.parametrize("radius_m", [0.3, 0.5, 0.6])
+def test_landing_point_satisfies_both_safety_inequalities(radius_m):
+    """★핵심: 산출된 착륙점이 실제로 두 부등식을 **동시에** 만족하는가.
+
+    하한을 대각선으로, 상한을 축 방향으로 재는 것이 이 테스트의 전부다 — 둘을 바꿔 재면
+    (또는 √2를 빠뜨리면) 한쪽이 반드시 깨진다.
+    """
+    d = _landing_distance_m(WhiteBoxDetector(aircraft_radius_m=radius_m))
+    half_box = DISTRESS_WHITE_BOX_SIZE_M / 2.0
+    half_mat = _MAT_SIZE_M / 2.0
+
+    # (1) 박스를 밟지 않는다 — 대각선 거리
+    assert _SQRT2 * d >= half_box * _SQRT2 + radius_m - 1e-9, (
+        f"R={radius_m}: 착륙점 d={d:.4f}m에서 기체가 흰 박스를 밟는다"
+    )
+    # (2) 매트를 벗어나지 않는다 — 축 방향 최단거리
+    assert d <= half_mat - radius_m - LANDING_DRIFT_ALLOWANCE_M_DEFAULT + 1e-9, (
+        f"R={radius_m}: 착륙점 d={d:.4f}m에서 기체가 0.105m 라이즈드 플랫폼 밖으로 나간다"
+    )
+
+
+def test_the_old_ratio_rule_would_have_overhung_the_mat():
+    """고친 대상이 무엇인지 못 박는 테스트 — 옛 규칙(interior_margin_ratio=0.3)은
+    **기체 반경의 알려진 하한(0.5m)에서조차** 매트를 넘는다. red가 되면 결함 재현이 사라진 것."""
+    old_d = (1.0 - 0.3) * (_MAT_SIZE_M / 2.0)        # = 1.05 m
+    known_radius_lower_bound = 0.5                    # 사용자 확정: "0.5m 초과"
+    available = _MAT_SIZE_M / 2.0 - old_d             # = 0.45 m (착륙점 -> 매트 가장자리)
+
+    # 유도 오차를 **0으로 쳐도** 기체 반경조차 못 담는다 — 완벽히 유도해도 삐져나간다.
+    assert available < known_radius_lower_bound, (
+        f"옛 착륙점이 매트를 안 넘는다(여유 {available:.3f}m) — 결함 재현이 깨졌다"
+    )
+    # 허용 드리프트까지 얹으면 격차가 더 벌어진다.
+    assert available < known_radius_lower_bound + LANDING_DRIFT_ALLOWANCE_M_DEFAULT
+
+
+@pytest.mark.parametrize(
+    "radius_m, expect_feasible, expect_d_min, expect_d_max",
+    [
+        # 손계산: d_min = 0.10 + R/√2, d_max = 1.5 − R − 0.30 (M=1.5, b=0.10, δ=0.30)
+        (0.3, True, 0.312132, 0.900000),
+        (0.5, True, 0.453553, 0.700000),
+        (0.7, False, 0.594975, 0.500000),
+        (1.0, False, 0.807107, 0.200000),
+    ],
+)
+def test_safety_window_bounds_are_the_hand_computed_values(
+    radius_m, expect_feasible, expect_d_min, expect_d_max
+):
+    """수치 실증 표를 회귀로 고정한다 — 부등식 어느 한쪽이라도 형태가 바뀌면 red."""
+    w = compute_landing_window(_MAT_SIZE_M, DISTRESS_WHITE_BOX_SIZE_M, radius_m,
+                               LANDING_DRIFT_ALLOWANCE_M_DEFAULT, 0.5)
+    assert w["d_min_m"] == pytest.approx(expect_d_min, abs=1e-6)
+    assert w["d_max_m"] == pytest.approx(expect_d_max, abs=1e-6)
+    assert w["feasible"] is expect_feasible
+    # 절벽 위치(안전창이 존재하는 R의 상한)는 R과 무관한 상수다.
+    assert w["aircraft_radius_max_feasible_m"] == pytest.approx(0.644365, abs=1e-6)
+
+
+def test_empty_safety_window_rejects_instead_of_inventing_a_landing_point():
+    """🔴 R이 커서 해가 없으면 **착륙점을 지어내지 않는다** — 검출을 거절하고 사유를 남긴다."""
+    detector = WhiteBoxDetector(aircraft_radius_m=1.0)
+    state = detector(_state_with_mat(_draw_centered_box))
+
+    assert state.detections == [], "안전창이 비었는데 착륙점이 나왔다"
+    meta = state.meta["white_box_detector"]
+    assert meta["confirmed"] == 0
+    assert meta["rejected"] == 1
+    assert "landing_point_infeasible" in meta["reject_reasons"]
+    # 사유가 "박스를 못 찾음"과 구분돼야 한다(§5.4 사유 뭉개기 금지).
+    assert "no_white_pixels" not in meta["reject_reasons"]
+
+    # 계산된 하한/상한/R이 사람이 볼 수 있게 남는다 — 안전창이 비었다는 것은 설계 정보다.
+    detail = meta["landing_point_infeasible"]
+    assert detail["feasible"] is False
+    assert detail["d_min_m"] > detail["d_max_m"]
+    assert detail["aircraft_radius_m"] == 1.0
+    assert detail["aircraft_radius_measured"] is False
+    assert detail["d_m"] is None
+    import json
+
+    json.dumps(meta)  # 상위가 그대로 실어 보낼 수 있어야 한다
+
+
+def test_feasible_run_leaves_state_meta_shape_untouched():
+    """정상 경로의 `state.meta` 형태는 안 바뀐다 — 골든셋 labels.json이 통째로 동등비교한다."""
+    state = WhiteBoxDetector()(_state_with_mat(_draw_centered_box))
+    assert state.meta["white_box_detector"] == {
+        "confirmed": 1, "rejected": 0, "reject_reasons": [],
+    }
+
+
+def test_infeasible_does_not_silently_degrade_to_the_mat_centre():
+    """🔴 거절이 **필수**인 이유: 착륙점만 빼고 검출을 남기면 `DistressMatGeometry`가
+    매트 중심(=흰 박스 위)으로 우아하게 degrade한다 — "해가 없다"가 "박스 위에 내려라"로
+    조용히 뒤집힌다. 실제 하위 모듈을 통과시켜 그 경로가 안 열리는지 확인한다."""
+    from vision.modules.distress_mat import DistressMatGeometry
+
+    x, y, w, h = _MAT_BBOX
+    canvas = _canvas_with_mat(_MAT_BBOX)
+    _draw_centered_box(canvas, _MAT_BBOX)
+    det = Detection(
+        bbox=_MAT_BBOX,
+        corners=[(x, y), (x, y + h), (x + w, y + h), (x + w, y)],
+    )
+    state = VisionState(original=canvas.copy(), current=canvas.copy(), detections=[det])
+
+    state = WhiteBoxDetector(aircraft_radius_m=1.0)(state)
+    state = DistressMatGeometry()(state)
+
+    assert state.meta["distress_mat_geometry"]["tagged"] == 0
+    assert all("distress_mat" not in d.meta for d in state.detections)
+
+
+def test_shipped_defaults_produce_the_documented_landing_distance():
+    """🔴 **기본값 자체를 밟는 테스트.** 인자를 전부 명시로 넘기는 테스트만 있으면 기본값을
+    뒤집어도 전건 통과한다(이 저장소에서 같은 사고가 두 번 났다). 그래서 여기서는 인자를
+    하나도 주지 않고, 기대값은 상수를 재참조하지 않은 **손계산 리터럴**로 적는다."""
+    assert AIRCRAFT_RADIUS_M_DEFAULT == 0.60
+    assert LANDING_DRIFT_ALLOWANCE_M_DEFAULT == 0.30
+    assert DISTRESS_WHITE_BOX_SIZE_M == 0.20
+
+    detector = WhiteBoxDetector()          # ← 인자 0개
+    assert detector.mat_size_m == 3.0      # core/target.py::DISTRESS_MAT_SIZE_M 경유
+    assert detector.safety_window_bias == 0.5
+
+    # d = 0.10 + 0.60/√2 = 0.524264 (하한), 1.5 − 0.60 − 0.30 = 0.600000 (상한), 중점 0.562132
+    assert _landing_distance_m(detector) == pytest.approx(0.562132, abs=1e-4)
+
+
+def test_aircraft_radius_default_is_flagged_unmeasured_and_above_the_known_bound():
+    """🔴 R은 실측된 적이 없다(`core/frames.py`의 ψ_m 패턴). 실측 없이 이 플래그를 뒤집으면 red.
+
+    아는 사실은 "0.5m 초과"뿐이므로 기본값은 그 하한보다 커야 한다 — 작게 잡으면 매트를 넘는다.
+    """
+    assert AIRCRAFT_RADIUS_MEASURED is False
+    assert AIRCRAFT_RADIUS_M_DEFAULT > 0.5
+    # 미측정 플래그가 진단 meta까지 전파되는지(소비자가 이 추정을 얼마나 믿을지 정하는 근거)
+    state = WhiteBoxDetector()(_state_with_mat(_draw_centered_box))
+    geom = state.detections[0].meta["white_box_detector"]["landing_geometry"]
+    assert geom["aircraft_radius_measured"] is False
+    assert geom["aircraft_radius_m"] == AIRCRAFT_RADIUS_M_DEFAULT
+
+
+def test_landing_geometry_meta_carries_bounds_slack_and_is_json_serializable():
+    """§7.4 포렌식: 착륙점이 "왜 거기인가"의 근거 전량이 검출 meta에 실린다."""
+    import json
+
+    state = WhiteBoxDetector()(_state_with_mat(_draw_centered_box))
+    geom = state.detections[0].meta["white_box_detector"]["landing_geometry"]
+    assert geom["feasible"] is True
+    assert geom["d_min_m"] <= geom["d_m"] <= geom["d_max_m"]
+    assert geom["box_clearance_m"] >= 0.0
+    assert geom["mat_edge_margin_m"] >= LANDING_DRIFT_ALLOWANCE_M_DEFAULT - 1e-9
+    assert geom["aircraft_radius_max_feasible_m"] > geom["aircraft_radius_m"]
+    json.dumps(state.detections[0].meta["white_box_detector"])
+
+
+def test_box_center_offset_is_exported_so_the_centred_box_premise_can_be_checked():
+    """하한 유도는 "박스가 매트 정중앙"(§2)을 전제한다 — 전제가 깨졌는지 사후에 보여야 한다."""
+    centred = WhiteBoxDetector()(_state_with_mat(_draw_centered_box))
+    off = WhiteBoxDetector()(_state_with_mat(lambda c, b: _draw_offcenter_box(c, b, margin=25)))
+
+    ox, oy = centred.detections[0].meta["white_box_detector"]["landing_geometry"][
+        "box_center_offset_m"]
+    assert abs(ox) < 0.05 and abs(oy) < 0.05
+
+    ox2, oy2 = off.detections[0].meta["white_box_detector"]["landing_geometry"][
+        "box_center_offset_m"]
+    assert ox2 < -0.5 and oy2 < -0.5, "편심 박스인데 오프셋이 0 근처로 보고됐다"
+
+
+def test_geometry_parameters_are_live_not_hardcoded():
+    """매트/박스/드리프트/bias 각각이 실제로 착륙점을 움직이는가(하드코딩이면 red)."""
+    base = _landing_distance_m(WhiteBoxDetector())
+
+    # 매트가 커지면 안전창 상한이 멀어져 착륙점도 멀어진다
+    bigger_mat = _landing_distance_m(WhiteBoxDetector(mat_size_m=6.0), mat_size_m=6.0)
+    assert bigger_mat > base + 0.5
+
+    # 드리프트 허용치를 줄이면 상한이 늘어 착륙점이 바깥으로 간다
+    assert _landing_distance_m(WhiteBoxDetector(drift_allowance_m=0.0)) > base
+
+    # 박스가 커지면 하한이 밀려 착륙점이 바깥으로 간다
+    # (0.30m까지만 키운다 — 0.40m를 넘기면 하한이 상한을 추월해 안전창 자체가 비어버린다)
+    assert _landing_distance_m(WhiteBoxDetector(white_box_size_m=0.30)) > base
+
+    # bias=0 이면 하한, bias=1 이면 상한에 정확히 붙는다
+    assert _landing_distance_m(WhiteBoxDetector(safety_window_bias=0.0)) == pytest.approx(
+        0.524264, abs=1e-4)
+    assert _landing_distance_m(WhiteBoxDetector(safety_window_bias=1.0)) == pytest.approx(
+        0.600000, abs=1e-4)
+
+
+def test_constructor_rejects_impossible_geometry_arguments():
+    """인자 검증은 생성자에서 — 프레임을 만지기 전에 실패한다(`LiveFrameSource` AF와 같은 원칙)."""
+    for kwargs in (
+        {"mat_size_m": 0.0},
+        {"mat_size_m": -3.0},
+        {"white_box_size_m": -0.1},
+        {"aircraft_radius_m": -0.1},
+        {"drift_allowance_m": -0.1},
+        {"safety_window_bias": -0.01},
+        {"safety_window_bias": 1.01},
+    ):
+        with pytest.raises(ValueError):
+            WhiteBoxDetector(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# interior_margin_ratio 폐기 (하위호환 no-op)
+# ---------------------------------------------------------------------------
+
+
+def test_interior_margin_ratio_is_accepted_but_ignored():
+    """🔴 물리 도출값이 **항상** 이긴다. 둘 다 조용히 적용되면 어느 쪽이 이겼는지 모른 채
+    같은 결함이 재발한다. 기존 preset yaml이 이 키를 줘도 로드가 죽지는 않아야 한다."""
+    with pytest.warns(DeprecationWarning):
+        legacy_kwarg = WhiteBoxDetector(interior_margin_ratio=0.3)
+
+    # 옛 값(0.3)을 주든 말도 안 되는 값(0.95)을 주든 착륙점은 물리 도출값 그대로다.
+    assert _landing_distance_m(legacy_kwarg) == pytest.approx(
+        _landing_distance_m(WhiteBoxDetector()), abs=1e-9)
+    with pytest.warns(DeprecationWarning):
+        absurd = WhiteBoxDetector(interior_margin_ratio=0.95)
+    assert _landing_distance_m(absurd) == pytest.approx(
+        _landing_distance_m(WhiteBoxDetector()), abs=1e-9)
+
+
+def test_ignoring_interior_margin_ratio_is_announced_not_silent():
+    """§7.4 침묵 금지 — 무시했다는 사실이 meta로 나가야 조용한 오설정을 잡을 수 있다."""
+    with pytest.warns(DeprecationWarning):
+        detector = WhiteBoxDetector(interior_margin_ratio=0.3)
+    state = detector(_state_with_mat(_draw_centered_box))
+    assert state.meta["white_box_detector"]["interior_margin_ratio_ignored"] == 0.3
+
+    # 안 주면 이 키 자체가 없다(정상 경로의 meta 형태 불변)
+    clean = WhiteBoxDetector()(_state_with_mat(_draw_centered_box))
+    assert "interior_margin_ratio_ignored" not in clean.meta["white_box_detector"]
+
+
+def test_distress_fine_preset_values_match_the_module_defaults():
+    """preset yaml이 값을 복제하므로 조용한 드리프트를 여기서 막는다
+    (`test_state_machine.py`가 nominal.yaml과 모듈 상수를 대조하는 것과 같은 패턴)."""
+    from pathlib import Path
+
+    import yaml
+
+    import vision
+
+    preset = Path(vision.__file__).parent / "presets" / "distress_fine.yaml"
+    cfg = yaml.safe_load(preset.read_text(encoding="utf-8"))["pipeline"]["white_box_detector"]
+
+    assert cfg["aircraft_radius_m"] == AIRCRAFT_RADIUS_M_DEFAULT
+    assert cfg["drift_allowance_m"] == LANDING_DRIFT_ALLOWANCE_M_DEFAULT
+    assert cfg["white_box_size_m"] == DISTRESS_WHITE_BOX_SIZE_M
+    assert cfg["mat_size_m"] == 3.0
+    assert cfg["safety_window_bias"] == 0.5
+    # 폐기된 키가 되살아나면 red
+    assert "interior_margin_ratio" not in cfg

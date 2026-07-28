@@ -424,7 +424,9 @@ def test_landing_pixel_gives_the_offset_point_not_the_mat_centre():
     obj = marker_object_points(DISTRESS_MAT_SIZE_M)
     tvec = np.array([[0.0], [0.0], [10.0]])
     img = _project_points(np.zeros(3), tvec, _MAT_K, _MAT_DIST, obj)
-    # interior_margin_ratio=0.3 -> top-left 코너(-1.5,-1.5)를 중심 쪽으로 30% 당긴 점
+    # 매트 중심에서 대각으로 밀려난 임의의 착륙점(축당 1.05m). 이 값 자체는 이 테스트의
+    # 입력일 뿐이고 `distress_box.py`의 산출 규칙과는 무관하다 — 여기서 검증하는 것은
+    # "역투영이 준 픽셀이 그 오프셋 좌표를 그대로 복원하는가"뿐이다.
     landing_obj = np.array([[-1.05, -1.05, 0.0]])
     landing_px = _project_points(np.zeros(3), tvec, _MAT_K, _MAT_DIST, landing_obj)[0]
 

@@ -1319,8 +1319,13 @@ def test_distress_fine_landing_point_is_offset_from_the_mat_centre(
 
     lateral = math.hypot(fine_rec["position_cam"][0] - centre_rec["position_cam"][0],
                          fine_rec["position_cam"][1] - centre_rec["position_cam"][1])
-    # 3.0m 매트 + interior_margin_ratio=0.3 -> 축당 0.7*1.5=1.05m, 대각 약 1.485m
-    assert lateral == pytest.approx(1.05 * math.sqrt(2), rel=0.05), (
+    # 3.0m 매트 + 기체 크기 기반 안전창(2026-07-28 재설계, R=0.60/δ=0.30 기본값)
+    # -> 축당 d=0.562132m(안전창 [0.5243, 0.6000]의 중점), 대각 d·√2 ≈ 0.795m.
+    # (옛 interior_margin_ratio=0.3 시절엔 축당 1.05m/대각 1.485m였다 — 그 착륙점은
+    #  매트 가장자리 여유가 0.45m뿐이라 R>0.5m 기체가 플랫폼 밖으로 삐져나갔다.)
+    from vision.modules.distress_box import compute_landing_window
+    expected_d = compute_landing_window(3.0, 0.20, 0.60, 0.30, 0.5)["d_m"]
+    assert lateral == pytest.approx(expected_d * math.sqrt(2), rel=0.05), (
         f"착륙점이 매트 중심에서 밀려나지 않았다(수평차 {lateral:.3f}m)"
     )
     # 같은 매트를 보고 있으므로 거리(z)는 같아야 한다 — 오프셋이 z로 새면 안 된다.
