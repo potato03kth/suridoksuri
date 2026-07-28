@@ -57,6 +57,10 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
+from vision.core.prior_geometry import (
+    PRIOR_DETECTION_META_KEY,
+    PRIOR_INPUTS_KEY,
+)
 from vision.core.runner import Pipeline
 from vision.core.state_machine import (
     Decision,
@@ -145,7 +149,49 @@ def _confirmed_to_dict(confirmed) -> dict | None:
 
 
 def _detections_to_list(detections) -> list[dict]:
-    return [{"bbox": list(d.bbox), "confidence": d.confidence} for d in detections]
+    """JSONL 블랙박스용 축약. 사전정보 스코어러(`modules/prior_score.py`)가 켜졌을 때만
+    `prior` 키가 추가된다 — 꺼져 있으면(=현재 라이브 경로 전부) 기존 JSONL 형태와 **한 글자도
+    다르지 않다**(회귀테스트로 고정)."""
+    out = []
+    for d in detections:
+        entry = {"bbox": list(d.bbox), "confidence": d.confidence}
+        prior = d.meta.get(PRIOR_DETECTION_META_KEY)
+        if isinstance(prior, dict):
+            entry["prior"] = {
+                k: prior.get(k)
+                for k in ("score", "area_score", "shape_score", "observed_area_px2",
+                          "predicted_area_px2", "area_ratio", "observed_anisotropy",
+                          "max_anisotropy", "incidence_deg", "error")
+                if k in prior
+            }
+        out.append(entry)
+    return out
+
+
+def _build_prior_inputs(calib: Optional[CameraCalibration], telemetry: Optional[dict] = None) -> dict:
+    """`modules/prior_score.py::PriorGeometryScorer`가 소비할 프레임 단위 사전정보를 조립한다
+    (`Pipeline.run(image, meta=...)` 통로. `replay.py`에 같은 헬퍼가 얇게 중복 — 두 CLI는 서로
+    import하지 않는다는 기존 원칙).
+
+    🔴 **`main.py` 라이브 경로에는 AGL/자세 역방향 채널이 아직 없다**(`_build_observation`이
+    `agl_m=None`인 것과 같은 이유 — `docs/vision_fc_interface.md`, 다른 세션 작업 중). 그래서
+    여기서는 캘리브레이션만 실리고 스코어러는 **항상 비활성으로 degrade**한다. 채널이 열리면
+    `telemetry`에 `alt`/`attitude`가 실리는 것만으로 그대로 활성된다 — 이 함수는 안 고쳐도 된다.
+    """
+    if calib is None:
+        return {}
+    inputs: dict = {
+        "camera_matrix": calib.camera_matrix,
+        "dist_coeffs": calib.dist_coeffs,
+        "calib_image_size": tuple(calib.image_size),
+        "calib_id": calib.calib_id,
+    }
+    if isinstance(telemetry, dict):
+        if telemetry.get("alt") is not None:
+            inputs["agl_m"] = telemetry["alt"]
+        if telemetry.get("attitude") is not None:
+            inputs["attitude"] = telemetry["attitude"]
+    return {PRIOR_INPUTS_KEY: inputs}
 
 
 def _find_aruco_detection(detections):
@@ -535,7 +581,7 @@ def _run_image(
     sink = sink if sink is not None else NullSink()
     image = load_image(str(input_path))
     t0 = time.perf_counter()
-    state = pipeline.run(image)
+    state = pipeline.run(image, meta=_build_prior_inputs(calib))
     latency = time.perf_counter() - t0
     ts = time.time()
 
@@ -614,7 +660,7 @@ def _run_video(
     with VideoReader(str(input_path)) as reader:
         for frame in reader:
             t0 = time.perf_counter()
-            state = pipeline.run(frame)
+            state = pipeline.run(frame, meta=_build_prior_inputs(calib))
             latency = time.perf_counter() - t0
             ts = time.time()
             annotated = draw_detections(state.original, state.detections, state.confirmed)
@@ -755,7 +801,9 @@ def _run_live(
                     )
                     break
                 t0 = time.perf_counter()
-                state = pipeline.run(record.image)
+                state = pipeline.run(
+                    record.image, meta=_build_prior_inputs(calib, record.telemetry)
+                )
                 latency = time.perf_counter() - t0
                 ts = record.ts
                 annotated = draw_detections(state.original, state.detections, state.confirmed)

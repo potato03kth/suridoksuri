@@ -13,6 +13,7 @@ from .vertiport_ring import RedRingDetector
 from .aruco import ArucoDetector
 from .distress_box import WhiteBoxDetector
 from .distress_mat import DistressMatGeometry
+from .prior_score import PriorGeometryScorer
 
 __all__ = [
     "ColorFilter", "IlluminationModule", "DenoiseModule", "EdgeDetector",
@@ -20,4 +21,5 @@ __all__ = [
     "KalmanTracker", "TemporalFusion",
     "WhiteFieldDetector", "BlackVMatcher", "RedRingDetector",
     "ArucoDetector", "WhiteBoxDetector", "DistressMatGeometry",
+    "PriorGeometryScorer",
 ]

@@ -30,6 +30,7 @@
 | `core/state_machine.py` | **신설(§9 빌드순서 6번, `docs/vision_plan.md` §5.1)** — 공통 상태머신 + 안전 폴백. `LandingState`(str Enum: `ACQUIRE`/`CENTER_DESCEND`/`LOCK`/`PRECISION_SERVO`/`TERMINAL`/`HOLD`/`ABORT_ASCEND`) + `Observation`(프레임 단위 관측: `ts`/`frame_id`/`n_candidates`/`center_error_norm`/`fine_locked`/`agl_m`/`target_estimate`/`scale_source`) + `Decision`(`state`/`command`/`reason`/`blind_duration_s`/`scale_source`) + `LandingSMConfig`(매직넘버 금지, §7.3 — `max_blind_duration_s`/`max_drift_estimate_m`/`lock_confirm_frames`/`loss_tolerance_frames`/`center_tolerance_norm`/`max_candidates_for_lock`/`terminal_agl_m`) + `LandingStateMachine.update(obs)->Decision`. **순수 로직(파일 I/O·wall-clock·난수 없음)** — `core/target.py`와 동일 패턴, `Observation.ts`를 그대로 쓰므로 같은 관측열은 항상 같은 상태열(§7.5 결정론). **타겟 종류 무관 공통 골격** — 버티포트/조난자/십자 전용 분기 없음, 타겟별 특수성은 호출자가 `Observation` 필드를 어떻게 채우는지로만 표현된다. **커밋 게이트가 구조적으로 강제됨** — `PRECISION_SERVO`/`TERMINAL`은 오직 `LOCK`의 `_consecutive_fine_locked >= lock_confirm_frames` 통과를 거쳐야만 도달 가능(코드상 다른 진입 경로 없음), 후보가 모호(`n_candidates > max_candidates_for_lock`)한 채 락을 시도하면 `HOLD`로 거절. **안전 폴백 두 갈래** — (a) `CENTER_DESCEND`/`PRECISION_SERVO`에서 검출 상실이 `loss_tolerance_frames`를 넘으면 `HOLD`(재포착 시 `CENTER_DESCEND`로 복귀 가능, 막다른 상태 아님), (b) `TERMINAL`에서 블라인드 지속시간이 `max_blind_duration_s`를 넘거나 근사 이탈추정(마지막 유효 정규화 중심오차×마지막 유효 AGL)이 `max_drift_estimate_m`을 넘으면 `ABORT_ASCEND`(§5.1 "안 보이는데 계속 내려간다" 금지). `TERMINAL` 진입은 `PRECISION_SERVO`에서 `agl_m<=terminal_agl_m`일 때만(AGL이 항상 None이면 구조적으로 절대 진입 못 함 — 크래시 없이 안전하게 폐루프 서보에 계속 머무는 축퇴 동작). `modules/`가 아니다(`__call__(VisionState)->VisionState` 인터페이스 아님, `registry.py` 미등록, preset yaml 미사용) — 프레임 단위 관측을 시간축으로 누적하는 상위 레이어 | 낮음 |
 | `core/frames.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 1 — `docs/vision_fc_interface.md` §4.3 작업 V3)** — 좌표 프레임 체인 `카메라 광학(cam) → 기체 body FLU → 기체 body FRD`. `R_frd_cam(psi_m)`/`R_flu_cam(psi_m)` + `cam_to_frd`/`cam_to_flu`/`flu_to_frd`와 각각의 역변환 + 쿼터니언 성분순서 어댑터(`quat_xyzw_to_wxyz`/`quat_wxyz_to_xyzw`). **순수 numpy 회전 계산만**(파일 I/O·wall-clock·난수 없음 — `core/target.py`/`core/state_machine.py`와 동일 패턴). `R_flu_cam`은 `R_frd_cam`에서 `R_flu_frd`를 곱해 **유도**한다(두 행렬을 각각 손으로 적어두면 한쪽만 고쳤을 때 조용히 어긋나므로). 🔴 **마운트 요각 `psi_m`은 미측정(§7 U3)** — 저장소 어디에도 값이 없고 물리 측정이 필요해 `MOUNT_YAW_PSI_M_RAD_DEFAULT=0.0` + `MOUNT_YAW_PSI_M_MEASURED=False`로 **값을 지어내지 않고** 파라미터로 뺐다. 그 "미측정" 플래그는 와이어 레코드를 타고 소비자까지 전파된다. **ENU/NED 변환은 의도적으로 구현하지 않았다**(§4.4 — body 프레임 경로가 기체 자세 구독·시간 동기를 통째로 없애므로. 안 쓰는 경로를 만들면 누군가 쓴다). 나디르 하드마운트 가정과 고무마운트 잔차 리스크(§4.5, `지상오차=고도×tan(θ_잔차)`)는 파일 docstring에 정량 수치까지 기록 | 낮음 |
 | `core/wire.py` | **신설(2026-07-28, 같은 Phase 1 — 작업 V2 + §5 페일세이프 계약)** — vision→fc 인터페이스 **와이어 포맷(JSON Lines)** + 페일세이프 계약. `SCHEMA_VERSION`/`REQUIRED_TARGET_KEYS`/`REQUIRED_STATE_HINT_KEYS` 상수 + `FailsafeContract`(매직넘버 금지, §7.3) + `gate_confidence()`/`closed_loop_floor_agl_m()` + 레코드 조립 3종(`build_target_record`/`build_invalid_target_record`/`build_state_hint_record`) + `encode_line`/`decode_line` + 왕복 복원(`target_estimate_from_record`/`decision_from_record`) + `validate_record`. **transport-agnostic 순수 로직** — 소켓도 파일도 **클록도** 모른다(타임스탬프를 전부 인자로 받아 같은 입력이면 같은 바이트, §7.5. 실제 클록 샘플링은 어댑터 `utils/target_sink.py::sample_clocks()`). 레코드 타입 2종: `"target"`(TargetEstimate **전량 무손실** + 3프레임 위치 + provenance + 페일세이프 필드)과 `"state_hint"`(상태머신 `Decision`). 🔴 **`command`는 `command_hint` + `command_is_advisory:true` + 타입명 `state_hint` 세 겹으로 "명령 아님"을 형식에 박았다**(§6.3 거부권 권고). 🔴 **위치 필드는 프레임을 이름에 박는다**(`position_cam`/`position_flu`/`position_frd`) — 이 저장소는 `pos_ned`/`vel_ned`가 같은 접미사로 반대 부호 규약을 쓰는 사고 이력이 있다(§4.2). 시계는 **두 클록을 다 싣는다**(`stamp_monotonic_ns` stale판정용 / `stamp_wall_ns` 로그상관용 / `clock_offset_ns` 환산용 / `timestamp` 원본 무손실) — 근거·미검증 2건은 파일 docstring "시계(clock) 계약" 절 | 낮음 |
+| `core/prior_geometry.py` | **신설(2026-07-28, 사용자 제안 — 아래 "사전정보 기반 후보 스코어링" 절)** — "타겟이 지상 평면에 놓여 있고 실측 크기를 안다"는 확정 사실 + AGL + 기체 자세로 **"진짜 타겟이라면 화면에 어떤 크기·어떤 찌그러짐으로 보여야 하는가"**를 예측하고 관측 후보와의 일치도를 0~1 점수로 환산하는 **순수 기하**. `VehicleAttitude` + `attitude_from_telemetry()`/`quaternion_to_attitude()`(자세 텔레메트리 스키마 확정) + `up_vector_body_frd()`/`ground_normal_cam()`(마운트 회전은 `core/frames.py::R_frd_cam` **재사용**) + `predict_planar_target_geometry()`(핵심 — `PredictedGeometry` 반환) + `project_ground_square()`(예상 4각형 정확 투영) + 점수 3종(`area_consistency_score`/`shape_consistency_score`/`combine_scores`) + `residual_tolerance_widening()`(§4.2 미측정 자세 잔차를 **허용폭에만** 반영) + `score_candidate()` + `state.meta` 키 3종 단일 출처(`PRIOR_INPUTS_KEY`/`PRIOR_META_KEY`/`PRIOR_DETECTION_META_KEY` — main/replay가 modules를 import할 수 없어 `core/`가 유일한 공유 장소). 핵심 식 `예상면적 = (크기)²·fx·fy·|n̂·r|³/h²` 는 **나디르에서 기존 `distress_coarse.yaml` 도출값을 그대로 재현**한다(10m→90,158px², 그 헤더의 "~90,000") — 새 규약이 아니라 **일반화**다. **순수 계산만**(파일 I/O·wall-clock·난수 없음, `core/target.py`와 동일 패턴), 같은 core 안의 `frames`/`target`만 상대 import | 낮음 |
 
 ### modules/
 
@@ -51,6 +52,7 @@
 | `vertiport_ring.py` | `RedRingDetector` | `original`, `detections` | `detections`, `meta` |
 | `distress_box.py` | `WhiteBoxDetector` | `original`, `detections` | `detections`, `meta` |
 | `distress_mat.py` | `DistressMatGeometry` | `detections`(코너+`white_box_detector` meta) | `detections`(meta만), `meta` |
+| `prior_score.py` | `PriorGeometryScorer` | `detections`, `meta["prior_inputs"]`(호출자가 심음), `original`(해상도 확인) | `detections`(**meta + 순서만** — 🔴 제거 없음), `meta` |
 
 ### 그 외
 
@@ -74,8 +76,8 @@
 | `ros/shim_core.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 2 — 컨테이너 shim)** — JSON Lines 레코드 → **"발행 계획"(ROS 메시지를 서술하는 dataclass)** 순수 변환. `ShimConfig`/`ShimRouter` + `PosePlan`/`StatusPlan`/`LandingTargetPlan`/`ShimOutput` + `validate_record`/`parse_line`/`kv_value`. 🔴 **stdlib만 쓴다 — 취향이 아니라 강제다**: `vision.core.wire`를 import하면 `wire.py → core/target.py → import cv2` 체인 때문에 **fc 컨테이너에서 즉시 죽는다**(cv2 없음, 실측). 그래서 계약 상수(`SCHEMA_VERSION`/`REQUIRED_*_KEYS`)를 **의도적으로 복제**하고, 그 복제가 어긋나는 것은 랩탑 테스트가 `vision.core.wire`와 **직접 대조**해 잡는다(런타임은 격리, 검증은 대조). rclpy도 numpy도 import하지 않아 랩탑에서 그냥 단위테스트된다. **[2026-07-28] `/vision/landing_setpoint` 추가** — `VehiclePose`/`SetpointPlan` + 쿼터니언 순수 수학 4종(`quat_normalize`/`quat_rotate`/`quat_yaw`/`quat_from_yaw`) + `enu_yaw_to_ned_yaw`/`enu_to_pos_ned_n_e_hup` + `build_landing_setpoint()`. 🔴 **절대 좌표를 기억하지 않는다** — 라우터가 들고 있는 상태는 최신 `VehiclePose` 하나뿐이고 목표점은 매 레코드마다 `최신 pose + 그 순간의 상대오차`로 다시 계산된다(EKF 드리프트 상쇄). numpy 금지 제약 때문에 쿼터니언 회전을 수식으로 직접 폈고, 그래서 **로드리게스 공식 독립 재구현과 대조**하는 테스트를 따로 뒀다. 아래 "절대 setpoint" 하위 절 참조 |
 | `ros/shim_node.py` | **신설(2026-07-28, 같은 Phase 2)** — `shim_core`의 얇은 rclpy 어댑터. **저장소에서 rclpy를 import하는 유일한 파일**이고 컨테이너 안에서만 실행된다(`python3 -m vision.ros.shim_node`). 소켓 **클라이언트**(vision이 서버)라 재접속 루프를 이쪽이 갖고, EOF를 받으면 pose를 끊고 status만 ERROR로 낸다. 판단은 한 줄도 없다 — "계획 → msg 필드 대입"과 소켓 수명주기뿐이고, 그 **얇음 자체가 회귀테스트 대상**이다(`test_shim_core.py`가 이 파일을 **AST로 파싱해** msg 프레임 상수 참조·와이어 키 직접 읽기를 금지한다 — 소스 문자열 검색은 docstring 산문까지 잡아 쓸모없어진다). SIGTERM 핸들러는 `tools/h264_stream.py`와 동일 패턴. **[2026-07-28] `/mavros/local_position/pose` 구독 + `/vision/landing_setpoint` 발행 추가** — 구독이 생기면서 **executor 데몬 스레드가 하나 늘었다**("발행만 하니 spin 불필요"였던 전제가 깨짐). 소켓 폴링(`_POLL_S=0.2s`) 안에서 `spin_once`를 부르면 자세가 최대 0.2초 묵어 `attitude_stale_s`(0.25s) 예산의 80%를 까먹기 때문. `--no-landing-setpoint`를 주면 구독도 스레드도 안 만들어 이전 단일스레드 동작으로 정확히 되돌아간다 |
 | `utils/frame_source.py` | `FrameRecord` + `LiveFrameSource`/`DirFrameSource`/`BagFrameSource` 어댑터 + `open_dir_or_bag()` 팩토리 (§7.2/§7.5/§7.9 항목4). Live=실카메라(재시도 후 `ConnectionError`), Dir=녹화폴더(프레임파일+선택적 `telemetry.jsonl`), Bag=단일 비디오파일(+선택적 사이드카 `<basename>.jsonl`). **`LiveFrameSource`는 2026-07-24 카메라 브링업(`docs/vision_camera_bringup.md`) Phase 4에서 picamera2 백엔드로 재구현됨** — 이전 `cv2.VideoCapture` 구현은 V4L2 raw 경로와 비호환임이 실측 확인돼(`docs/vision_status.md` 2026-07-22b) 폐기. 생성자 인자도 `device`(cv2 정수/경로) → `camera_num`(picamera2 카메라 인덱스) + `resolution`(기본 `nominal.yaml`의 `image_size` 4608x2592와 일치, solvePnP 캘리브레이션과 어긋나지 않게)으로 교체. `create_still_configuration(main={"format": "RGB888", ...})` 요청이 실제로는 BGR 바이트순서를 준다는 picamera2 명명 역전(`tools/calib_capture.py`에서 실기체로 이미 확인된 사실)을 재사용해 별도 색공간 변환 없이 BGR 관례를 만족시킨다. picamera2는 이 `.venv`에 없는 RPi 전용 라이브러리라 `open()` 내부 지연 import로 격리(모듈 최상단 import 금지 — 그러면 이 `.venv`의 `DirFrameSource`/`BagFrameSource` 사용처까지 깨짐). 단위테스트는 `sys.modules`에 가짜 `picamera2` 모듈을 주입해 실기 없이 검증하고, 지연 import 격리 자체도 회귀테스트(소스 텍스트에 최상단 import 없음 + `sys.modules["picamera2"]=None`으로 강제 차단해도 모듈 import는 성공) 대상. **[2026-07-28] AF(오토포커스) 제어 추가 + 저장소 AF 단일 출처가 됨** — `af_mode`(기본 `continuous`)/`lens_position` 생성자 인자와 `AF_MODES`/`LENS_POSITION_MIN,MAX`/`validate_af_args`/`validate_lens_position`/`make_af_controls`가 여기 산다(`tools/h264_stream.py`가 여기서 import). 🔴 **실기체 미검증.** 아래 "LiveFrameSource AF 제어" 절 참조 |
-| `main.py` | CLI 진입점. 이미지/영상 자동 분기. `--log-dir`/`--log-name`으로 이중싱크 로거+JSONL 블랙박스 실행(항상 on). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `--calib`(기본 `calibration/cam109-imx708af75/nominal.yaml`)로 캘리브레이션을 1회 로드해 재사용, 확정 ArUco 검출이 있으면 `solve_target_pose()` 호출 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절). **§9 6번 상태머신 배선** — 실행 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나를 재사용(`_run_image`/`_run_video`/`_run_live` 전부, 단일 이미지 경로도 관측 1개짜리로 통과)해 매 프레임 `_build_observation()`으로 `Observation`을 만들고 `update()` 결과를 JSONL `state`/`command`에 싣는다(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절. **[2026-07-28] `--target-sink` 배선(인터페이스 Phase 1 마무리, §9 작업 V5)** — `--target-sink`/`--target-sink-host`/`--target-sink-port`로 `SocketTargetSink` opt-in(기본 꺼짐=`NullSink`), 세 실행경로(`_run_image`/`_run_video`/`_run_live`) 전부에서 매 프레임 `target`+`state_hint` 레코드 발행. 아래 "`--target-sink` 파이프라인 배선" 절. **[2026-07-28] bind 하드 페일 + 발행상태 오버레이(사용자 결정)** — 기동 실패 시 강등 없이 **종료코드 3**으로 즉사(stderr에 포트 포함), `--display`가 켜져 있으면 매 프레임 `draw_sink_status()`로 소비자 수/seq/드롭을 화면에 표시(`none`이면 비용 0). 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절 |
-| `replay.py` | 오프라인 재생 CLI(`python -m vision.replay <녹화폴더\|bag> --preset ...`, §7.9 (a)). `open_dir_or_bag`로 Dir/Bag 자동판별 → 동일 `Pipeline`으로 재생 → 로거+블랙박스 기록. **결정론적**(§7.5). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `main.py`와 동일한 `--calib`/`TargetEstimate`→`chosen.target_estimate` 배선(헬퍼는 상호 import 안 함 원칙에 따라 얇게 중복). **§9 6번 상태머신 배선** — `main.py`와 동일 원칙(얇게 중복)으로 재생 루프 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나 재사용, `record.telemetry.get("alt")`가 있으면 `Observation.agl_m`으로 흘려보내고 없으면 None으로 우아하게 degrade(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절. **[2026-07-28] `--target-sink` 배선 + 발행상태 오버레이** — `main.py`와 문자 그대로 같은 CLI 인자/기본 꺼짐/하드페일(exit 3). 🔴 **재생 경로에만 있는 가치: `telemetry.jsonl`의 AGL이 실려 `state_hint`가 `TERMINAL`까지 진행하는 유일한 경로**(main.py는 AGL 경로 자체가 없음). `_solve_target_chosen()` → `_solve_target_estimate()`로 교체(JSONL `chosen` 무변경). 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절 |
+| `main.py` | CLI 진입점. 이미지/영상 자동 분기. `--log-dir`/`--log-name`으로 이중싱크 로거+JSONL 블랙박스 실행(항상 on). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `--calib`(기본 `calibration/cam109-imx708af75/nominal.yaml`)로 캘리브레이션을 1회 로드해 재사용, 확정 ArUco 검출이 있으면 `solve_target_pose()` 호출 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절). **§9 6번 상태머신 배선** — 실행 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나를 재사용(`_run_image`/`_run_video`/`_run_live` 전부, 단일 이미지 경로도 관측 1개짜리로 통과)해 매 프레임 `_build_observation()`으로 `Observation`을 만들고 `update()` 결과를 JSONL `state`/`command`에 싣는다(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절. **[2026-07-28] `--target-sink` 배선(인터페이스 Phase 1 마무리, §9 작업 V5)** — `--target-sink`/`--target-sink-host`/`--target-sink-port`로 `SocketTargetSink` opt-in(기본 꺼짐=`NullSink`), 세 실행경로(`_run_image`/`_run_video`/`_run_live`) 전부에서 매 프레임 `target`+`state_hint` 레코드 발행. 아래 "`--target-sink` 파이프라인 배선" 절. **[2026-07-28] bind 하드 페일 + 발행상태 오버레이(사용자 결정)** — 기동 실패 시 강등 없이 **종료코드 3**으로 즉사(stderr에 포트 포함), `--display`가 켜져 있으면 매 프레임 `draw_sink_status()`로 소비자 수/seq/드롭을 화면에 표시(`none`이면 비용 0). 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절. **[2026-07-28] 사전정보 스코어러 배선** — `_build_prior_inputs(calib, telemetry)`로 `Pipeline.run(image, meta=...)`에 캘리브레이션(+있으면 AGL/자세)을 심고, `_detections_to_list()`가 점수를 JSONL `detections[].prior`로 흘려보낸다. 🔴 **라이브에는 AGL/자세 역방향 채널이 아직 없어 항상 비활성으로 degrade**하며, 그때 JSONL은 배선 이전과 한 글자도 다르지 않다(`prior` 키 자체가 안 생김). 아래 "사전정보 기반 후보 스코어링" 절 |
+| `replay.py` | 오프라인 재생 CLI(`python -m vision.replay <녹화폴더\|bag> --preset ...`, §7.9 (a)). `open_dir_or_bag`로 Dir/Bag 자동판별 → 동일 `Pipeline`으로 재생 → 로거+블랙박스 기록. **결정론적**(§7.5). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `main.py`와 동일한 `--calib`/`TargetEstimate`→`chosen.target_estimate` 배선(헬퍼는 상호 import 안 함 원칙에 따라 얇게 중복). **§9 6번 상태머신 배선** — `main.py`와 동일 원칙(얇게 중복)으로 재생 루프 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나 재사용, `record.telemetry.get("alt")`가 있으면 `Observation.agl_m`으로 흘려보내고 없으면 None으로 우아하게 degrade(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절. **[2026-07-28] `--target-sink` 배선 + 발행상태 오버레이** — `main.py`와 문자 그대로 같은 CLI 인자/기본 꺼짐/하드페일(exit 3). 🔴 **재생 경로에만 있는 가치: `telemetry.jsonl`의 AGL이 실려 `state_hint`가 `TERMINAL`까지 진행하는 유일한 경로**(main.py는 AGL 경로 자체가 없음). `_solve_target_chosen()` → `_solve_target_estimate()`로 교체(JSONL `chosen` 무변경). 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절. **[2026-07-28] 사전정보 스코어러 배선** — `main.py`와 같은 헬퍼(얇게 중복)지만 🔴 **`telemetry.jsonl`의 `alt`+`attitude`를 실제로 읽어 스코어러를 활성화하는 유일한 경로**다(main.py는 채널이 없다). 종단간 실증 산출물: `vision/results/prior_geometry_demo/`. 아래 "사전정보 기반 후보 스코어링" 절 |
 | `tools/rpi_capture.py` | RPi 헤드리스 캘리브레이션 촬영 — 저해상도 스냅샷 자동갱신(브라우저) + 촬영 트리거(버튼/Enter). **2026-07-22b에 GStreamer `libcamerasrc`(작동 불가였음, libcamera PiSP IPA 결여) 대신 V4L2 RAW 직접 캡처+수동 디베이어로 전면 재작성해 브링업 완료** — media-ctl/v4l2-ctl로 rp1-cfe 파이프라인 직접 구성. 대상 media 디바이스(`/dev/mediaN`)는 부팅마다 번호가 바뀔 수 있어 하드코딩 대신 매 호출 동적 탐색(2026-07-22d, 아래 "media 디바이스 동적 탐색" 절). gray-world 화이트밸런스 보정 포함(아래 절). **수동 초점/노출/게인 제어 + 초점 스윕 도구 포함(2026-07-22e, 아래 "수동 초점/노출/게인 제어" 절)** — libcamera 우회 경로라 연속 AF/AE가 없어 방치돼 있던 것에 대한 대응. 상세 경과는 메모리 `project_rpi5_ubuntu_camera_stack.md` |
 | `tools/jsonl_view.py` | JSONL 블랙박스 뷰어/플롯 최소본(§7.9 항목6). `BlackBoxLogger`가 남긴 `.jsonl`을 읽어 시간축 score/latency/state 3단 플롯을 PNG로 저장(`matplotlib` Agg 백엔드, headless-safe). `python vision/tools/jsonl_view.py <jsonl> [--output out.png] [--x-axis ts\|frame_id]`. **하드웨어 의존 없음** — `rpi_capture.py`와 달리 `.venv`에 설치되고(`matplotlib` in `requirements.txt`) `tests/test_jsonl_view.py` 대상이다(tools/의 "CI/pytest 대상 아님" 규칙은 RPi 하드웨어 전용 스크립트에만 적용). |
 | `tools/calib_analyze.py` | **신설(2026-07-23)** — `calib_capture.py`가 만든 촬영 세트(`<raw_root>/<set>/<distance>m/<stem>.{png,json}`)를 캘리브레이션 아티팩트로. 그룹(set,distance_m)별 `cv2.calibrateCamera` → 사진별 재투영오차로 불량컷 색출·이상치 제외 재캘리브레이션 → **`fx`/`fy` vs `LensPosition` 직선적합으로 L=0(무한대) 외삽**(핵심 목적 — 기체 운용고도 10~40m는 사실상 무한대)·얇은렌즈 물리 일관성 검사(`b/a`→mm, IMX708급 통상 초점거리와 비교)·디옵터 가정(`LensPosition≈1/distance_m`) 직접 검정 → 세트B(2.5m, 최대커버리지)와 외삽값 대조 → fy/fx·주점·HFOV 등 정합성 검사(실패해도 크래시 없이 보고) → 진단 플롯 3종(Agg, `vision/results/`) → `vision/calibration/<camera_id>/<calib_id>.yaml` 아티팩트(그룹별 결과 전부 보존, `recommended`=fx/fy 외삽절편+세트B의 cx/cy/dist_coeffs, 근거는 yaml `note`). 모든 임계값 CLI 파라미터(매직넘버 금지, §7.3). **하드웨어 의존 없음** — `jsonl_view.py`와 동일한 예외로 `.venv` 설치 + `tests/test_calib_analyze.py` 대상. 정확성은 진짜 K/dist를 아는 합성 체스보드 투영 왕복 테스트로 담보(실촬영 사진은 이 스크립트 작성 시점에 아직 없었음 — `docs/vision_camera_bringup.md`). `recommended-source` CLI로 폴백/강제선택 가능, 그룹<2면 적합 생략 + LensPosition 최저 그룹 폴백(사유 yaml 명시, §9 견고성). |
@@ -1435,6 +1437,154 @@ coarse distress_mat_center     position = [ 0.0000,  0.0000, 10.0088]
 안전창 슬랙(박스 +0.049m / 가장자리 +0.341m)이 흡수한다. 산출물은
 `vision/results/landing_geometry_demo/`.
 
+---
+
+## 사전정보 기반 후보 스코어링 (2026-07-28, `core/prior_geometry.py` + `modules/prior_score.py`)
+
+사용자 제안에서 출발했다: *"이미 객체가 지상에 놓여있는 각도와 모양과 크기를 안다는 점을
+이용하여, 기체의 위치와 attitude를 기반으로 화각 상 픽셀이 목표 객체라면 그 객체가 가져야 할
+상대 각도를 알 수 있지 않은가?"* — 정확히 맞는 이야기이고, 지상 평면 → 화면 픽셀은 호모그래피
+하나(`H = K·[r₁ r₂ t]`)로 결정된다.
+
+**이미 축소판을 하고 있었다.** 위 "distress_coarse.yaml min_area/max_area 도출 근거" 절이 바로
+이 논리다(`gw(h)=2h·tan(37.5°)` → 고도별 예상 픽셀 면적 → 마진). 다만 **(a) 나디르 가정이고
+(b) 고도 대역 전체를 하나의 넓은 범위로 뭉갰다.** 이번 작업은 그걸 **(a) attitude로 일반화
+(b) 실시간 AGL로 대역을 좁힌** 것이다 — 새 규약이 아니다.
+
+### 🔴 하드 게이트가 아니라 랭킹이다 (가장 중요한 설계 결정)
+
+사용자 기조 **"좋은 비행 시퀀스는 실패하지 않는 시퀀스"** = *진짜 타겟을 놓치는 것이 오탐을
+하나 더 보는 것보다 훨씬 나쁘다.* 예측 기하를 게이트로 쓰면 안 되는 구체적 이유 3가지:
+
+1. AGL(라이다)이 틀리거나 attitude가 지연되면 예상 면적이 통째로 오프셋돼 **진짜 타겟을
+   거절**한다. 최악의 경우 검출률 0.
+2. 마운트 요각 ψ_m이 **미측정**이다(`core/frames.py::MOUNT_YAW_PSI_M_MEASURED = False`).
+3. 골든셋이 **전부 합성**이라 게이트를 튜닝할 실측 데이터가 0이다.
+
+그래서 계약은 이렇게 박혀 있다:
+
+- `state.detections`에서 **항목을 절대 제거하지 않는다.** 점수를 붙이고 **정렬**까지가 최대다.
+- 점수 함수가 **구조적으로 0에 닿지 않는다**(로그-가우시안 감쇠) — "0점이면 버린다"는 구현이
+  나중에 붙어도 후보가 사라질 수 없다.
+- 기존 `min_area`/`max_area` 하드 필터를 **대체하지 않는다.** 그 뒤에 랭킹만 얹는다.
+- 사전정보(AGL·자세·인트린식) 중 하나라도 없으면 **자동 비활성** — 스텝이 프리셋에 있으나
+  없으나 결과가 완전히 동일하다.
+
+전부 회귀테스트로 고정돼 있다(위 테스트 규칙표 참조).
+
+### 기하 (유도는 `core/prior_geometry.py` docstring, 여기엔 결론만)
+
+카메라 광학 프레임에서 지상 평면은 `n̂·P = -h`(h=AGL, 수평면이라 수선거리=수직거리).
+`n̂`은 기체 자세에서 나온다. 픽셀 시선 `r = K⁻¹[u,v,1]`에 대해:
+
+```
+예상 면적[px²] = (실측 크기)² · fx·fy·|n̂·r|³ / h²
+예상 비등방성 상한 σ1/σ2  =  J = (1/s)·A·E 의 특이값 비   (A=[[fx,0,-fx·rx],[0,fy,-fy·ry]])
+```
+
+- **🔴 `fx`에서 유도하지 화각(도)에서 계산하지 않는다.** `nominal.yaml`의 `hfov_assumption`이
+  수평인지 대각인지 **미해결**이기 때문 — `core/state_machine.py::half_hfov_tan_from_calibration`
+  이 존재하는 것과 정확히 같은 이유다.
+- **나디르 검산:** `fx=fy=1000.877`(폭 1536px·HFOV 75° 역산), h=10m, 3.0m 매트 → **90,158px²**.
+  `distress_coarse.yaml` 헤더의 "~90,000px²"와 일치한다.
+- **tilt(화면 중앙):** `면적 ∝ cos³(기울기)`, `상한 비등방성 = 1/cos(기울기)`.
+
+  | 기울기 | 예상 면적(20m, 3m 매트) | 면적비 | 상한 비등방성 |
+  |---|---|---|---|
+  | 0° | 22,540px² | 1.000 | 1.0000 |
+  | 10° | 21,528px² | 0.9551 (=cos³10°) | 1.0154 |
+  | 25° | 16,779px² | 0.7444 (=cos³25°) | 1.1034 |
+
+  화면 **가장자리** 후보는 더 크게 갈린다(25°·오프센터: 13,100px², 상한 1.2226).
+- **면적 예측은 타겟의 지상 방위(in-plane yaw γ)에 무관**하다 — 정사각 매트가 어느 방향으로
+  놓였는지 **모르는 채로도** 성립하는 이유이자, 피듀셜 없는 blob 타겟에 그대로 먹히는 이유다.
+  (γ 스윕 실측 퍼짐 0%. 실제 변 길이비는 항상 `[1/(σ1/σ2), σ1/σ2]` 안에 들어온다.)
+- **1차 근사의 한계를 숨기지 않는다:** `|det J|`는 국소 야코비안이라 coarse 대역(40~10m)에서
+  정확 투영과 **1% 미만**이지만 3m·25°에서는 **8%대**로 벌어진다(회귀로 고정). 그래서
+  `predicted_quad_px`(정확 투영)를 진단으로 함께 내보낸다.
+
+### 🔴 미측정 값 2개에 대해 이 설계가 견디는 이유
+
+1. **ψ_m(마운트 요각) 미측정.** ψ_m은 `n̂`을 광축 둘레로 돌릴 뿐 **z성분을 바꾸지 않는다**
+   (`Rz`는 z 보존) → **화면 중앙의 전경축소 크기는 ψ_m과 무관**하고, ψ_m 오차는 "기울어진
+   방향"만 틀리게 한다. 회귀로 못 박혀 있다.
+2. **고무마운트 자세 잔차 θ_res 미측정**(§4.2, `지상오차 = 고도 × tan(θ_res)`, `40m·2°→1.40m`).
+   §4.2가 정량화한 그 항은 **위치**를 틀리게 하는데, 이 스코어러는 위치를 예측하지 않는다 —
+   **관측된 후보 자신의 픽셀**에 예측을 앵커링한다. 그래서 잔차는 입사각을 흔드는 2차 효과로만
+   남고, `residual_tolerance_widening()`이 그걸 **허용폭 확대에만** 반영한다(예측값을 편향시키지
+   않는다 — 잔차를 모르는 채로도 "진짜를 놓치는" 쪽으로 기울지 않는다). 나디르에서 ×1.004,
+   25°에서 ×1.16.
+
+### 배선 — 무엇이 `core/`고 무엇이 `modules/`인가
+
+```
+core/prior_geometry.py   순수 기하 + 점수 함수. "AGL·자세를 인자로 받는 순수 함수"라
+                         입력 소스를 모른다 → 라이브 채널이 열리면 그대로 꽂힌다.
+modules/prior_score.py   파이프라인 스텝(__call__(state)->state) + preset 파라미터 + registry.
+main.py / replay.py      calib 로드 + 사전정보 조립 → Pipeline.run(image, meta=...)
+```
+
+- **`modules/`는 `utils/calibration_loader`를 import하지 않는다**(import 규칙 위반) — ArUco
+  Phase 4·`distress_mat.py`가 같은 이유로 쓴 배선을 그대로 따른다. 다만 그 둘과 달리 이 모듈은
+  **프레임마다 달라지는 외부 입력**(AGL·자세)이 필요해서, `Pipeline.run(image, meta=None)`에
+  주입 통로를 하나 열었다(기본값 None이면 기존 호출부는 무변경).
+- **`state.meta` 키 3종은 `core/`가 단일 출처**다 — `main.py`/`replay.py`는 `modules/`를 import할
+  수 없어(import 규칙) 양쪽이 공유할 수 있는 유일한 장소가 `core/`다. 손으로 두 번 적으면 한쪽만
+  고쳐졌을 때 "스코어러가 영영 비활성인데 아무도 모르는" 상태가 된다.
+- **캘리브레이션 해상도 ≠ 프레임 해상도면 비활성**한다. focal은 해상도 비례값이라 그대로 쓰면
+  예상 면적이 통째로 틀린다. 조용히 재스케일하지 않는 것은 기존 판단과 같다(다운스케일인지
+  크롭인지 알 수 없다).
+- 프리셋 노출: `distress_coarse.yaml`에 `prior_geometry_scorer`(**`distress_mat_geometry` 앞**).
+  앞이어야 하는 이유 — `main.py`/`replay.py`가 `meta["distress_mat"]`이 붙은 **첫** 검출로 pose를
+  풀기 때문에, 정렬이 먼저 끝나야 1등 후보가 기체로 나간다.
+
+### 자세 텔레메트리 스키마 (이번에 확정)
+
+`utils/frame_source.py::FrameRecord.telemetry`에 `attitude` 자리는 이미 있었지만
+(`blackbox.log_frame(attitude=...)`) 스키마가 정의된 적이 없어 아무도 채우지 않았다.
+
+```jsonc
+{"frame_id": 0, "ts": 0.0, "alt": 20.0,
+ "attitude": {"roll_deg": 4.0, "pitch_deg": 9.0, "yaw_deg": 137.0}}   // 권장
+// 또는 {"roll_rad":…, "pitch_rad":…} / {"q":[x,y,z,w]} / {"qx":…,"qy":…,"qz":…,"qw":…}
+```
+
+규약: body FRD 기준, roll=우현하강 양수 / pitch=기수상승 양수 / **yaw는 계산에 안 쓰인다**
+(수평면 법선이 yaw 불변). 🔴 **쿼터니언 경로는 "world NED ← body FRD"라고 가정**하는데 실제
+자세 텔레메트리가 저장소에 **한 건도 없어 실측 검정을 못 했다** — 가능하면 오일러(deg)를 쓸 것.
+못 읽으면 예외 대신 `None`(= 비활성)으로 degrade한다.
+
+### 종단간 실증 — `vision/results/prior_geometry_demo/`
+
+20m·roll4°/pitch9°에서 **진짜 3.0m 매트**와 **색·형상·원근이 전부 같고 크기만 다른 4.5m 오탐**을
+`project_ground_square()`로 원근까지 올바르게 합성해(기존 골든셋은 축평행 사각형이라 tilt가
+물리적으로 안 맞는다) 실제 `python -m vision.replay`로 재생한 결과:
+
+| | JSONL 1등 | `chosen.target_estimate` 착륙점 | `position` z |
+|---|---|---|---|
+| 자세 있음 | 진짜 타겟 (0.99999 vs 0.55985) | `[120.25, 120.75]` 진짜 | **20.83m** ✅ |
+| 자세 없음 | 오탐 (confidence가 더 높다) | `[331.0, 331.75]` 오탐 | **13.23m** ❌ |
+
+**랭킹이 바꾸는 건 로그 한 줄이 아니라 기체로 나가는 좌표다.** 오탐(4.5m)을 3.0m로 오인하면
+거리를 20m가 아니라 13m로 **과소평가**해 조기 하강한다. 자세가 없으면 `prior` 키 자체가 생기지
+않아 JSONL이 배선 이전과 한 글자도 다르지 않다.
+
+### 🔴 아직 안 된 것
+
+- **실촬영 검증 0.** 프레임이 전부 합성이다. 허용폭 기본값은 미지를 넉넉히 잡은 값이지 실측
+  튜닝값이 아니다.
+- **`main.py` 라이브 경로는 항상 비활성이다** — AGL/자세 역방향 채널이 아직 없다(다른 세션
+  소관). 즉 **현재 실기체 동작은 이 기능 도입 전과 동일**하다.
+- **`HOLD` 빈도는 아직 줄지 않는다.** `core/state_machine.py`는 `n_candidates > 1`이면 모호로
+  보고 락을 거절하는데, 이 스코어러는 후보를 지우지 않으므로 `n_candidates`가 그대로다. 대신
+  소비자가 쓸 훅(`top_score`/`runner_up_score`/`score_margin`)을 `state.meta`에 내보낸다 —
+  실제로 모호성을 해소하려면 상태머신 쪽에서 그 훅을 읽어야 하고, 그 파일은 다른 세션 소관이다.
+- 야코비안에 **왜곡의 야코비안은 넣지 않았다**(시선벡터 산출에만 `undistortPoints` 사용).
+  현재 `dist_coeffs = 0`이라 정확하지만 실측 캘리브레이션이 들어오면 재검토 대상.
+
+---
+
+
 ## VisionState 필드 사용 규칙
 
 ```
@@ -1601,6 +1751,7 @@ pytest vision/tests/ -q -k main # 특정만
 | ArUco fine 프리셋 통합(`presets/vertiport_fine.yaml`, ArUco Phase 4) | `Pipeline.from_config` 실로드·ID 23 검출+코너·다른 ID 거절·빈 이미지 0검출(coarse와 독립 실행) | ✅ test_vertiport_fine |
 | distress_box `WhiteBoxDetector`(§5.3 fine, 2026-07-25) | 매트 내 흰 박스 확인·`landing_point_px`가 매트 bbox 내부에 있음·박스가 매트 좌상단에 치우치면 착륙점이 반대편(우하단)으로 밀림·박스 없음/너무 큼/너무 작음/종횡비 초과 각각 거절+reject_reasons 기록·detections 2개(확정1+거절1) 혼합·빈 detections·zero bbox·original/current/mask 비변형(선언 필드 계약)·결정론. **[2026-07-28] 등거리 축퇴 완화**(위 "착륙점 등거리 축퇴 완화" 절) — 완화 끈 옛 동작이 실제로 매트 반대편까지 점프함(고친 대상 못 박기)·기본값에서 1px 흔들림 10프레임에 착륙점 불변·`tie_tolerance_ratio=0` + `corner_hysteresis=False`가 옛 동작과 정확히 일치·편심 박스는 여전히 반대편 선택(`corner_tie_count==1`)·슈미트 트리거 무진동(전환 경계를 **해석식 아닌 실측 스캔**으로 찾아 대조군이 실제로 진동함을 먼저 확인)·히스테리시스 상태 인스턴스 격리+`reset()`+실제 배선 여부·매트 2개 IoU 교차오염 없음·진단 3종·JSON 직렬화. **파괴검증 D1/D2/D3/D4/D5로 red 확인**. **[2026-07-28] 착륙점 기하 — 기체 크기 기반 재설계**(아래 "착륙점 기하 — 기체 크기 기반 재설계" 절) — 산출 착륙점을 **렌더링된 실제 파이프라인**에서 재 두 부등식(하한은 √2 대각선, 상한은 축 방향)을 R=0.3/0.5/0.6 전부에서 동시 만족·옛 규칙(d=1.05m)이 **R의 알려진 하한 0.5m에서조차** 매트를 넘음을 못 박기(고친 대상 재현)·안전창 경계 손계산 4점(R=0.3/0.5/0.7/1.0, R=0.7·1.0은 infeasible) + 절벽 `aircraft_radius_max_feasible_m=0.6444` 고정·**안전창이 비면 착륙점을 지어내지 않고 거절**(사유 `landing_point_infeasible`, `no_white_pixels`와 구분, 하한/상한/R이 meta에 남고 JSON 직렬화 가능)·🔴 **거절이 필수인 이유를 실제 `DistressMatGeometry` 통과로 증명**(착륙점만 빼고 남기면 매트 중심=박스 위로 조용히 degrade)·정상 경로의 `state.meta` 형태 불변(골든 labels.json 동등비교 보호)·🔴 **인자 0개 생성자로 기본값을 직접 밟는 테스트**(기대값은 상수 재참조가 아닌 손계산 리터럴 0.562132)·`AIRCRAFT_RADIUS_MEASURED is False` + 기본값이 알려진 하한 0.5m 초과 + 미측정 플래그의 meta 전파·매트/박스/드리프트/bias 각각이 실제로 착륙점을 움직임(하드코딩이면 red)·박스 중심 오프셋 수출(정중앙 전제 사후검증)·생성자 인자 검증·`interior_margin_ratio` 폐기(주면 `DeprecationWarning` + 무시 + meta 통보, 물리 도출값이 항상 이김)·preset yaml 값과 모듈 기본값 대조. **파괴검증 17종(D1~D17)으로 red 확인** | ✅ test_distress_box |
 | distress_mat `DistressMatGeometry`(초록구역 pose, 2026-07-28) | 코너 순서 정규화가 **실측 approxPolyDP 순서**(반시계)를 시계방향·TL시작으로 바꾸는지(항등이면 red) · 입력 회전/감김 8가지 조합에 불변 · 축퇴 사각형/4점 아님 거절 · coarse는 매트 중심 degrade + `landing_point_source` 명시 · fine은 `white_box_detector`의 `landing_point_px`를 **그대로 소비**(재구현 금지) · 생성자 `size_m`/`platform_height_m`이 실제로 meta에 반영(하드코딩이면 red) · `plane_reference="mat_top_surface"` · 선언 필드 계약(검출 개수 불변, original/current/mask 무변형) · meta 네임스페이스 · 빈 입력 · 결정론 · JSON 직렬화(numpy 누출 없음). **파괴검증 D1/D1b/D3b/D8로 red 확인** | ✅ test_distress_mat |
+| core/prior_geometry + modules/prior_score `PriorGeometryScorer`(사전정보 랭킹, 2026-07-28) | 🔴 **거절 금지 회귀가 최우선** — 어떤 점수에서도 `state.detections`에서 항목이 사라지지 않고(예측 실패 후보 포함) 점수가 0에 닿지 않는다 · **degrade 실증**: AGL 없음/자세 없음/둘 다 없음 각각에서 크래시 없이 스텝이 있으나 없으나 **결과 동일**(순서·bbox·JSONL 형태) · **attitude가 실제로 쓰이는가**: 0°/10°/25°에서 예상면적 `cos³`·비등방성 `1/cos`가 수치로 갈리고 roll/pitch가 서로 바뀌지 않음 · **인트린식에서 유도**(fx 배율에 fx·fy로 정확히 비례 — 화각 하드코딩 금지) · 나디르 예측이 `distress_coarse.yaml` 도출값 재현(10m→300px/90,158px²) · 1차근사 ↔ 정확 투영 대조(coarse 대역 <1%, 3m에서 8%대는 **알려진 한계로 고정**) · in-plane yaw 무관성(γ 스윕 퍼짐 0) + 비등방성 상한이 실제로 도달됨 · **bbox가 아니라 코너 shoelace 실면적**(45° 회전 정사각형은 bbox가 2배) · 기본값 밟기(`reorder=True`/`target_size_m=3.0`/허용폭 비대칭) · 종단간: 실제 `run_replay()`로 진짜 3m 타겟 vs 크기만 다른 4.5m 오탐을 재생해 JSONL 1등 역전 + **FC로 나가는 `chosen.target_estimate`가 바뀌는 것**까지 | ✅ test_prior_geometry |
 | ② 조난자 fine 프리셋 통합(`presets/distress_fine.yaml`, 2026-07-25) | `distress_coarse.yaml` 뒤에 `white_box_detector` 캐스케이드 실로드·매트+박스 실제 확정·`Detection.meta`에 `landing_point_px` 실제 기록(`Pipeline.from_config` 경유, 클래스 직접 호출 아님) | ✅ test_replay(`test_distress_fine_preset_confirmed_detection_carries_landing_point_meta`) |
 | utils/image_loader | 경로→BGR ndarray(shape/dtype + **채널 순서가 실제로 BGR인지를 3분할 B/G/R 띠로 왕복 확인** — 여기서 RGB로 뒤집히면 뒤의 HSV 색 검출이 통째로 어긋난다)·PNG 무손실 왕복(임의 정규화 없음)·`Path` 객체 수용·1채널 원본도 3채널로 확장·결정론 · 없는 파일→`FileNotFoundError`(메시지에 경로 포함)·디렉터리/쓰레기 바이트/0바이트→조용한 None이 아니라 `ValueError`. **파괴검증 5종(I-D1~D5)으로 red 확인** | ✅ test_image_loader |
 | utils/video_reader | **실제 mp4를 써서 실제 디코딩**(몽키패치 없음, `test_frame_source.py`와 같은 원칙) — 전 프레임 이터레이트(BGR shape/dtype) · **순서 보존**(프레임마다 다른 밝기를 심어 확인 — 시간축 모듈 `fusion`/`tracker`가 전적으로 여기 기댄다) · `while True` 루프가 EOF에서 실제로 멈춤(무한루프 회귀) + 소진 후 재이터레이트는 빈 목록 · 결정론 · `fps`/`frame_count`가 인코딩값·실제 이터레이션 수와 일치(하드코딩 아님) · 컨텍스트 종료: `__enter__`가 self 반환 + `__exit__`이 실제로 `VideoCapture`를 release(본문에서 예외가 나도, 닫힌 뒤 읽어도 크래시 없이 빈 목록) · 없는 파일→`FileNotFoundError`·영상 아닌 파일→`IOError`(0프레임으로 삼키지 않음). **파괴검증 7종(V-D1~D7)으로 red 확인** | ✅ test_video_reader |

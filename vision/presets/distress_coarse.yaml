@@ -46,6 +46,15 @@ pipeline:
     approx_epsilon: 0.04
     min_solidity: 0.7
 
+  # 사전정보(기지 크기 3.0m + 라이다 AGL + 기체 자세) 기반 **후보 랭킹** (modules/prior_score.py).
+  # 🔴 게이트가 아니다 — 후보를 제거하지 않고 점수만 붙여 정렬한다. 위 min_area/max_area 하드
+  # 필터를 대체하지도 않는다(그 뒤에 랭킹만 얹는다). 사전정보(AGL·자세)가 없으면 **자동 비활성**
+  # 이라 지금(=자세 텔레메트리 없음) 동작은 이 스텝이 없을 때와 완전히 동일하다.
+  # distress_mat_geometry **앞**에 둔다: main.py/replay.py가 `meta["distress_mat"]`이 붙은
+  # **첫** 검출을 pose 산출 대상으로 고르므로, 정렬이 먼저 끝나야 1등 후보가 선택된다.
+  prior_geometry_scorer:
+    target_size_m: 3.0
+
   # 상대 pose 산출용 기하 태깅 (modules/distress_mat.py). 검출을 더하거나 빼지 않는다 —
   # rect_detector가 낸 매트 후보의 4코너를 solvePnP 대응 순서로 정규화해 meta에 싣는다.
   # **이 스텝이 있다는 것 자체가 "초록구역 pose 산출기를 쓰라"는 신호**다(main.py가 preset

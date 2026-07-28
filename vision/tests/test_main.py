@@ -1370,8 +1370,10 @@ def test_mat_seen_but_pose_unsolvable_reports_its_own_reason(
     현장에서 다른 조치를 요구한다 — `no_target_detection` 하나로 합치면 원인을 못 가린다."""
     real_run = main_mod.Pipeline.run
 
-    def _blank_corners(self, image):
-        state = real_run(self, image)
+    # `**kwargs` — `Pipeline.run(image, meta=...)`(사전정보 통로, 2026-07-28) 이후 호출부가
+    # 키워드 인자를 하나 더 넘긴다. 이 스텁은 코너를 비우는 것이 목적이라 그대로 흘려보낸다.
+    def _blank_corners(self, image, **kwargs):
+        state = real_run(self, image, **kwargs)
         for d in state.detections:
             d.corners = None
             d.meta.pop("distress_mat", None)

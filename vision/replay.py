@@ -31,6 +31,11 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
+from vision.core.prior_geometry import (
+    PRIOR_DETECTION_META_KEY,
+    PRIOR_INPUTS_KEY,
+    PRIOR_META_KEY,
+)
 from vision.core.runner import Pipeline
 from vision.core.state_machine import (
     Decision,
@@ -93,7 +98,50 @@ def _confirmed_to_dict(confirmed) -> dict | None:
 
 
 def _detections_to_list(detections) -> list[dict]:
-    return [{"bbox": list(d.bbox), "confidence": d.confidence} for d in detections]
+    """JSONL 블랙박스용 축약. 사전정보 스코어러가 켜졌을 때만 `prior` 키가 추가된다 —
+    꺼져 있으면(=대부분의 경우) 기존 JSONL 형태와 **한 글자도 다르지 않다**
+    (main.py와 동일 로직, 상호 import 안 함 원칙에 따라 얇게 중복)."""
+    out = []
+    for d in detections:
+        entry = {"bbox": list(d.bbox), "confidence": d.confidence}
+        prior = d.meta.get(PRIOR_DETECTION_META_KEY)
+        if isinstance(prior, dict):
+            entry["prior"] = {
+                k: prior.get(k)
+                for k in ("score", "area_score", "shape_score", "observed_area_px2",
+                          "predicted_area_px2", "area_ratio", "observed_anisotropy",
+                          "max_anisotropy", "incidence_deg", "error")
+                if k in prior
+            }
+        out.append(entry)
+    return out
+
+
+def _build_prior_inputs(calib: Optional[CameraCalibration], telemetry: dict) -> dict:
+    """`modules/prior_score.py::PriorGeometryScorer`가 소비할 프레임 단위 사전정보를 조립한다
+    (`Pipeline.run(image, meta=...)` 통로).
+
+    🔴 **재생 경로가 이 기능의 유일한 실증 경로다** — `main.py` 라이브에는 AGL/자세 역방향
+    채널이 아직 없어(`docs/vision_fc_interface.md`, 다른 세션 작업 중) 항상 비활성으로
+    degrade한다. `telemetry.jsonl`에 `alt`(라이다 AGL)와 `attitude`(자세)가 실려야 활성된다.
+
+    값이 없으면 **키를 아예 안 넣는다** — 스코어러가 결손을 사유와 함께 비활성으로 처리한다
+    (`main.py`와 동일 로직, 얇게 중복)."""
+    if calib is None:
+        return {}
+    inputs: dict = {
+        "camera_matrix": calib.camera_matrix,
+        "dist_coeffs": calib.dist_coeffs,
+        "calib_image_size": tuple(calib.image_size),
+        "calib_id": calib.calib_id,
+    }
+    alt = telemetry.get("alt") if isinstance(telemetry, dict) else None
+    if alt is not None:
+        inputs["agl_m"] = alt
+    attitude = telemetry.get("attitude") if isinstance(telemetry, dict) else None
+    if attitude is not None:
+        inputs["attitude"] = attitude
+    return {PRIOR_INPUTS_KEY: inputs}
 
 
 def _find_aruco_detection(detections):
@@ -462,7 +510,11 @@ def run_replay(
         with source:
             for record in source:
                 t0 = time.perf_counter()
-                state = pipeline.run(record.image)
+                # 사전정보(AGL·자세)를 파이프라인 시작 전에 심는다 — 없으면 빈 dict라
+                # `Pipeline.run`이 예전과 동일하게 동작하고 스코어러도 비활성으로 degrade한다.
+                state = pipeline.run(
+                    record.image, meta=_build_prior_inputs(calib, record.telemetry)
+                )
                 latency = time.perf_counter() - t0
 
                 annotated = draw_detections(state.original, state.detections, state.confirmed)
@@ -503,6 +555,10 @@ def run_replay(
                     "frame %d: %d detections, confirmed=%s, latency=%.4fs",
                     record.frame_id, len(state.detections), state.confirmed is not None, latency,
                 )
+                prior_meta = state.meta.get(PRIOR_META_KEY)
+                if prior_meta is not None:
+                    # 비활성 사유가 조용히 사라지면 "왜 점수가 안 붙지"를 현장에서 못 쫓는다.
+                    logger.debug("frame %d: prior_geometry=%s", record.frame_id, prior_meta)
 
                 # 발행 뒤에 그려야 이 프레임의 seq까지 반영된다. `none`이면 비용 0.
                 if display != "none":
