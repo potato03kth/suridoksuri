@@ -420,11 +420,17 @@ class _FakeLiveSourceFiniteFrames:
     """실카메라 대신 N개(3개) 프레임만 내고 정상 종료하는 가짜 — 무한루프에 테스트가 걸리지
     않으면서 `_run_live()` 경로 자체(파이프라인 실행→블랙박스 기록)를 검증하기 위함."""
 
-    def __init__(self, camera_num=0, resolution=None, retries=3, retry_delay=1.0):
+    def __init__(self, camera_num=0, resolution=None, retries=3, retry_delay=1.0,
+                 af_mode=None, lens_position=None):
         self.camera_num = camera_num
         self.resolution = resolution
         self.retries = retries
         self.retry_delay = retry_delay
+        self.af_mode = af_mode
+        self.lens_position = lens_position
+        # `_run_live()`가 AF 적용 결과를 로그로 남기므로 실물과 같은 필드를 갖춘다.
+        self.af_applied = af_mode is not None
+        self.af_error = None
         self.entered = False
         self.exited = False
 
@@ -444,8 +450,13 @@ class _FakeLiveSourceFiniteFrames:
 class _FakeLiveSourceInterruptsAfter2Frames:
     """2프레임을 낸 뒤 KeyboardInterrupt를 던져 실기체 Ctrl+C를 시뮬레이션."""
 
-    def __init__(self, camera_num=0, resolution=None, retries=3, retry_delay=1.0):
+    def __init__(self, camera_num=0, resolution=None, retries=3, retry_delay=1.0,
+                 af_mode=None, lens_position=None):
         self.camera_num = camera_num
+        self.af_mode = af_mode
+        self.lens_position = lens_position
+        self.af_applied = af_mode is not None
+        self.af_error = None
         self.entered = False
         self.exited = False
 
@@ -559,7 +570,12 @@ class _FakeLiveSourceSigtermAfter2Frames:
     비대화형 SSH 백그라운드 자식은 SIGINT가 SIG_IGN일 수 있어 못 믿는다(§h264_stream.py 실측과
     동일 근거, `vision/main.py::_install_sigterm_handler`)."""
 
-    def __init__(self, camera_num=0, resolution=None, retries=3, retry_delay=1.0):
+    def __init__(self, camera_num=0, resolution=None, retries=3, retry_delay=1.0,
+                 af_mode=None, lens_position=None):
+        self.af_mode = af_mode
+        self.lens_position = lens_position
+        self.af_applied = af_mode is not None
+        self.af_error = None
         self.entered = False
         self.exited = False
 

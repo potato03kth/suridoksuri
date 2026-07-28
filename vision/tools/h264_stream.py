@@ -53,6 +53,20 @@ from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
 
+# AF 제어 순수 로직의 **단일 출처는 `vision/utils/frame_source.py`** 다(2026-07-28에 그리로
+# 옮겼다 — 라이브 파이프라인 경로에도 AF가 필요해졌는데, import 규칙상 `utils/`가 `tools/`를
+# import할 수는 없어 방향을 뒤집었다. 두 벌로 복제하면 LENS_POSITION_MAX 같은 실측 물리값이
+# 한쪽만 갱신돼 조용히 갈라진다). 아래 재노출 이름들은 이 모듈의 기존 공개 API 유지용이다.
+from vision.utils.frame_source import (  # noqa: E402
+    AF_MODES,
+    DEFAULT_AF_MODE,
+    LENS_POSITION_MAX,
+    LENS_POSITION_MIN,
+    make_af_controls as _make_af_controls,
+    validate_af_args,
+    validate_lens_position,
+)
+
 
 # ===========================================================================
 # 매직넘버 금지(§7.3) — 전부 이름 붙은 상수
@@ -64,14 +78,6 @@ DEFAULT_FPS = 30
 DEFAULT_BITRATE = 5_000_000
 DEFAULT_PORT = 8082
 DEFAULT_HOST = "0.0.0.0"
-
-DEFAULT_AF_MODE = "continuous"
-AF_MODES = ("continuous", "auto", "manual")
-
-# VCM 실가동범위(실측 하드클램프) — 드라이버는 32.0을 광고하지만 15.0에서 하드클램프된다.
-# 32를 상한으로 쓰지 않는다(브리핑 확정 사실, 재확인 불필요).
-LENS_POSITION_MIN = 0.0
-LENS_POSITION_MAX = 15.0
 
 # 재접속 감지 폴링 주기 — 너무 짧으면 CPU 낭비, 너무 길면 재접속 반응이 느려진다.
 RECONNECT_POLL_INTERVAL_S = 0.2
@@ -117,37 +123,6 @@ def build_ffmpeg_listen_spec(host: str, port: int) -> str:
     return f"-f mpegts -listen 1 tcp://{host}:{port}"
 
 
-def validate_lens_position(value: float) -> float:
-    """VCM 실가동범위(0~15.0 디옵터) 밖이면 거부(클램프하지 않음 — 조용히 다른 값으로
-    바뀌는 것보다 호출자가 명시적으로 알아채는 편이 안전).
-    """
-    if not (LENS_POSITION_MIN <= value <= LENS_POSITION_MAX):
-        raise ValueError(
-            f"lens-position은 {LENS_POSITION_MIN}~{LENS_POSITION_MAX} 범위여야 함 "
-            f"(요청값={value}). 드라이버가 광고하는 상한 32.0은 실측 하드클램프로 무효 — "
-            "32를 상한으로 쓰지 말 것."
-        )
-    return value
-
-
-def validate_af_args(af_mode: str, lens_position: Optional[float]) -> None:
-    """--af-mode/--lens-position 조합 검증.
-
-    manual은 lens_position이 필수, 그 외 모드는 lens_position을 받지 않는다(모드 하나당
-    의미가 명확한 조합만 허용 — 조용히 무시되는 인자를 남기지 않는다).
-    """
-    if af_mode not in AF_MODES:
-        raise ValueError(f"--af-mode는 {AF_MODES} 중 하나여야 함: {af_mode!r}")
-    if af_mode == "manual":
-        if lens_position is None:
-            raise ValueError("--af-mode manual 은 --lens-position 이 필수")
-        validate_lens_position(lens_position)
-    elif lens_position is not None:
-        raise ValueError(
-            f"--lens-position은 --af-mode manual 에서만 사용 가능(현재 af_mode={af_mode!r})"
-        )
-
-
 def compute_fps_stats(
     timestamps: Sequence[float], warmup_frames: int = DEFAULT_WARMUP_FRAMES
 ) -> dict:
@@ -190,34 +165,6 @@ def count_identical_frame_pairs(frames: Sequence[np.ndarray]) -> int:
         if np.array_equal(a, b):
             count += 1
     return count
-
-
-def _make_af_controls(
-    af_mode: str, lens_position: Optional[float], controls_module: Any
-) -> Tuple[dict, Optional[dict]]:
-    """(초기 set_controls dict, 트리거용 2차 set_controls dict|None) 반환.
-
-    `controls_module`은 `from libcamera import controls`로 얻는 실제 모듈(또는 테스트용
-    가짜 객체) — 이 함수 자체는 libcamera를 import하지 않아 하드웨어 없이도 테스트 가능하다.
-
-    - continuous: AfMode=Continuous 하나로 충분(연속 AF, 트리거 불필요).
-    - auto: AfMode=Auto 로 전환한 뒤 AfTrigger=Start로 단발 스캔을 시작해야 한다(libcamera
-      표준 동작 — Auto는 트리거 없이는 렌즈가 마지막 위치에 그대로 머문다).
-    - manual: AfMode=Manual + LensPosition을 한 번에 건다(calib_capture.py 전례와 동일 패턴).
-    """
-    if af_mode == "continuous":
-        return {"AfMode": controls_module.AfModeEnum.Continuous}, None
-    if af_mode == "auto":
-        return (
-            {"AfMode": controls_module.AfModeEnum.Auto},
-            {"AfTrigger": controls_module.AfTriggerEnum.Start},
-        )
-    if af_mode == "manual":
-        return (
-            {"AfMode": controls_module.AfModeEnum.Manual, "LensPosition": float(lens_position)},
-            None,
-        )
-    raise ValueError(f"알 수 없는 af_mode: {af_mode!r}")  # validate_af_args가 이미 걸렀어야 함(방어)
 
 
 def _is_output_dead(output: Any) -> bool:

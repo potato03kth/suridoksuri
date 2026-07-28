@@ -66,6 +66,84 @@ camera_matrix가 이 해상도 기준이라, LiveFrameSource가 기본으로 다
 조용히 어긋난다(ArUco Phase 3, core/target.py)."""
 
 
+# ---------------------------------------------------------------------------
+# AF(오토포커스) 제어 — 순수 로직 (libcamera 미의존, 하드웨어 없이 테스트 가능)
+#
+# **여기가 저장소의 AF 제어 단일 출처다.** 원래 `tools/h264_stream.py`(2026-07-25, 실기체
+# 검증됨)에만 있었는데, 라이브 파이프라인 경로(`LiveFrameSource`)의 초점이 드라이버 기본
+# 동작에 방치돼 있던 갭을 닫으면서 이쪽으로 옮겼다 — 두 벌로 복제하면 `LENS_POSITION_MAX`
+# 같은 **실측 물리값**이 한쪽만 갱신돼 조용히 갈라진다. `h264_stream.py`가 여기서 import해
+# 쓰므로 동작은 이전과 동일하다(import 규칙상 방향은 `tools/ → utils/`만 가능).
+# ---------------------------------------------------------------------------
+
+DEFAULT_AF_MODE = "continuous"
+AF_MODES = ("continuous", "auto", "manual")
+
+# VCM 실가동범위(실측 하드클램프) — 드라이버는 32.0을 광고하지만 15.0에서 하드클램프된다.
+# 32를 상한으로 쓰지 않는다(실기체 확정 사실, 재확인 불필요).
+LENS_POSITION_MIN = 0.0
+LENS_POSITION_MAX = 15.0
+
+
+def validate_lens_position(value: float) -> float:
+    """VCM 실가동범위(0~15.0 디옵터) 밖이면 거부(클램프하지 않음 — 조용히 다른 값으로
+    바뀌는 것보다 호출자가 명시적으로 알아채는 편이 안전).
+    """
+    if not (LENS_POSITION_MIN <= value <= LENS_POSITION_MAX):
+        raise ValueError(
+            f"lens-position은 {LENS_POSITION_MIN}~{LENS_POSITION_MAX} 범위여야 함 "
+            f"(요청값={value}). 드라이버가 광고하는 상한 32.0은 실측 하드클램프로 무효 — "
+            "32를 상한으로 쓰지 말 것."
+        )
+    return value
+
+
+def validate_af_args(af_mode: str, lens_position: Optional[float]) -> None:
+    """af_mode/lens_position 조합 검증.
+
+    manual은 lens_position이 필수, 그 외 모드는 lens_position을 받지 않는다(모드 하나당
+    의미가 명확한 조합만 허용 — 조용히 무시되는 인자를 남기지 않는다).
+    """
+    if af_mode not in AF_MODES:
+        raise ValueError(f"af_mode는 {AF_MODES} 중 하나여야 함: {af_mode!r}")
+    if af_mode == "manual":
+        if lens_position is None:
+            raise ValueError("af_mode manual 은 lens_position 이 필수")
+        validate_lens_position(lens_position)
+    elif lens_position is not None:
+        raise ValueError(
+            f"lens_position은 af_mode manual 에서만 사용 가능(현재 af_mode={af_mode!r})"
+        )
+
+
+def make_af_controls(
+    af_mode: str, lens_position: Optional[float], controls_module: Any
+) -> Tuple[dict, Optional[dict]]:
+    """(초기 set_controls dict, 트리거용 2차 set_controls dict|None) 반환.
+
+    `controls_module`은 `from libcamera import controls`로 얻는 실제 모듈(또는 테스트용
+    가짜 객체) — 이 함수 자체는 libcamera를 import하지 않아 하드웨어 없이도 테스트 가능하다.
+
+    - continuous: AfMode=Continuous 하나로 충분(연속 AF, 트리거 불필요).
+    - auto: AfMode=Auto 로 전환한 뒤 AfTrigger=Start로 단발 스캔을 시작해야 한다(libcamera
+      표준 동작 — Auto는 트리거 없이는 렌즈가 마지막 위치에 그대로 머문다).
+    - manual: AfMode=Manual + LensPosition을 한 번에 건다(calib_capture.py 전례와 동일 패턴).
+    """
+    if af_mode == "continuous":
+        return {"AfMode": controls_module.AfModeEnum.Continuous}, None
+    if af_mode == "auto":
+        return (
+            {"AfMode": controls_module.AfModeEnum.Auto},
+            {"AfTrigger": controls_module.AfTriggerEnum.Start},
+        )
+    if af_mode == "manual":
+        return (
+            {"AfMode": controls_module.AfModeEnum.Manual, "LensPosition": float(lens_position)},
+            None,
+        )
+    raise ValueError(f"알 수 없는 af_mode: {af_mode!r}")  # validate_af_args가 이미 걸렀어야 함(방어)
+
+
 class LiveFrameSource:
     """실카메라 프레임 소스 (picamera2 백엔드).
 
@@ -86,6 +164,19 @@ class LiveFrameSource:
         `create_still_configuration()`으로 한 번만 설정하고 이후 모드를 바꾸지 않는다
         (모드 전환이 센서 크롭/비닝을 바꿔 인트린식이 흔들리는 것을 원천 차단).
     retries/retry_delay: 기존 cv2 구현과 동일한 재시도 계약 유지.
+
+    af_mode/lens_position: **[2026-07-28 추가]** 오토포커스 제어. 그전까지 이 클래스는 AF를
+        전혀 건드리지 않아 **라이브 파이프라인의 초점이 드라이버 기본 동작에 방치**돼
+        있었다(AF 제어는 `tools/h264_stream.py`에만 들어가 있었다). 기본값
+        `DEFAULT_AF_MODE`("continuous") — 기체가 10~40m를 오르내리므로 연속 AF가 맞다.
+        `af_mode=None`을 주면 **AF에 손대지 않는다**(예전 동작 그대로 — 현장에서 AF가
+        말썽이면 되돌릴 escape hatch). `manual`은 `lens_position`(0~15.0 디옵터) 필수.
+        인자 조합 검증은 **생성자에서 즉시**(하드웨어 만지기 전에 실패).
+
+        🔴 **실기체 미검증.** 이 세션은 RPi 접속이 금지돼 있어 단위테스트(가짜 picamera2 주입)
+        까지만 했다. 실기체 확인 절차는 `docs/vision_camera_bringup.md` / 인수인계 참조 —
+        `tools/h264_stream.py`의 AF 경로 자체는 2026-07-25에 실기체에서 "크래시 없이 동작"
+        까지 확인됐지만, **초점이 실제로 이동했는지(선명도 지표)는 그때도 미검증**이다.
     """
 
     def __init__(
@@ -94,14 +185,26 @@ class LiveFrameSource:
         resolution: Tuple[int, int] = _DEFAULT_LIVE_RESOLUTION,
         retries: int = 3,
         retry_delay: float = 1.0,
+        af_mode: Optional[str] = DEFAULT_AF_MODE,
+        lens_position: Optional[float] = None,
     ):
         if retries < 1:
             raise ValueError("retries는 1 이상이어야 한다")
+        if af_mode is None:
+            if lens_position is not None:
+                raise ValueError("af_mode=None(AF 미개입)에는 lens_position을 줄 수 없다")
+        else:
+            validate_af_args(af_mode, lens_position)
         self.camera_num = camera_num
         self.resolution = resolution
         self.retries = retries
         self.retry_delay = retry_delay
+        self.af_mode = af_mode
+        self.lens_position = lens_position
         self._picam: Optional[Any] = None
+        # AF 적용 결과 관측용(§7.4) — 적용 성공 시 True, 실패 시 사유 문자열이 af_error에 남는다.
+        self.af_applied: bool = False
+        self.af_error: Optional[str] = None
 
     def open(self) -> None:
         """연결 시도. 실패하면 retries회까지 retry_delay초 간격으로 재시도 후 ConnectionError.
@@ -138,11 +241,43 @@ class LiveFrameSource:
                     time.sleep(self.retry_delay)
                 continue
             self._picam = picam
+            self._apply_af()
             return
         raise ConnectionError(
             f"LiveFrameSource: 카메라 연결 실패 (camera_num={self.camera_num!r}), "
             f"{last_attempt}/{self.retries}회 재시도 후 포기."
         ) from last_error
+
+    def _apply_af(self) -> None:
+        """`picam.start()` 직후 AF 컨트롤을 건다 (`tools/h264_stream.py::run_server` 순서 동일).
+
+        **실패해도 예외를 올리지 않는다** — AF를 못 걸면 카메라는 드라이버 기본 초점으로
+        계속 동작하는데(=이 변경 전의 동작), 그것 때문에 라이브 파이프라인 전체를 죽이면
+        얻는 것보다 잃는 게 크다. 대신 사유를 `af_error`에 남겨 조용히 묻히지 않게 한다
+        (§7.4 "거절이유 로깅" 철학 — 침묵 금지). 인자 조합 오류는 이 지점까지 오지 않는다
+        (생성자에서 이미 걸렀다).
+
+        `libcamera`는 picamera2와 마찬가지로 RPi 전용이라 여기서 지연 import한다.
+        """
+        if self.af_mode is None:
+            self.af_error = None
+            self.af_applied = False
+            return
+        try:
+            from libcamera import controls as libcamera_controls
+
+            initial, trigger = make_af_controls(
+                self.af_mode, self.lens_position, libcamera_controls
+            )
+            self._picam.set_controls(initial)
+            if trigger is not None:
+                self._picam.set_controls(trigger)
+        except Exception as exc:  # libcamera 미설치/컨트롤 미지원/드라이버 거부 등
+            self.af_applied = False
+            self.af_error = f"{type(exc).__name__}: {exc}"
+            return
+        self.af_applied = True
+        self.af_error = None
 
     def close(self) -> None:
         if self._picam is not None:

@@ -72,7 +72,13 @@ from vision.core.target import (
 )
 from vision.utils.blackbox import BlackBoxLogger
 from vision.utils.calibration_loader import CameraCalibration, load_camera_calibration
-from vision.utils.frame_source import LiveFrameSource
+from vision.utils.frame_source import (
+    AF_MODES,
+    DEFAULT_AF_MODE,
+    LENS_POSITION_MAX,
+    LENS_POSITION_MIN,
+    LiveFrameSource,
+)
 from vision.utils.image_loader import load_image
 from vision.utils.logging import log_provenance_header, setup_dual_sink_logger
 from vision.utils.stream import MjpegStreamer
@@ -694,6 +700,8 @@ def _run_live(
     calib: Optional[CameraCalibration] = None,
     state_machine: Optional[LandingStateMachine] = None,
     sink: Optional[TargetSink] = None,
+    af_mode: Optional[str] = DEFAULT_AF_MODE,
+    lens_position: Optional[float] = None,
 ) -> None:
     """실카메라 라이브 모드 — `_run_video`와 거의 동일한 프레임 루프(무한 이터레이터라는 점만
     다름). 헤드리스(`--display none`)에서는 무한정 도는 게 정상 동작이라 Ctrl+C(KeyboardInterrupt)와
@@ -708,7 +716,13 @@ def _run_live(
     SIGTERM graceful shutdown 버그가 그대로 재발한다. sink 정리는 `main()`의 `finally`에서
     `sink.close()`로 하면 충분하다(루프를 빠져나오면 반드시 거기로 간다)."""
     sink = sink if sink is not None else NullSink()
-    live_kwargs: dict = {"camera_num": camera_num, "retries": retries, "retry_delay": retry_delay}
+    live_kwargs: dict = {
+        "camera_num": camera_num,
+        "retries": retries,
+        "retry_delay": retry_delay,
+        "af_mode": af_mode,
+        "lens_position": lens_position,
+    }
     if resolution is not None:
         live_kwargs["resolution"] = resolution
 
@@ -719,6 +733,20 @@ def _run_live(
     frame_count = 0
     try:
         with LiveFrameSource(**live_kwargs) as source:
+            # AF 적용 결과를 사람로그에 남긴다 — 실패해도 카메라는 드라이버 기본 초점으로 계속
+            # 돌기 때문에(§LiveFrameSource._apply_af), 로그가 없으면 "초점이 왜 이러지"를
+            # 현장에서 추적할 방법이 없다.
+            if source.af_error is not None:
+                logger.warning(
+                    "AF 설정 실패(드라이버 기본 초점으로 계속 진행) af_mode=%s: %s",
+                    af_mode, source.af_error,
+                )
+            elif source.af_applied:
+                logger.info(
+                    "AF 설정 완료 af_mode=%s lens_position=%s", af_mode, lens_position
+                )
+            else:
+                logger.info("AF 미개입(af_mode=None) — 드라이버 기본 동작 유지")
             for record in source:
                 if stop_event.is_set():
                     logger.info(
@@ -868,6 +896,18 @@ def main() -> None:
         "--live-retry-delay", type=float, default=1.0,
         help="라이브 모드 카메라 연결 재시도 간격(초, 기본 1.0)",
     )
+    # AF 제어(2026-07-28) — `tools/h264_stream.py`와 같은 인자 이름/의미를 쓴다(현장에서 두
+    # 도구를 번갈아 쓰므로 이름이 갈리면 헷갈린다). 🔴 실기체 미검증.
+    parser.add_argument(
+        "--af-mode", choices=[*AF_MODES, "none"], default=DEFAULT_AF_MODE,
+        help=f"라이브 모드 오토포커스 (기본 {DEFAULT_AF_MODE}). "
+             "none = AF에 손대지 않음(드라이버 기본 동작 — 2026-07-28 이전 동작)",
+    )
+    parser.add_argument(
+        "--lens-position", type=float, default=None,
+        help=f"디옵터, --af-mode manual 전용 ({LENS_POSITION_MIN}~{LENS_POSITION_MAX}). "
+             "드라이버가 광고하는 상한 32.0은 실측 하드클램프로 무효",
+    )
     parser.add_argument(
         "--display",
         choices=["none", "window", "file", "stream"],
@@ -981,6 +1021,8 @@ def main() -> None:
                 pipeline, live_camera_num, args.live_resolution, args.live_retries,
                 args.live_retry_delay, args.output, args.display, logger, blackbox, streamer, calib,
                 state_machine, sink,
+                af_mode=(None if args.af_mode == "none" else args.af_mode),
+                lens_position=args.lens_position,
             )
         elif input_path.suffix.lower() in _VIDEO_SUFFIXES:
             _run_video(
