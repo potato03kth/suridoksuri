@@ -139,7 +139,17 @@ docs/vision_fc_interface.md     정찰 사실확정 문서 (852줄, 필요한 �
 ### 3-3. 인터페이스 계약
 
 - 레코드 2종: `type="target"`(필수키 = `wire.REQUIRED_TARGET_KEYS`) / `type="state_hint"`. `schema_version != 1`이면 거절.
-- **유도 입력은 `position_flu`**(body FLU). `position_frd`는 `LandingTarget` 피벗용.
+- **유도 입력은 `position_flu`**(body FLU).
+  > 🔴 **정정 (2026-07-28, Phase 2에서 실기체 소스 대조로 확인).** 이 문서 초판은 *"`position_frd`는
+  > `LandingTarget` 피벗용"* 이라고 썼는데 **틀렸다.** mavros `landtarget_cb`가
+  > `case MAV_FRAME::BODY_FRD: position = ftf::transform_frame_baselink_aircraft(...)` 로
+  > **플러그인이 FLU→FRD 변환을 직접 한다.** `position_frd`를 넣으면 변환이 **두 번** 걸려 y·z 부호가 뒤집힌다.
+  > → **pose 토픽이든 `LandingTarget`이든 전부 `position_flu`를 넣는다.** `position_frd`는 진단·기록용이다.
+  >
+  > 독립 교차검증: 이 저장소가 이미 같은 규약을 기록하고 있다 — `sitl_vtol_remediation_plan.md:101`
+  > *"`coordinate_frame = FRAME_LOCAL_NED`(=1), **값은 ENU로 채운다**(MAVROS가 NED 변환)"*,
+  > `offboard_node.py:461`도 ENU PoseStamped를 발행한다. **MAVROS는 ROS쪽 FLU/ENU를 받아
+  > 스스로 FRD/NED로 바꾼다** — 이게 mavros 전역 관례다.
 - `orientation`은 **카메라 광학 프레임 그대로**(`orientation_frame:"cam_optical"`) — body 자세로 오인 금지.
   `fc_bridge`의 쿼터니언은 `(w,x,y,z)`, `TargetEstimate`는 `(x,y,z,w)`로 **순서가 다르다.**
 - stale 판정은 `stamp_monotonic_ns`. **`valid=false` = "안 보임", 침묵/EOF = "죽음"** — 이 구분이 페일세이프의 핵심.
@@ -175,15 +185,63 @@ md5sum fc_ros/fc_ros/nodes/offboard_node.py fc_bridge/execution/state_logic.py f
 
 ---
 
+### 3-5. 🔴 발행 주파수는 10Hz가 아니라 **4.4Hz** (2026-07-28 실기체 실측)
+
+저장소가 여러 곳에서 "10Hz"를 가정해 왔는데 **실측으로 반증됐다.** 실카메라 `main.py live`(4608×2592)
+44.2초: **간격 median 0.2207s(4.53Hz) / p95 0.310s**, 컨테이너 `ros2 topic hz` **4.35Hz**.
+
+- `stale_warn_s` 를 0.5 → **0.75** 로 올렸다(p95의 2.4배). 커밋 `ec59efc`.
+- `target_sink` 큐 8은 "0.8초"가 아니라 실제 **1.8초**치다(안전 방향이라 미변경, 기록만).
+- 병목은 **4608×2592 전해상도**다. 낮추면 빨라지지만 `nominal.yaml` 캘리브와 어긋나 **거리가 통째로 틀린다**(§6-5).
+  → 열린 결정.
+- **타임아웃·stale 판정을 새로 만들 때 10Hz를 가정하지 마라.**
+
+### 3-6. CLOCK_MONOTONIC — 호스트↔컨테이너 **완전 동일** (미확인 해소)
+
+Phase 1이 최대 리스크로 남긴 항목. 오케스트레이터가 직접 확인:
+```
+host      /proc/self/ns/time -> time:[4026531834]
+container /proc/self/ns/time -> time:[4026531834]      # 동일 inode
+timens_offsets: 양쪽 다 monotonic 0 0 / boottime 0 0
+container monotonic 147864.14  ==  host /proc/uptime 147864.14
+```
+**`clock_offset_ns` 환산 불필요.** 종단간 실측 `age_s = 0.00067`(0.67ms).
+
+---
+
 ## 4. ▶ 지금 돌고 있는 것 (2026-07-28 착수, 백그라운드 3개)
 
 **다음 세션은 이 3건의 완료 보고를 받아 §1-1대로 직접 재현 검증하는 것부터 시작한다.**
 
 | # | 트랙 | 내용 | 특기사항 |
 |---|---|---|---|
-| A | **Phase 2 — 컨테이너 shim** | `vision/ros/shim_node.py` 계열. 소켓 → ROS2 토픽 | **RPi 접근 승인됨**(사용자가 PX4 플래시 준비 종료 선언). PX4 플래시·컨테이너 이미지 교체·호스트 ROS2 설치는 **금지**. 최우선 검증: **CLOCK_MONOTONIC이 호스트↔컨테이너에서 같은 기준인가**(Phase 1이 미확인으로 남긴 최대 리스크) + 실제 발행 주파수 |
-| B | **bind 하드페일 + 화면 경고 + replay 배선** | 🔵 사용자 결정 반영 | §5-1 참조 |
-| C | **잔여 갭 5건** | 착륙점 축퇴 / `drift_estimate` / 골든 리프 / `LiveFrameSource` AF / `geo_project` 폐기 | 우선순위 순, 앞에서부터 확실히. RPi 금지 |
+| A | **Phase 2 — 컨테이너 shim** | ✅ **완료·검증됨** (`036b276`→`ec59efc`→`b14f42a`) | 아래 4-1 |
+| B | **bind 하드페일 + 화면 경고 + replay 배선** | ✅ **완료·검증됨** (`3cda638`) | 아래 4-2 |
+| C | **잔여 갭 5건** | ▶ **진행 중** — `1d8d891`(drift_estimate) `30eb0eb`(골든 리프) `f6dd2ae`(LiveFrameSource AF) 까지 push됨. 착륙점 축퇴·`geo_project` 폐기 미보고 | 완료 보고를 받아 §1-1대로 재현 검증할 것 |
+
+### 4-1. Phase 2 결과 (오케스트레이터 재현 확인)
+
+| 토픽 | 타입 |
+|---|---|
+| `/vision/target_pose` | `geometry_msgs/PoseWithCovarianceStamped` |
+| `/vision/target_status` | **`diagnostic_msgs/DiagnosticArray`** — `DiagnosticStatus`엔 header가 없어 stamp 동기가 불가능하다. 배열에 `vision/target`+`vision/state`를 같은 stamp로 싣는다 |
+| `/mavros/landing_target/raw` | `mavros_msgs/LandingTarget` — **기본 꺼짐**(`listen_lt: false`라 구독자 없음) |
+
+배치는 `vision/ros/`(`shim_core`=stdlib 순수로직 / `shim_node`=rclpy 어댑터). **`fc_ros/` 무수정.**
+
+- **페일세이프 3분법 실증:** 안 보임=WARN / 생산자 사망=**pose 침묵 + status ERROR 계속**(실측 1.0Hz) / shim 사망=둘 다 침묵.
+- **실기체에서 잡은 버그 1건:** `rclpy.init()`이 기본 `SignalHandlerOptions.ALL`로 **SIGTERM 핸들러를 자기 것으로 덮어써서** 종료 시 `RCLError`. 핸들러 등록을 `init()` **뒤로** 옮기고 AST 순서 회귀로 고정. ⚠️ **`main.py`의 D-A5와 완전히 같은 계열의 함정**이다 — 이 저장소에서 두 번째다.
+- **첫 파괴검증에서 2건이 green으로 통과했다** — 진짜 테스트 갭이었고 세션이 스스로 찾아 닫았다.
+
+**⚠️ 미검증:** `LandingTarget` 경로는 `listen_lt: false`라 구독자가 없어 **실제 MAVLink 송신을 확인 못 했다**(단위테스트 + mavros 원문 대조까지만). `size`는 물리 크기가 와이어에 없어 0(지어내지 않음).
+
+### 4-2. bind 하드페일 결과 (오케스트레이터 재현 확인)
+
+- 점유 포트 + `--target-sink` → **exit 3** + 포트 번호·진단 명령(`ss -ltnp | grep <port>`) 포함 stderr. `replay.py`도 동일.
+- 기본 실행(`--target-sink` 미지정) → **exit 0, 소켓 미바인드** 무변경.
+- **오버레이 육안 확인:** 소비자 0명 → 빨간 대형 `CONSUMERS 0 - GUIDANCE GOES NOWHERE`, 접속 시 초록 `CONSUMERS 1` + `seq/dropped`, **ArUco 검출 박스·신뢰도 라벨 그대로 살아있음.** 증거 파일 `vision/results/sink_overlay_demo/`.
+- **`replay.py` 종단간 `TERMINAL` 도달** — `CENTER_DESCEND → LOCK → PRECISION_SERVO → TERMINAL`, 160건 드롭 0. `main.py`는 AGL을 못 받아 여기까지 못 가므로 **`state_hint`를 회귀로 잡는 유일한 경로**다.
+- ⚠️ **cv2 Hershey 폰트는 한글을 못 그린다** — 오버레이 문자열은 **ASCII 전용**(소스 레벨 회귀테스트로 고정).
 
 **⚠️ 세 세션이 같은 브랜치에 동시에 push한다.** 완료 보고를 받으면 `git log --oneline` 으로 순서를 확인하고,
 각 커밋이 `vision/` 파일만 담았는지 `git show --stat`으로 확인하라.
