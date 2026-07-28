@@ -48,7 +48,13 @@ import cv2
 import numpy as np
 
 from vision.core.runner import Pipeline
-from vision.core.state_machine import Decision, LandingStateMachine, Observation
+from vision.core.state_machine import (
+    Decision,
+    LandingSMConfig,
+    LandingStateMachine,
+    Observation,
+    half_hfov_tan_from_calibration,
+)
 from vision.core.target import (
     TargetEstimate,
     marker_object_points,
@@ -142,6 +148,25 @@ def _find_white_box_detection(detections):
         if wb is not None and wb.get("landing_point_px") is not None:
             return d
     return None
+
+
+def _landing_sm_config(calib, logger) -> LandingSMConfig:
+    """상태머신 config — 로드된 캘리브레이션이 있으면 `tan(HFOV/2)`를 인트린식에서 유도해 넣는다.
+
+    `TERMINAL` 블라인드 하강의 이탈 추정(`drift_estimate`)이 정규화 오차를 미터로 환산할 때 쓰는
+    계수다(`core/state_machine.py` 참조). 캘리브 로드 실패 시엔 nominal 폴백을 그대로 쓴다 —
+    ArUco와 무관한 프리셋 실행까지 막지 않는다는 기존 판단과 같은 이유.
+    `replay.py`에도 같은 헬퍼가 얇게 중복돼 있다(두 CLI는 서로 import하지 않는다 — 기존 원칙).
+    """
+    if calib is None:
+        return LandingSMConfig()
+    try:
+        return LandingSMConfig(
+            half_hfov_tan=half_hfov_tan_from_calibration(calib.camera_matrix, calib.image_size)
+        )
+    except (ValueError, IndexError, TypeError) as e:
+        logger.warning("캘리브레이션에서 tan(HFOV/2) 유도 실패 — nominal 기본값 사용: %s", e)
+        return LandingSMConfig()
 
 
 def _target_estimate_to_dict(estimate) -> dict:
@@ -842,7 +867,7 @@ def main() -> None:
     # §9 6번 — 공통 상태머신. 실행 전체에 걸쳐 인스턴스 하나 재사용(프레임 간 상태 누적이
     # 상태머신의 본질이므로 매 프레임 새로 만들면 안 됨). 단일 이미지 경로에서도 그대로
     # 통과시킨다 — 관측 1개짜리 시퀀스로 취급해도 크래시 없이 동작한다.
-    state_machine = LandingStateMachine()
+    state_machine = LandingStateMachine(_landing_sm_config(calib, logger))
 
     # vision↔fc 인터페이스(§9 V5). **기본은 NullSink** — `--target-sink`를 명시하지 않으면
     # 소켓도 스레드도 뜨지 않고 레코드 조립도 일어나지 않는다(기존 실행 경로 완전 무변경).

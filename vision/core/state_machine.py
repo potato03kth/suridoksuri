@@ -26,6 +26,33 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
+# 정규화 중심오차 -> 지상거리 환산 계수 `tan(HFOV/2)`의 nominal 기본값.
+#
+# **화각(도)이 아니라 인트린식에서 유도한다**: 핀홀 모델에서 화면 절반폭이 곧
+# `fx · tan(HFOV/2)` 이므로 `tan(HFOV/2) = (width/2) / fx` 다. 이렇게 두면
+# `calibration/cam109-imx708af75/nominal.yaml`의 `hfov_assumption`이 **수평인지 대각인지 아직
+# 미해결**(그 yaml의 note)이라는 문제를 아예 우회한다 — `fx`는 가정이 아니라 실제로 solvePnP가
+# 쓰는 값이고, 두 값은 서로 모순될 수 없다.
+#
+#   nominal.yaml: width=4608, fx=3002.6312590261377 -> 2304/3002.63 = 0.767327...
+#   (참고: tan(37.5°) = 0.767327... 로 실제로 일치한다 — HFOV 75° 가정과 자기무모순)
+#
+# 실행 경로(`main.py`/`replay.py`)는 **로드한 캘리브레이션에서 직접 계산해 덮어쓴다**
+# (`half_hfov_tan_from_calibration()`), 그래서 이 상수는 캘리브 로드 실패 시의 폴백일 뿐이다.
+NOMINAL_HALF_HFOV_TAN = 0.7673269879789604
+
+
+def half_hfov_tan_from_calibration(camera_matrix, image_size) -> float:
+    """`(width/2) / fx` — 카메라 인트린식에서 정규화오차→지상거리 환산 계수를 유도한다.
+
+    `core/`는 yaml을 못 읽으므로(import 규칙) 배열/튜플만 받는다 —
+    `utils/calibration_loader.py::CameraCalibration`의 `camera_matrix`/`image_size`를 그대로 넘기면 된다.
+    """
+    fx = float(camera_matrix[0][0])
+    if fx <= 0:
+        raise ValueError(f"fx가 양수가 아니다: {fx}")
+    return (float(image_size[0]) / 2.0) / fx
+
 
 class LandingState(str, Enum):
     """`str` 서브클래싱 — JSONL(`blackbox.log_frame`의 `state` 필드)에 그대로 문자열로 실린다."""
@@ -50,8 +77,22 @@ class LandingSMConfig:
 
     # TERMINAL 데드레코닝 최대 블라인드 지속시간(초) — 초과 시 재상승(§5.1 "핵심").
     max_blind_duration_s: float = 2.0
-    # 블라인드 하강 중 예상 착륙점 이탈 임계(미터, 근사 추정치 — §5.1 "예상 착륙점 이탈 임계").
-    max_drift_estimate_m: float = 1.0
+    # 블라인드 하강 중 예상 착륙점 이탈 임계(미터 — §5.1 "예상 착륙점 이탈 임계").
+    #
+    # ⚠️ **2026-07-28에 1.0 -> 0.75로 함께 내렸다.** 이유는 값 튜닝이 아니라 **단위 정정**이다:
+    # 예전 `drift_estimate = |정규화오차| × AGL`은 미터가 아니었고(차원 불일치), 그래서 1.0이라는
+    # "미터" 임계와 비교하는 것 자체가 어긋나 있었다. `× tan(HFOV/2)` 항을 채워 진짜 미터가 된
+    # 지금, 같은 임계 1.0을 그대로 두면 게이트가 **1/0.767 ≈ 1.30배 헐거워진다**(정확해지는 변경이
+    # 안전 게이트를 조용히 푸는 것 — 금지). 0.75는 nominal 계수 0.7673에 맞춰 **기존 동작점을
+    # 그대로(오히려 2.3% 더 빡빡하게) 재현**하는 값이다:
+    #     옛 발동조건: 오차×AGL > 1.0        새 발동조건: 오차×AGL > 0.75/0.7673 = 0.977
+    # 🔀 **이 값은 여전히 실기체 미검증 잠정값이다.** 30cm 정밀착륙 요구보다 2.5배 크지만, 이건
+    # 정밀도 게이트가 아니라 "마지막으로 본 오차가 데드레코닝을 믿을 수 없을 만큼 컸는가"를 보는
+    # **안전 폴백 게이트**라 요구정밀도까지 조이면 상시 ABORT가 난다. 실기체 데이터 확보 후 재튜닝 대상.
+    max_drift_estimate_m: float = 0.75
+    # 정규화 중심오차 -> 지상거리(m) 환산 계수 = tan(HFOV/2). 위 NOMINAL_HALF_HFOV_TAN 참조.
+    # main.py/replay.py가 로드한 캘리브레이션에서 계산해 덮어쓴다.
+    half_hfov_tan: float = NOMINAL_HALF_HFOV_TAN
     # LOCK 확정(커밋 게이트 통과)에 필요한 연속 fine_locked(비모호) 프레임 수.
     lock_confirm_frames: int = 3
     # 검출 상실 허용 연속 프레임 수 — 이 이하는 일시적 흔들림으로 보고 넘어간다.
@@ -195,18 +236,25 @@ class LandingStateMachine:
                 if self._blind_since_ts is None:
                     self._blind_since_ts = obs.ts
                 blind_duration = max(0.0, obs.ts - self._blind_since_ts)
-                # 근사 이탈 추정 — 마지막 유효 정규화 중심오차 x 마지막 유효 AGL(§5.1 "예상
-                # 착륙점 이탈 임계"). 정밀 기하가 아니라 안전 폴백 게이트용 근사치임을 의도적으로
-                # 유지한다(세션 지시 "정밀도·물리 튜닝에 시간을 쓰지 말 것").
-                # ⚠️ 단위 주의: 이 곱은 미터가 아니다 — "정규화 오차 × 미터"는 차원상 미터가
-                # 아니다. 실제 지상거리 근사는 `정규화오차 × agl × tan(HFOV/2)`이고, 실측
-                # HFOV 75°면 tan(37.5°)≈0.767이라 이 tan 항을 생략한 현재 근사값은 실제
-                # 지상 이탈거리보다 약 1/0.767 ≈ 1.3배 크게(=보수적으로) 나온다. 안전 방향
-                # (더 쉽게 ABORT_ASCEND로 빠짐)이라 급하지 않음 — 계산식은 바꾸지 않는다.
-                # 임계값(`max_drift_estimate_m`) 재튜닝은 실기체 데이터 확보 후에 할 일.
+                # 이탈 추정(미터) — 마지막 유효 정규화 중심오차 × 마지막 유효 AGL × tan(HFOV/2)
+                # (§5.1 "예상 착륙점 이탈 임계").
+                #
+                # **[2026-07-28] `tan(HFOV/2)` 항을 채웠다.** 예전 식은 이 항이 빠져 있어
+                # "정규화 오차 × 미터"라는 차원 불일치 양이었고(미터가 아니었다), 그래서 미터
+                # 임계값과 비교하는 것 자체가 어긋나 있었다. 핀홀 기하에서 화면 절반폭이
+                # `fx·tan(HFOV/2)`이므로 정규화오차 e에 대응하는 광선각은 `tan(θ) = e·tan(HFOV/2)`,
+                # 나디르 카메라의 지상거리는 `AGL·tan(θ)` — 근사가 아니라 **핀홀에서는 정확**하다.
+                #
+                # 다만 `center_error_norm`은 x(폭 정규화)와 y(높이 정규화)를 **섞은 노름**이라,
+                # y 성분에는 원래 `tan(VFOV/2)`(< tan(HFOV/2), 가로가 긴 프레임)가 붙어야 한다.
+                # 둘 다 `tan(HFOV/2)`로 환산하는 이 식은 그래서 **참값의 상한**이다 — 안전 게이트가
+                # 원하는 방향(과소평가 없음)이라 의도적으로 이 근사를 고른다. 정확히 하려면
+                # 상태머신이 dx/dy를 따로 받아야 하는데, 그건 "타겟 무관 최소 관측" 원칙을 깬다.
                 drift_estimate = 0.0
                 if self._last_center_error_norm is not None and self._last_agl_m is not None:
-                    drift_estimate = abs(self._last_center_error_norm) * self._last_agl_m
+                    drift_estimate = (
+                        abs(self._last_center_error_norm) * self._last_agl_m * cfg.half_hfov_tan
+                    )
                 if blind_duration > cfg.max_blind_duration_s:
                     next_state, reason = LandingState.ABORT_ASCEND, "blind_duration_exceeded"
                 elif drift_estimate > cfg.max_drift_estimate_m:

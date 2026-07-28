@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from vision.core.state_machine import (
@@ -13,7 +15,9 @@ from vision.core.state_machine import (
     LandingSMConfig,
     LandingState,
     LandingStateMachine,
+    NOMINAL_HALF_HFOV_TAN,
     Observation,
+    half_hfov_tan_from_calibration,
 )
 
 
@@ -200,7 +204,8 @@ def test_terminal_drift_estimate_exceeded_triggers_abort_ascend():
     d = sm.update(_obs(0.4, 4, n_candidates=1, center_error_norm=0.5, fine_locked=True, agl_m=2.0))
     assert d.state == LandingState.TERMINAL
 
-    d = sm.update(_obs(0.5, 5, n_candidates=0))  # drift_estimate ≈ 0.5*2.0=1.0 > 0.5 임계
+    # drift_estimate = 0.5 * 2.0 * tan(HFOV/2)=0.7673 ≈ 0.767 m > 0.5 임계
+    d = sm.update(_obs(0.5, 5, n_candidates=0))
     assert d.state == LandingState.ABORT_ASCEND
     assert d.reason == "drift_estimate_exceeded"
 
@@ -337,3 +342,88 @@ def test_scale_source_is_echoed_into_decision():
     assert d.scale_source == "agl"
     d = sm.update(_obs(0.1, 1, n_candidates=1, scale_source="known_size"))
     assert d.scale_source == "known_size"
+
+
+# ===========================================================================
+# drift_estimate 의 tan(HFOV/2) 항 (2026-07-28)
+#
+# 예전 식 `|정규화오차| × AGL` 은 tan 항이 빠져 차원상 미터가 아니었다(약 1.303배 보수적).
+# 항을 채워 진짜 미터가 됐고, 그만큼 게이트가 헐거워지지 않도록 max_drift_estimate_m 을
+# 1.0 -> 0.75 로 함께 내렸다. vision/CLAUDE.md "drift_estimate 의 tan(HFOV/2) 항" 절 참조.
+# ===========================================================================
+
+
+def _terminal_sm_with_last_obs(cfg, center_error_norm, agl_m):
+    """마지막 유효 관측(오차·AGL)을 남긴 채 TERMINAL 에 진입한 상태머신을 만든다."""
+    sm = LandingStateMachine(cfg)
+    sm.update(_obs(0.0, 0, n_candidates=1, center_error_norm=center_error_norm, fine_locked=True))
+    for _ in range(3):
+        sm.update(_obs(0.1, 1, n_candidates=1, center_error_norm=center_error_norm, fine_locked=True))
+    d = sm.update(
+        _obs(0.4, 4, n_candidates=1, center_error_norm=center_error_norm,
+             fine_locked=True, agl_m=agl_m)
+    )
+    assert d.state == LandingState.TERMINAL
+    return sm
+
+
+def test_drift_estimate_includes_tan_half_hfov_term():
+    """tan 항이 실제로 곱해지는지 — 옛 식이면 발동하고 새 식이면 발동하지 않는 임계로 가른다.
+
+    e=0.5, AGL=2.0 -> 옛 식 1.000 / 새 식 0.767. 임계를 그 사이(0.9)에 두면
+    tan 항이 빠지는 순간 red 가 된다.
+    """
+    cfg = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.9)
+    sm = _terminal_sm_with_last_obs(cfg, center_error_norm=0.5, agl_m=2.0)
+    d = sm.update(_obs(0.5, 5, n_candidates=0))
+    assert d.state == LandingState.TERMINAL, "tan(HFOV/2) 항이 빠져 게이트가 과발동했다"
+    assert d.reason == "terminal_blind_deadreckoning"
+
+
+def test_drift_estimate_actually_consumes_half_hfov_tan_config():
+    """`half_hfov_tan` 이 하드코딩이 아니라 config 에서 읽히는지 — 같은 관측·같은 임계에서
+    계수만 바꿔 결과가 뒤집혀야 한다."""
+    obs_kwargs = dict(center_error_norm=0.5, agl_m=2.0)
+
+    wide = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.9, half_hfov_tan=2.0)
+    d = _terminal_sm_with_last_obs(wide, **obs_kwargs).update(_obs(0.5, 5, n_candidates=0))
+    assert d.state == LandingState.ABORT_ASCEND  # 0.5*2.0*2.0 = 2.0 > 0.9
+
+    narrow = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.9, half_hfov_tan=0.1)
+    d = _terminal_sm_with_last_obs(narrow, **obs_kwargs).update(_obs(0.5, 5, n_candidates=0))
+    assert d.state == LandingState.TERMINAL      # 0.5*2.0*0.1 = 0.1 < 0.9
+
+
+def test_half_hfov_tan_from_calibration_derives_from_intrinsics():
+    """`tan(HFOV/2) = (width/2)/fx` — 화각(도) 가정을 안 거치고 인트린식에서 곧바로 나온다."""
+    # HFOV 90° 인 가상 카메라: fx = (w/2)/tan(45°) = w/2
+    k = half_hfov_tan_from_calibration([[500.0, 0, 500.0], [0, 500.0, 250.0], [0, 0, 1.0]], (1000, 500))
+    assert k == pytest.approx(math.tan(math.radians(45.0)))
+
+    with pytest.raises(ValueError):
+        half_hfov_tan_from_calibration([[0.0, 0, 0], [0, 0, 0], [0, 0, 1.0]], (1000, 500))
+
+
+def test_nominal_default_matches_shipped_calibration_file():
+    """모듈 상수가 실제 배포된 nominal.yaml 과 어긋나면 red — 둘이 조용히 갈라지는 걸 막는다."""
+    from pathlib import Path
+
+    from vision.utils.calibration_loader import load_camera_calibration
+
+    calib_path = Path(__file__).resolve().parents[1] / "calibration" / "cam109-imx708af75" / "nominal.yaml"
+    calib = load_camera_calibration(calib_path)
+    derived = half_hfov_tan_from_calibration(calib.camera_matrix, calib.image_size)
+    assert derived == pytest.approx(NOMINAL_HALF_HFOV_TAN)
+    # HFOV 75° 가정과도 자기무모순인지(대각/수평 미해결 이슈의 sanity check)
+    assert derived == pytest.approx(math.tan(math.radians(37.5)), rel=1e-6)
+
+
+def test_fix_did_not_loosen_the_safety_gate():
+    """정확해지는 변경이 안전 게이트를 조용히 푸는 것을 금지한다 — 기본값의 발동점이
+    옛 동작점(e*AGL > 1.0)보다 헐거우면 red."""
+    cfg = LandingSMConfig()
+    trip_at = cfg.max_drift_estimate_m / cfg.half_hfov_tan   # 발동에 필요한 e*AGL
+    assert trip_at <= 1.0, (
+        f"게이트가 헐거워졌다: 새 발동점 e*AGL>{trip_at:.4f} > 옛 발동점 1.0. "
+        "식을 고쳤으면 max_drift_estimate_m 도 같이 내려야 한다."
+    )

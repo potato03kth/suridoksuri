@@ -1229,3 +1229,95 @@ def test_aruco_path_is_untouched_by_the_distress_wiring(tmp_path, monkeypatch):
     }, f"ArUco chosen 형태가 달라졌다: {sorted(est)}"
     assert est["target_type"] == "aruco_23"
     assert est["calib_id"].endswith("nominal.yaml")
+
+
+# ---------------------------------------------------------------------------
+# 상태머신 config 배선 — tan(HFOV/2)를 로드된 캘리브레이션 인트린식에서 유도 (2026-07-28)
+# ---------------------------------------------------------------------------
+
+
+def test_landing_sm_config_derives_half_hfov_tan_from_calibration():
+    """`_landing_sm_config`가 nominal 상수를 그대로 쓰지 않고 **실제 calib에서 계산**하는지."""
+    import logging
+
+    from vision.core.state_machine import NOMINAL_HALF_HFOV_TAN
+    from vision.main import _landing_sm_config
+
+    logger = logging.getLogger("test_landing_sm_config")
+
+    class _FakeCalib:
+        # HFOV 90° 가상 카메라 — nominal(0.7673)과 확실히 다른 값이 나와야 배선이 증명된다.
+        camera_matrix = [[500.0, 0.0, 500.0], [0.0, 500.0, 250.0], [0.0, 0.0, 1.0]]
+        image_size = (1000, 500)
+
+    cfg = _landing_sm_config(_FakeCalib(), logger)
+    assert cfg.half_hfov_tan == pytest.approx(1.0)
+    assert cfg.half_hfov_tan != pytest.approx(NOMINAL_HALF_HFOV_TAN)
+
+    # calib이 없으면 nominal 폴백
+    assert _landing_sm_config(None, logger).half_hfov_tan == pytest.approx(NOMINAL_HALF_HFOV_TAN)
+
+
+def test_landing_sm_config_falls_back_on_bad_calibration():
+    """망가진 인트린식(fx<=0)에도 크래시 없이 nominal 폴백 — 무관한 프리셋 실행을 막지 않는다."""
+    import logging
+
+    from vision.core.state_machine import NOMINAL_HALF_HFOV_TAN
+    from vision.main import _landing_sm_config
+
+    class _BrokenCalib:
+        camera_matrix = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+        image_size = (1000, 500)
+
+    cfg = _landing_sm_config(_BrokenCalib(), logging.getLogger("test_bad_calib"))
+    assert cfg.half_hfov_tan == pytest.approx(NOMINAL_HALF_HFOV_TAN)
+
+
+def test_main_actually_wires_derived_half_hfov_tan_into_state_machine(tmp_path, monkeypatch):
+    """헬퍼가 있는 것만으로는 부족하다 — `main()`이 실제로 그 config로 상태머신을 만드는지.
+
+    호출부가 `LandingStateMachine()`(기본 config)으로 되돌아가면 red.
+    """
+    from vision.core.state_machine import NOMINAL_HALF_HFOV_TAN, LandingStateMachine
+
+    seen = []
+
+    class _SpySM(LandingStateMachine):
+        def __init__(self, config=None):
+            seen.append(config)
+            super().__init__(config)
+
+    monkeypatch.setattr(main_mod, "LandingStateMachine", _SpySM)
+
+    # nominal과 **다른** 인트린식을 가진 calib을 --calib으로 준다 — 그래야 "기본 config를
+    # 그냥 넘겼다"와 "calib에서 유도했다"가 구분된다(nominal 기본값과 같으면 구분 불가).
+    import yaml
+
+    calib_path = tmp_path / "fake_nominal.yaml"
+    calib_path.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "camera_id": "test-hfov90",
+                "source": "synthetic_test",
+                "accuracy": "unverified",
+                "not_for_closed_loop_30cm": True,
+                "image_size": [1000, 500],
+                # fx = (w/2)/tan(45°) = 500 -> tan(HFOV/2) = 1.0
+                "camera_matrix": [[500.0, 0.0, 500.0], [0.0, 500.0, 250.0], [0.0, 0.0, 1.0]],
+                "dist_coeffs": [0.0, 0.0, 0.0, 0.0, 0.0],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    img_path = _write_image(tmp_path)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["vision.main", img_path, "--calib", str(calib_path), *_log_dir_args(tmp_path)],
+    )
+    main_mod.main()
+
+    assert len(seen) == 1 and seen[0] is not None, "기본 config로 상태머신을 만들었다(배선 누락)"
+    assert seen[0].half_hfov_tan == pytest.approx(1.0)
+    assert seen[0].half_hfov_tan != pytest.approx(NOMINAL_HALF_HFOV_TAN)

@@ -23,7 +23,12 @@ import cv2
 import numpy as np
 
 from vision.core.runner import Pipeline
-from vision.core.state_machine import LandingStateMachine, Observation
+from vision.core.state_machine import (
+    LandingSMConfig,
+    LandingStateMachine,
+    Observation,
+    half_hfov_tan_from_calibration,
+)
 from vision.core.target import marker_object_points, solve_target_pose
 from vision.utils.blackbox import BlackBoxLogger
 from vision.utils.calibration_loader import CameraCalibration, load_camera_calibration
@@ -69,6 +74,22 @@ def _find_aruco_detection(detections):
         if d.corners is not None and d.meta.get("aruco_id") is not None:
             return d
     return None
+
+
+def _landing_sm_config(calib, logger) -> LandingSMConfig:
+    """상태머신 config — 로드된 캘리브레이션이 있으면 `tan(HFOV/2)`를 인트린식에서 유도해 넣는다.
+    `main.py::_landing_sm_config`와 같은 헬퍼의 얇은 중복(두 CLI는 서로 import하지 않는다 —
+    기존 원칙). 근거는 `core/state_machine.py`의 `NOMINAL_HALF_HFOV_TAN` 주석 참조.
+    """
+    if calib is None:
+        return LandingSMConfig()
+    try:
+        return LandingSMConfig(
+            half_hfov_tan=half_hfov_tan_from_calibration(calib.camera_matrix, calib.image_size)
+        )
+    except (ValueError, IndexError, TypeError) as e:
+        logger.warning("캘리브레이션에서 tan(HFOV/2) 유도 실패 — nominal 기본값 사용: %s", e)
+        return LandingSMConfig()
 
 
 def _find_white_box_detection(detections):
@@ -278,7 +299,7 @@ def run_replay(
 
     # §9 6번 — 공통 상태머신. 재생 전체에 걸쳐 인스턴스 하나 재사용(결정론적 재생, §7.5 —
     # 매 프레임 새로 만들면 상태 누적 자체가 사라진다).
-    state_machine = LandingStateMachine()
+    state_machine = LandingStateMachine(_landing_sm_config(calib, logger))
 
     streamer = None
     writer = None

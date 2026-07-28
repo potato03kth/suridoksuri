@@ -631,3 +631,19 @@ def test_replay_aruco_chosen_shape_is_unchanged_by_the_distress_wiring(tmp_path)
         "calib_accuracy", "not_for_closed_loop_30cm", "calib_id",
     }, f"ArUco chosen 형태가 달라졌다: {sorted(est)}"
     assert est["target_type"] == "aruco_23"
+
+
+def test_replay_landing_sm_config_derives_half_hfov_tan_from_calibration():
+    """`replay.py`에도 같은 배선이 얇게 중복돼 있다 — 한쪽만 고쳐지는 것을 막는 회귀테스트."""
+    import logging
+
+    from vision.core.state_machine import NOMINAL_HALF_HFOV_TAN
+    from vision.replay import _landing_sm_config
+
+    class _FakeCalib:
+        camera_matrix = [[500.0, 0.0, 500.0], [0.0, 500.0, 250.0], [0.0, 0.0, 1.0]]
+        image_size = (1000, 500)
+
+    logger = logging.getLogger("test_replay_landing_sm_config")
+    assert _landing_sm_config(_FakeCalib(), logger).half_hfov_tan == pytest.approx(1.0)
+    assert _landing_sm_config(None, logger).half_hfov_tan == pytest.approx(NOMINAL_HALF_HFOV_TAN)

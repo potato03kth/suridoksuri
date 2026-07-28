@@ -938,6 +938,47 @@ nominal.yaml과 같은 보수적 값**을 유지한다 — 합성이라고 해�
 (고른 모서리 이름) / `corner_tie_count`(>1이면 그 프레임이 실제 축퇴였다) / `corner_from_hysteresis`
 (정규 순서 대신 직전 선택이 유지됨).
 
+---
+
+## `drift_estimate`의 `tan(HFOV/2)` 항 (2026-07-28, `core/state_machine.py`)
+
+**기존 갭:** `TERMINAL` 블라인드 하강의 이탈 추정이 `|정규화오차| × AGL`이었다. `tan(HFOV/2)`
+항이 빠져 **차원상 미터가 아니었고**(정규화값 × 미터), 그래서 "미터" 임계값
+`max_drift_estimate_m`과 비교하는 것 자체가 어긋나 있었다. "안전 방향이라 그대로 뒀다"고
+기록만 돼 있던 것을 이번에 닫았다.
+
+**바로잡은 식:** `|정규화오차| × AGL × tan(HFOV/2)`. 핀홀에서 화면 절반폭이 `fx·tan(HFOV/2)`
+이므로 정규화오차 e의 광선각은 `tan(θ)=e·tan(HFOV/2)`, 나디르 카메라 지상거리는 `AGL·tan(θ)` —
+**근사가 아니라 핀홀에서는 정확**하다. 단 `center_error_norm`은 x(폭 정규화)와 y(높이 정규화)를
+섞은 노름이라 y 성분엔 원래 `tan(VFOV/2)`(<`tan(HFOV/2)`)가 붙어야 한다. 둘 다 `tan(HFOV/2)`로
+환산하는 이 식은 그래서 **참값의 상한**이고, 안전 게이트가 원하는 방향(과소평가 없음)이라
+의도적으로 고른 근사다(정확히 하려면 상태머신이 dx/dy를 따로 받아야 하는데 그건 "타겟 무관
+최소 관측" 원칙을 깬다).
+
+**계수는 화각(도)이 아니라 인트린식에서 유도한다** — `tan(HFOV/2) = (width/2)/fx`
+(`half_hfov_tan_from_calibration()`). 이러면 `nominal.yaml`의 `hfov_assumption`이 **수평인지
+대각인지 미해결**이라는 문제를 아예 우회한다(`fx`는 가정이 아니라 solvePnP가 실제로 쓰는 값).
+`main.py`/`replay.py`가 로드한 캘리브레이션에서 계산해 `LandingSMConfig(half_hfov_tan=...)`로
+주입하고, 로드 실패 시에만 `NOMINAL_HALF_HFOV_TAN` 폴백을 쓴다.
+
+- 실측 검증: `nominal.yaml`에서 `2304/3002.6312590261377 = 0.7673269880` = `tan(37.5°)`
+  (HFOV 75° 가정과 **자기무모순**). 기록된 "약 1.3배 보수적"도 `1/0.7673 = 1.3032`로 확인됨.
+
+**🔴 소비 파라미터도 같이 내렸다 — `max_drift_estimate_m` 1.0 → 0.75.** 정확해지는 변경이
+안전 게이트를 조용히 푸는 것을 막기 위해서다:
+
+| | 발동 조건 (`e × AGL`이 얼마를 넘으면 ABORT_ASCEND) |
+|---|---|
+| 옛 식 + 옛 임계 1.0 | `> 1.0000` |
+| 새 식 + **옛 임계 1.0 그대로 뒀다면** | `> 1.3032` — **1.303배 헐거워짐** ❌ |
+| 새 식 + 새 임계 0.75 (채택) | `> 0.9774` — 옛 동작점보다 2.3% 더 빡빡 ✅ |
+
+이제 임계값이 **진짜 미터**를 뜻한다: `TERMINAL` 진입 상한 AGL 3.0m에서 발동점은 지상 이탈
+0.750m(중심오차 32.6%)다. 🔀 **0.75는 여전히 실기체 미검증 잠정값**이고 30cm 요구보다 2.5배
+크지만, 이건 정밀도 게이트가 아니라 "마지막으로 본 오차가 데드레코닝을 믿을 수 없을 만큼
+컸는가"를 보는 **안전 폴백 게이트**라 요구정밀도까지 조이면 상시 ABORT가 난다. 실기체 데이터
+확보 후 재튜닝 대상.
+
 ## VisionState 필드 사용 규칙
 
 ```
@@ -1080,7 +1121,7 @@ pytest vision/tests/ -q -k main # 특정만
 | core/runner `Pipeline` | from_config 로드·실행순서·`partial(N)`·unknown module→ValueError | ✅ test_pipeline |
 | core/target `solve_target_pose`/`TargetEstimate`(ArUco Phase 3) | **★합성 왕복(핵심, calib_analyze.py 패턴 재사용):** 알려진 실제 pose로 50cm 정사각 4코너를 합성투영(우선 임의 K, 이어서 실제 nominal.yaml intrinsics로도) → solvePnP 복원 pose가 원래 position/quaternion(부호 이중성 고려)과 허용오차 내 일치 · `rotation_matrix_to_quaternion` 다양한 회전에서 단위quaternion+독립 공식으로 재구성한 R과 일치 · provenance echo(calib_accuracy/not_for_closed_loop_30cm/calib_id)가 호출자 값 그대로 반영 · `uncertainty` 항상 None · 코너 순서 오배열 회귀(순환 오배열=position 보존·orientation 붕괴, 비순환 오배열=position 자체 붕괴 — 정사각형 90도 자기대칭 때문, 둘 다 실측 확인) | ✅ test_target |
 | core/target 초록구역 확장(2026-07-28) | 3.0m 상수가 ArUco 0.50과 구분됨 · `marker_object_points(3.0)` 재사용이 z=0 시계방향 4코너를 줌 · **알려진 크기만으로 알려진 거리 복원**(10/20/40m, AGL 없음) · 크기 상수를 0.5로 오용하면 정확히 6배 틀림(수치 고정) · `position_at_pixel=None`이 **solvePnP 자신의 tvec과 비트 동일**(ArUco 회귀) · 타겟 중심 픽셀 역투영이 tvec 재현(자기검증 불변식) · 착륙점 픽셀이 실제로 오프셋 좌표를 줌 · **90° 회전 4중 라벨링 전부에서 착륙점 동일**(모호성이 유도로 안 샘) · 감김 뒤집으면 자세가 실제로 깨짐 · 평면과 평행한 시선 거절. **파괴검증 D1/D1b/D2/D5b로 red 확인** | ✅ test_target |
-| core/state_machine `LandingStateMachine`(§9 6번) | 정상 시퀀스 전이 ACQUIRE→CENTER_DESCEND→LOCK→PRECISION_SERVO→TERMINAL(순서 단조증가까지 확인) · **안전 폴백 핵심**: 검출 상실이 `loss_tolerance_frames` 초과 시 HOLD(허용치 이내는 유지) + HOLD가 재포착 시 CENTER_DESCEND로 복귀(막다른 상태 아님) · **TERMINAL 블라인드 지속시간 초과 → ABORT_ASCEND**(§5.1 "핵심") + 재포착 시 블라인드 타이머 리셋 회귀 + 근사 이탈추정(중심오차×AGL) 초과도 별도로 ABORT_ASCEND 트리거 · **커밋 게이트**: 후보 모호(fine_locked 시도 중 n_candidates>max_candidates_for_lock) → HOLD로 거절, LOCK 확정 카운트 도중 모호해져도 거절 · **불변식**: fine_locked=False가 지속되면 agl_m이 아무리 낮아도 LOCK/PRECISION_SERVO/TERMINAL 절대 도달 불가(구조적 게이팅, 우회 경로 없음) · agl_m 전부 None이어도 크래시 없이 동작 + TERMINAL 미도달(폐루프 서보 유지, 안전한 축퇴) · 결정론(같은 관측열 → 같은 상태/명령/사유열) · config 필드(`LandingSMConfig`)로 임계값 override 가능 · `scale_source`가 Decision에 그대로 에코 | ✅ test_state_machine |
+| core/state_machine `LandingStateMachine`(§9 6번) | 정상 시퀀스 전이 ACQUIRE→CENTER_DESCEND→LOCK→PRECISION_SERVO→TERMINAL(순서 단조증가까지 확인) · **안전 폴백 핵심**: 검출 상실이 `loss_tolerance_frames` 초과 시 HOLD(허용치 이내는 유지) + HOLD가 재포착 시 CENTER_DESCEND로 복귀(막다른 상태 아님) · **TERMINAL 블라인드 지속시간 초과 → ABORT_ASCEND**(§5.1 "핵심") + 재포착 시 블라인드 타이머 리셋 회귀 + 근사 이탈추정(중심오차×AGL) 초과도 별도로 ABORT_ASCEND 트리거 · **커밋 게이트**: 후보 모호(fine_locked 시도 중 n_candidates>max_candidates_for_lock) → HOLD로 거절, LOCK 확정 카운트 도중 모호해져도 거절 · **불변식**: fine_locked=False가 지속되면 agl_m이 아무리 낮아도 LOCK/PRECISION_SERVO/TERMINAL 절대 도달 불가(구조적 게이팅, 우회 경로 없음) · agl_m 전부 None이어도 크래시 없이 동작 + TERMINAL 미도달(폐루프 서보 유지, 안전한 축퇴) · 결정론(같은 관측열 → 같은 상태/명령/사유열) · config 필드(`LandingSMConfig`)로 임계값 override 가능 · `scale_source`가 Decision에 그대로 에코. **[2026-07-28] `drift_estimate`의 `tan(HFOV/2)` 항**(위 절) — 옛 식이면 발동하고 새 식이면 발동 안 하는 임계로 tan 항 존재 확인·`half_hfov_tan`이 하드코딩 아닌 config에서 읽힘(계수만 바꿔 결과 반전)·`(width/2)/fx` 유도 + fx<=0 거절·모듈 상수가 **실제 배포된 nominal.yaml**과 일치(둘이 조용히 갈라지는 것 방지)·**게이트가 옛 동작점보다 헐거워지지 않았는지**(`max_drift_estimate_m/half_hfov_tan <= 1.0`). **파괴검증 D6/D7/D8/D9로 red 확인** | ✅ test_state_machine |
 | ArUco Phase 4 파이프라인 배선(위 "ArUco Phase 4 파이프라인 배선" 절) | main.py/replay.py 각각: 합성 ID=23 마커 이미지/녹화폴더 실행 → JSONL `chosen.target_estimate`에 position/orientation/calib_accuracy/not_for_closed_loop_30cm/calib_id 실제 기록 · 마커 없는 프레임은 크래시 없이 `chosen=None` · calib 파일 없음(`--calib`/`calib_path` 오지정)도 크래시 없이 target_estimate만 생략+경고 로그 | ✅ test_main(아루코 3개)·test_replay(아루코 3개) |
 | utils/calibration_loader `load_camera_calibration`(ArUco Phase 3) | 실제 커밋된 `nominal.yaml` 로드(camera_matrix/dist_coeffs/image_size/accuracy/not_for_closed_loop_30cm/calib_id) · 합성 yaml round-trip(값이 실측/미검증 어느 쪽이든 하드코딩 없이 그대로 반영) · 파일 없음→`FileNotFoundError` | ✅ test_calibration_loader |
 | core/frames `R_frd_cam`/`cam_to_flu` 등(인터페이스 Phase 1) | **★§4.3의 RT-1~RT-6를 그대로 구현**(RT-7 ENU 경로는 §4.4가 "vision은 NED 변환 안 함"으로 확정해 구현 자체가 없어 테스트도 없음). RT-1 모든 ψ에서 `RᵀR=I`·`det=+1` · RT-2 cam→frd→cam 및 cam→flu→frd→flu→cam 전체 체인 왕복(1e-9) · **RT-3~5 알려진 방향쌍**(정하방/이미지우측→기체우측/이미지위쪽→기체전방) — **부호 실수를 잡는 유일한 그물**(축 이름만 맞고 부호가 뒤집힌 회전행렬도 RT-1·RT-2는 통과한다, 파괴검증 D1이 Rz(+90)→Rz(-90)으로 실증) · 문서 리터럴 2개와 직접 대조(유도한 `R_flu_cam`이 문서값과 같은지) · ψ_m=90°가 전방 타겟을 실제로 우측으로 돌림(하드코딩 아님) · ψ 합성이 `Rz(ψ)·R(0)` · `MOUNT_YAW_PSI_M_MEASURED is False` 계약 회귀(실측 없이 뒤집으면 red) · FLU↔FRD involution · RT-6 쿼터니언 순서 왕복+항등구현 거부 · 비3차원 입력 `ValueError` · 결정론. **파괴검증 5종(D1~D5)으로 red 확인** | ✅ test_frames |
@@ -1113,7 +1154,7 @@ pytest vision/tests/ -q -k main # 특정만
 | utils/blackbox | 프레임/거절이유 JSONL 기록·close() 큐 가득해도 안전 · **[2026-07-28] 플래키 수정** — 예전 `test_bounded_queue_drops_oldest_under_burst`는 "**파일에** 남은 레코드가 ≤ max_queue"를 단언했는데 `__init__`이 `QueueListener`를 이미 start()해 둔 상태라 넣는 동안 리스너가 동시에 파일로 흘려보낸다(파일 건수는 스케줄링 의존 — 생산 루프에 틱당 0.2ms만 양보해도 50건이 남아 실패). drop-oldest가 보장하는 건 "**큐에** 최대 N건"이지 "**싱크에** 최대 N건"이 아니다. 3건으로 쪼갬: ① 소비 스레드 없이 `_DropOldestQueueHandler`만 두고 **매 스텝** `qsize == min(넣은수, 상한)` + 잔여 = 최신 N건(`test_target_sink.py`의 `_DropOldestQueue` 결정론 패턴 재사용. ⚠️ 최종 상태만 보면 "가득 차면 큐를 통째로 비우는" 구현도 50/5에서 우연히 통과 — 파괴검증 D-B3 실측) ② 그 상한이 `BlackBoxLogger`에 실제 배선됐는지 구조 검증(`_queue.maxsize == max_queue` + 핸들러 타입) ③ end-to-end는 **부하 무관 불변식**만(최신 프레임 불유실 + 순서·유일성·부분열). **파괴검증 4종(D-B1~B4)으로 red 확인** | ✅ test_blackbox |
 | utils/stream `MjpegStreamer`(§7.9 항목5) | 실제 HTTP 서버 기동 → 실제 프레임 push → 실제 클라이언트로 `/stream` 접속해 진짜 MJPEG 바이트 수신·`cv2.imdecode` 디코드 성공·VGA 박스 축소(종횡비 유지, 업스케일 없음)·`push_frame()` 비차단(클라이언트 없음/느린 클라이언트 붙어있어도 논-블로킹, 실측 시간)·`start()` 전 `push_frame` 안전 no-op·idempotent stop/restart | ✅ test_stream |
 | utils/frame_source | Dir/Bag: 실제 파일→실제 프레임 디코딩·순서 결정론·telemetry.jsonl(사이드카 포함) frame_id 매칭·빈/누락 입력 에러. Live: 연결 실패 시 재시도 후 `ConnectionError`·읽기 실패 시 `ConnectionError`·`open_dir_or_bag` 디렉터리/파일 자동판별 | ✅ test_frame_source |
-| main.py | `--display` 게이팅: **none=imshow 0회**(헤드리스 안전 불변식)·file→output 강제·stream 미구현 · **로거+JSONL 블랙박스 실연결**: 실행 시 실제 `.log`/`.jsonl`이 디스크에 생성되고 detections/latency/provenance가 올바름 · **§9 6번 상태머신 배선**: 반복 ArUco 프레임 실제 영상 실행 → JSONL `state`가 전부 null 아니고 ACQUIRE에 머물지 않고 실제로 진행(LOCK/PRECISION_SERVO 도달)함을 실제 파이프라인으로 확인, `command`도 함께 실림 · **[2026-07-25] ② 조난자 fine 체인**: 흰 박스 확정 반복 영상(`distress_fine.yaml`)도 ArUco와 별개 경로로 CENTER_DESCEND를 넘어 진행함을 실제 파이프라인으로 확인 · **[2026-07-28] `--target-sink` 배선**: opt-in 불변식(미지정 시 소켓 미기동 + 발행 시도 0) · 매 프레임 `target` 1건 + `state_hint` 1건, `REQUIRED_*_KEYS` 전량 + `seq` 단조증가 + 맨 이름 `command` 키 부재 · **§5.4 침묵 금지**: 검출 없음/calib 없음도 사유가 붙은 `valid=false`로 계속 발행(포즈는 0이 아니라 null) · **🔴 sink 실패 무영향**: 발행마다 예외를 던지는 sink에서도 전 프레임이 JSONL에 남음 + bind 실패는 `NullSink` 강등(검출 계속) · **SIGTERM 비가로채기 회귀**(핸들러 하나 규칙) + 종료 시 sink 정리 · **실소켓 종단간**: 순수 stdlib 소비자가 `readline()`으로 JSONL을 읽고 main() 종료 시 EOF 수신. **파괴검증 8종(D-A1~A8)으로 red 확인** | ✅ test_main |
+| main.py | `--display` 게이팅: **none=imshow 0회**(헤드리스 안전 불변식)·file→output 강제·stream 미구현 · **로거+JSONL 블랙박스 실연결**: 실행 시 실제 `.log`/`.jsonl`이 디스크에 생성되고 detections/latency/provenance가 올바름 · **§9 6번 상태머신 배선**: 반복 ArUco 프레임 실제 영상 실행 → JSONL `state`가 전부 null 아니고 ACQUIRE에 머물지 않고 실제로 진행(LOCK/PRECISION_SERVO 도달)함을 실제 파이프라인으로 확인, `command`도 함께 실림 · **[2026-07-25] ② 조난자 fine 체인**: 흰 박스 확정 반복 영상(`distress_fine.yaml`)도 ArUco와 별개 경로로 CENTER_DESCEND를 넘어 진행함을 실제 파이프라인으로 확인 · **[2026-07-28] `--target-sink` 배선**: opt-in 불변식(미지정 시 소켓 미기동 + 발행 시도 0) · 매 프레임 `target` 1건 + `state_hint` 1건, `REQUIRED_*_KEYS` 전량 + `seq` 단조증가 + 맨 이름 `command` 키 부재 · **§5.4 침묵 금지**: 검출 없음/calib 없음도 사유가 붙은 `valid=false`로 계속 발행(포즈는 0이 아니라 null) · **🔴 sink 실패 무영향**: 발행마다 예외를 던지는 sink에서도 전 프레임이 JSONL에 남음 + bind 실패는 `NullSink` 강등(검출 계속) · **SIGTERM 비가로채기 회귀**(핸들러 하나 규칙) + 종료 시 sink 정리 · **실소켓 종단간**: 순수 stdlib 소비자가 `readline()`으로 JSONL을 읽고 main() 종료 시 EOF 수신. **파괴검증 8종(D-A1~A8)으로 red 확인** · **[2026-07-28] `tan(HFOV/2)` 배선**: `_landing_sm_config`가 calib 인트린식에서 유도(+calib None/fx<=0 폴백) + **`main()`을 실제로 돌려** nominal과 다른 `--calib`을 준 뒤 그 유도값이 상태머신 생성자까지 도달함을 확인(호출부가 기본 config로 되돌아가면 red). **파괴검증 D10** | ✅ test_main |
 | replay.py | `open_dir_or_bag`로 Dir/Bag 자동판별 재생·실제 프레임 처리로 JSONL(telemetry 포함)/사람로그 실생성·`--output` 지정 시 실제 mp4 기록 · **§9 6번 상태머신 배선**: 반복 ArUco 녹화 재생 → JSONL `state` 실제 진행 확인(main.py와 동일) + **telemetry.jsonl의 alt가 실제로 상태머신에 흘러 TERMINAL까지 도달**함을 실제 재생으로 확인(AGL 배선이 진짜로 연결됐다는 증거) · **[2026-07-25] ② 조난자 fine 체인**: 흰 박스 확정 녹화 재생도 CENTER_DESCEND를 넘어 진행 + telemetry alt로 TERMINAL까지 도달 확인(ArUco와 별개 경로) + `landing_point_px`가 실제 `Pipeline.from_config` 경로로 `Detection.meta`에 실림을 확인 | ✅ test_replay |
 | tools/jsonl_view.py | 실제 `main.py` 실행으로 만든 진짜 JSONL 로드·행 수=JSONL type=frame 행 수 일치·score/latency 라인 포인트 수=행 수(결측은 nan 구멍, 이어붙이지 않음)·state 미기록 시 안내 텍스트·rejection→세로선·PNG 실파일 생성 | ✅ test_jsonl_view |
 | tools/calib_analyze.py | **★합성 왕복(핵심):** 진짜 K/dist를 알고 합성 투영한 ~20장 사이드카 → 복원 fx/fy/cx/cy 1% 이내·dist 허용오차 내 · fx-vs-LensPosition 직선적합이 알려진 (L,fx) 직선을 복원 · 이상치 검출(코너 오염 이미지가 플래그되고 제외 시 RMS 개선) · 부분 데이터(그룹 1개)에서 크래시 없이 적합 생략+`recommended` 폴백 사유 기록 · yaml 아티팩트 `yaml.safe_load` 왕복 + 필수 키 전부(`checks[].ok`가 python bool인지 — numpy.bool_ 누출 회귀 포함) · `--redetect` PNG 재검출 경로 · CLI(`main()`) end-to-end로 진단 플롯 3종 PNG 실파일 생성 | ✅ test_calib_analyze |
