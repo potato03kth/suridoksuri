@@ -13,7 +13,7 @@ from fc_bridge.execution.state_logic import (
     is_pilot_takeover, path_origin_ned, translate_path,
     offboard_reacquire_allowed, state_timeout_due,
     horiz_dist_from_origin, range_limit_exceeded, path_max_range,
-    after_streaming_state, slew_setpoint,
+    after_streaming_state, slew_setpoint, fw_setpoint_alt,
 )
 
 
@@ -420,3 +420,74 @@ def test_slew_setpoint_hold_entry_step_is_bounded_by_rate():
     wp1 = np.array([300.0, 0.0, 50.0])
     out = slew_setpoint(pos, wp1, 5.0 * 0.1)
     assert float(np.linalg.norm(out - pos)) == pytest.approx(0.5, abs=1e-9)
+
+
+# ── fw_setpoint_alt() — F-9 (2026-07-29 SITL-7 R5) ──────────────
+
+def test_fw_setpoint_alt_first_tick_starts_at_vehicle_alt():
+    """첫 틱은 기체 현재 고도에서 출발한다 — 계단이 램프 1스텝으로 줄어야 한다."""
+    out = fw_setpoint_alt(None, cruise_alt=50.0, vehicle_alt=20.0,
+                          max_step=3.0 * 0.1)
+    assert out == pytest.approx(20.3)
+
+
+def test_fw_setpoint_alt_c1a_step_bounded():
+    """C1a 실측 계단 +30.12m(h_up 19.92→50.03)이 0.3m 로 제한되는지."""
+    out = fw_setpoint_alt(None, cruise_alt=50.03, vehicle_alt=19.92,
+                          max_step=3.0 * 0.1)
+    assert out - 19.92 == pytest.approx(0.3, abs=1e-9)
+
+
+def test_fw_setpoint_alt_c1b_descent_step_bounded():
+    """C1b 실측 계단 −69.78m(119.77→49.99)도 같은 크기로 제한(부호만 반대)."""
+    out = fw_setpoint_alt(None, cruise_alt=49.99, vehicle_alt=119.77,
+                          max_step=3.0 * 0.1)
+    assert out - 119.77 == pytest.approx(-0.3, abs=1e-9)
+
+
+def test_fw_setpoint_alt_flight02_step_bounded():
+    """실기체 2026-07-28 flight02 계단 −29.6m (transition_alt 50 vs wp z 21.2)."""
+    out = fw_setpoint_alt(None, cruise_alt=21.2, vehicle_alt=50.8,
+                          max_step=3.0 * 0.1)
+    assert out == pytest.approx(50.5)
+
+
+def test_fw_setpoint_alt_continues_from_previous_ramp():
+    """두 번째 틱부터는 기체 고도가 아니라 직전 램프값에서 이어간다."""
+    out = fw_setpoint_alt(20.3, cruise_alt=50.0, vehicle_alt=20.05,
+                          max_step=3.0 * 0.1)
+    assert out == pytest.approx(20.6)
+
+
+def test_fw_setpoint_alt_snaps_exactly_on_arrival():
+    """목표까지 남은 거리가 한 스텝 이하면 정확히 안착 — 점근 수렴 금지."""
+    out = fw_setpoint_alt(49.9, cruise_alt=50.0, vehicle_alt=0.0,
+                          max_step=3.0 * 0.1)
+    assert out == pytest.approx(50.0)
+
+
+def test_fw_setpoint_alt_stays_at_cruise_after_convergence():
+    """수렴 후 동작은 종전과 완전히 동일해야 한다 (회귀 0)."""
+    out = fw_setpoint_alt(50.0, cruise_alt=50.0, vehicle_alt=12.3,
+                          max_step=3.0 * 0.1)
+    assert out == pytest.approx(50.0)
+
+
+def test_fw_setpoint_alt_disabled_returns_cruise_alt():
+    """max_step<=0 은 램프 비활성 = 종전 계단 동작 (탈출구)."""
+    assert fw_setpoint_alt(None, 50.0, 20.0, 0.0) == pytest.approx(50.0)
+    assert fw_setpoint_alt(20.3, 50.0, 20.0, -1.0) == pytest.approx(50.0)
+
+
+def test_fw_setpoint_alt_matched_altitudes_is_noop():
+    """transition_alt == wp[-1].z 인 정상 시나리오(A1)에선 램프가 아무 일도 안 한다."""
+    assert fw_setpoint_alt(None, 50.0, 50.0, 0.3) == pytest.approx(50.0)
+
+
+def test_fw_setpoint_alt_converges_in_expected_time():
+    """30m 계단이 3.0 m/s·10Hz 에서 10초(100틱)에 수렴한다 — yaml 주석의 근거."""
+    ramp = None
+    for _ in range(100):
+        ramp = fw_setpoint_alt(ramp, cruise_alt=50.0, vehicle_alt=20.0,
+                               max_step=3.0 * 0.1)
+    assert ramp == pytest.approx(50.0)

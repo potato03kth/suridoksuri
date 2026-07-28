@@ -55,7 +55,9 @@ def _make_nodes(context):
                  "hold_timeout", "landing_timeout", "control_hz",
                  # SITL-7 R1 — 상태 타임아웃 4종 + 거리 상한 (현장 조정은 여기로만)
                  "climbing_timeout", "transition_fw_timeout",
-                 "transition_mc_timeout", "entry_timeout", "range_limit_m"):
+                 "transition_mc_timeout", "entry_timeout", "range_limit_m",
+                 # SITL-7 R5 — 천이 고도 계단 램프 (F-9)
+                 "alt_slew_rate"):
         val = _arg(name, context)
         if val:
             overrides[name] = float(val)
@@ -173,6 +175,10 @@ def generate_launch_description():
             "range_limit_m", default_value="",
             description="이륙지점 기준 수평거리 상한 (m). 0 이하면 비활성. "
                         "빈 값(기본)이면 YAML(300.0). 300m 넘는 편도 경로를 시험할 땐 함께 키울 것"),
+        DeclareLaunchArgument(
+            "alt_slew_rate", default_value="",
+            description="FW 위치 setpoint 고도 램프 (m/s). 0 이하면 비활성(= 종전 계단). "
+                        "빈 값(기본)이면 YAML(3.0). F-9 — transition_alt != wp[-1].z 일 때의 천이 고도 계단"),
     ]
 
     # 선언 목록이 곧 검사 기준이다 — 인자를 추가해도 여기 손댈 필요가 없다.

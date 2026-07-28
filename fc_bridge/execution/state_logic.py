@@ -485,6 +485,43 @@ def slew_setpoint(current, target, max_step: float):
     return cur + delta * (step / dist)
 
 
+def fw_setpoint_alt(alt_ramp, cruise_alt: float, vehicle_alt: float,
+                    max_step: float) -> float:
+    """FW 위치 setpoint 의 **고도 성분** — 순항고도로 향하는 램프 한 틱. (F-9)
+
+    alt_ramp   : 직전 틱의 램프값 (h_up, m). `None` 이면 이번이 첫 틱이다.
+    cruise_alt : 목표 순항고도 (h_up, m) — `_cruise_alt`
+    vehicle_alt: 지금 기체 고도 (h_up, m). 첫 틱 램프 시작점으로만 쓴다.
+    max_step   : 한 틱 최대 이동량 (m) = `alt_slew_rate * dt`.
+                 **0 이하면 램프 비활성** — `cruise_alt` 를 그대로 반환한다
+                 (종전 동작으로 되돌리는 탈출구, R1 타임아웃 4종과 같은 규약).
+
+    반환: 이번 틱에 발행할 고도 (float). 호출부가 그대로 `alt_ramp` 로 보관한다.
+
+    (2026-07-29 SITL-7 R5, F-9.) `transition_alt != waypoints[-1].z` 이면
+    `TRANSITION_FW` Phase 3 의 **첫 위치 setpoint 한 틱**에 고도가
+    `wp[-1].z - transition_alt` 만큼 통째로 튄다 — 그 전까지는 속도 setpoint
+    (hover)로 날고 있어 위치 setpoint 의 고도 성분이 아예 없다가, 정렬이 끝난
+    틱에 갑자기 `_cruise_alt` 절대값이 나가기 때문이다.
+    SITL 실측 C1a(`transition_alt` 20m) **+30.12m**(h_up 19.92→50.03) /
+    C1b(120m) **−69.78m**(119.77→49.99), 실기체 2026-07-28 flight02
+    **−29.6m**(`transition_alt` 50m 유실값 vs `wp[-1].z` 21.2m).
+
+    램프 시작점을 **기체 현재 고도**로 잡는 것은 `_step_hold` ·
+    `_step_following` MC 분기와 같은 규약이다 — "OFFBOARD 가 이어받는
+    setpoint 는 항상 실제 위치와 일치시킨다"(2026-07-20 제어상실 사고 대응).
+
+    수평 성분에는 이 램프를 걸지 않는다. FW 는 `pts[-1]`/lookahead 같은
+    **먼 목표점**을 향해 직선으로 날아야 하고, 수평까지 `v_approach` 로
+    걸으면 300m 경로에서 60초를 램프에만 쓰게 된다. 계단이 문제인 축은
+    고도뿐이다(수평 경계 계단은 F-6 소관).
+    """
+    if float(max_step) <= 0.0:
+        return float(cruise_alt)
+    start = float(vehicle_alt) if alt_ramp is None else float(alt_ramp)
+    return float(slew_setpoint([start], [cruise_alt], max_step)[0])
+
+
 def translate_path(pts, mc_wps, cruise_alt: float, origin_ned):
     """경로 데이터 전체를 `origin_ned` 만큼 평행이동한다.
 

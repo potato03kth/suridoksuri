@@ -46,7 +46,7 @@ from fc_bridge.execution.state_logic import (
     is_pilot_takeover, path_origin_ned, translate_path,
     offboard_reacquire_allowed, state_timeout_due,
     horiz_dist_from_origin, range_limit_exceeded, path_max_range,
-    slew_setpoint,
+    slew_setpoint, fw_setpoint_alt,
 )
 from fc_bridge.execution.search_pattern import (
     SpiralState, spiral_advance, spiral_point_ne, spiral_complete,
@@ -255,6 +255,11 @@ class OffboardNode(Node):
         self.declare_parameter("transition_mc_timeout",  30.0)
         self.declare_parameter("entry_timeout",          60.0)
         self.declare_parameter("range_limit_m",         300.0)
+        # ── 천이 고도 계단 완화 (2026-07-29 SITL-7 R5, F-9) ───────────
+        # FW 위치 setpoint 의 고도 성분을 `_cruise_alt` 로 한 틱에 튀기지 않고
+        # 이 비율(m/s)로 램프한다. 0 이하 = 비활성(종전 동작).
+        # 근거·값 유도는 fc_ros_params.yaml 의 해당 항목 주석.
+        self.declare_parameter("alt_slew_rate",           3.0)
 
         # ── 비전 정밀착륙 (2026-07-28 F2) ────────────────────────────
         # 🔴 **기본 비활성.** 실기체 FW+OFFBOARD 실적이 0건이라
@@ -361,6 +366,7 @@ class OffboardNode(Node):
             self.get_parameter("transition_mc_timeout").value)
         self._entry_timeout = float(self.get_parameter("entry_timeout").value)
         self._range_limit_m = float(self.get_parameter("range_limit_m").value)
+        self._alt_slew_rate = float(self.get_parameter("alt_slew_rate").value)
 
         # ── 비전 정밀착륙 파라미터 ──────────────────────────────
         self._vision_landing = bool(
@@ -493,6 +499,9 @@ class OffboardNode(Node):
         # MC STREAMING/FOLLOWING + HOLD 위치 setpoint 슬루레이트 제한용
         # (2026-07-20 사고 대응, HOLD 는 2026-07-27 F-6 으로 추가).
         self._mc_pos_ramp = None
+        # FW 위치 setpoint 의 고도 성분 램프 (2026-07-29 R5, F-9).
+        # None = 아직 첫 FW 위치 setpoint 전 — 첫 틱에 기체 현재 고도로 시작한다.
+        self._alt_ramp = None
         # 직전 틱의 L1 세그먼트 인덱스 (FW FOLLOWING 진단, 2026-07-27 R2).
         self._last_seg = None
         # ARM_TAKEOFF 시퀀스 플래그
@@ -770,7 +779,7 @@ class OffboardNode(Node):
                 # FW 위치 setpoint로 lookahead 추종 (속도 setpoint는 FW가 무시 → flower-pattern).
                 tgt = self._guidance.target_point_ned(state.pos_ned, _FW_LOOKAHEAD)
                 self._publish_pos_setpoint(
-                    np.array([tgt[0], tgt[1], self._cruise_alt]), state.yaw)
+                    np.array([tgt[0], tgt[1], self._fw_alt(state)]), state.yaw)
 
             if self._current_mode == "OFFBOARD":
                 # 실제로 가는 상태를 그대로 찍는다 (F-14). 종전엔 entry_mode 와
@@ -1047,7 +1056,8 @@ class OffboardNode(Node):
         # OFFBOARD 이탈 여부와 무관하게 위치 명령을 끊지 않는다.
         if self._fw_heading_aligned and self._fw_transition_sent:
             self._publish_pos_setpoint(
-                np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]), chi_wp)
+                np.array([self._pts[-1][0], self._pts[-1][1],
+                          self._fw_alt(state)]), chi_wp)
             if self._current_mode != "OFFBOARD":
                 self._request_offboard()
                 # throttle: 실제 명령은 `_request_offboard()`가 1Hz로 조이는데
@@ -1170,8 +1180,15 @@ class OffboardNode(Node):
         #    `VT_ARSP_TRANS`(12m/s). 이 기체는 `SENS_EN_MS4525DO=1` 이라 위 가지를 타고,
         #    12m/s 를 못 내면 시간이 지나도 FW 로 안 넘어간 채 `VT_TRANS_TIMEOUT`(20s)에
         #    걸린다. (전문: `logs/2026-07-28_flight02/notes.md` ③·④)
+        #
+        # 🔴 고도 성분은 `_cruise_alt` 절대값이 아니라 `_fw_alt()` 램프다
+        #    (2026-07-29 R5, F-9). **이 틱이 F-9 계단이 터지던 바로 그 틱이다**
+        #    — 직전 Phase 2 까지는 속도 setpoint(hover)라 위치 setpoint 의 고도
+        #    성분 자체가 없다가, 정렬이 끝난 이 틱에 `_cruise_alt` 가 그대로
+        #    나가면서 `wp[-1].z - transition_alt` 만큼 한 틱에 튀었다.
         self._publish_pos_setpoint(
-            np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]), chi_wp)
+            np.array([self._pts[-1][0], self._pts[-1][1],
+                      self._fw_alt(state)]), chi_wp)
 
         if not self._fw_transition_sent:
             if not self._cmd_cli.service_is_ready():
@@ -1185,6 +1202,46 @@ class OffboardNode(Node):
             self.get_logger().info("MC→FW 천이 명령 요청 (위치 setpoint 직선 천이)")
 
     # ── STREAMING ────────────────────────────────────────────
+
+    def _fw_alt(self, state: VehicleState) -> float:
+        """FW 위치 setpoint 에 실을 고도 (h_up). 램프 한 틱 진행 후 값. (F-9)
+
+        **FW 위치 setpoint 를 내는 모든 자리가 이 하나를 쓴다** —
+        `STREAMING`(FW 분기) · `TRANSITION_FW` Phase 3/ACTIVE ·
+        `FOLLOWING`(FW 분기) · `TRANSITION_MC`. 한쪽만 램프하면 계단이
+        사라지는 게 아니라 다음 상태 경계로 옮겨갈 뿐이다.
+        (MC 분기·`HOLD`·비전 상태는 이미 `_mc_pos_ramp`/`_vs_ramp`/`_pl_ramp`
+         로 3D 슬루를 걸고 있어 고도 계단이 애초에 없다 — 건드리지 않는다.)
+
+        램프는 `_cruise_alt` 에 닿는 순간 정확히 안착해 그대로 유지되므로
+        (`slew_setpoint` 규약), 수렴 후 동작은 종전과 **완전히 동일**하다.
+        `alt_slew_rate <= 0` 이면 램프 자체가 비활성이다.
+        """
+        first = self._alt_ramp is None
+        self._alt_ramp = fw_setpoint_alt(
+            self._alt_ramp, self._cruise_alt, float(state.pos_ned[2]),
+            self._alt_slew_rate * self._dt)
+        if first:
+            step = self._cruise_alt - float(state.pos_ned[2])
+            if self._alt_slew_rate > 0.0:
+                self.get_logger().info(
+                    f"FW 고도 램프 시작 {state.pos_ned[2]:.1f} → "
+                    f"{self._cruise_alt:.1f}m (계단 {step:+.1f}m, "
+                    f"{self._alt_slew_rate:.1f}m/s, "
+                    f"{abs(step) / self._alt_slew_rate:.1f}s 소요)")
+            if abs(step) > 5.0:
+                # 계단이 큰 근본원인은 램프가 아니라 파라미터 불일치다.
+                # 2026-07-28 flight02 는 launch 인자에 U+00A0 가 섞여
+                # `transition_alt` 가 통째로 유실돼 YAML 기본값 50m 가 쓰였고,
+                # `wp[-1].z`=21.2m 와 28.8m 어긋났다. 그 로그를 남긴다.
+                self.get_logger().warn(
+                    f"⚠️ 천이고도와 경로고도가 {abs(step):.1f}m 어긋난다 "
+                    f"(transition_alt={self._transition_alt:.1f}m vs "
+                    f"경로 순항고도, 현재 {state.pos_ned[2]:.1f}m → "
+                    f"{self._cruise_alt:.1f}m). 램프가 계단은 막지만 "
+                    f"기체는 이 고도차를 순항 중에 메워야 한다 — "
+                    f"의도한 값인지 확인할 것")
+        return self._alt_ramp
 
     def _publish_pos_setpoint(self, pos_ned: np.ndarray, yaw_ned: float) -> None:
         """NED [N, E, h_up] + 헤딩 → ENU PoseStamped 발행 (/mavros/setpoint_position/local).
@@ -1374,7 +1431,7 @@ class OffboardNode(Node):
         far_tgt = state.pos_ned[:2] + self._end_dir * _FW_LOOKAHEAD
         chi_end = float(np.arctan2(self._end_dir[1], self._end_dir[0]))
         self._publish_pos_setpoint(
-            np.array([far_tgt[0], far_tgt[1], self._cruise_alt]), chi_end)
+            np.array([far_tgt[0], far_tgt[1], self._fw_alt(state)]), chi_end)
 
         if vtol_is_mc(state.vtol_state):
             self.get_logger().info("MC 전환 완료 -> HOLD (WP1 복귀)")
@@ -1914,7 +1971,7 @@ class OffboardNode(Node):
             tgt = self._guidance.target_point_ned(pos, _FW_LOOKAHEAD)
             chi_cmd, _, cte = self._guidance.compute(pos, state.vel_ned)
             self._publish_pos_setpoint(
-                np.array([tgt[0], tgt[1], self._cruise_alt]), chi_cmd)
+                np.array([tgt[0], tgt[1], self._fw_alt(state)]), chi_cmd)
             seg_info = self._check_segment_progress(pos)
 
         # 진입 첫 틱 및 20틱마다 진단 로그 (경로 추종 / OFFBOARD 유지 확인)

@@ -326,6 +326,28 @@ S3의 프로브(`logs/2026-07-27_s3_fw_offboard_probe/`, `tools/sitl/fw_offboard
 1. **`_cruise_alt` 스칼라화 해소** (F-8) — 플래너가 이미 만드는 `alt_arr`/`gamma_ref`를 쓴다.
    A4로 실증됨(중간 WP z=80m가 완전히 버려짐).
 2. **천이 고도 계단** (F-9) — `transition_alt ≠ waypoints[-1].z`일 때 첫 틱 ±30/−70m 계단. 램프로 완화.
+   → **[코드] 완료 (2026-07-29). ⚠️ SITL 미검증 — 실기체 배포 금지.**
+   - 계단이 터지는 자리는 `_step_transition_fw` **Phase 3 첫 틱**이다. Phase 1·2는 속도
+     setpoint(hover)라 위치 setpoint 의 고도 성분이 **아예 없다가**, 헤딩 정렬이 끝난 틱에
+     `offboard_node.py` Phase 3 의 `_publish_pos_setpoint`(수정 후 `:1189~1191`)가
+     `_cruise_alt`(= `wp[-1].z` + 경로원점 h_up) **절대값**을
+     그대로 실어 보낸다. 계단 크기 = `wp[-1].z − transition_alt`.
+     실측: C1a **+30.12m**(h_up 19.92→50.03) / C1b **−69.78m**(119.77→49.99) /
+     실기체 flight02 **−29.6m**(`logs/2026-07-28_flight02/notes.md` ②).
+   - 수정: `fc_bridge/execution/state_logic.py::fw_setpoint_alt()`(순수함수, `slew_setpoint`
+     재사용) + `offboard_node._fw_alt()`. **FW 위치 setpoint 4곳 전부**가 이 하나를 쓴다
+     (STREAMING·TRANSITION_FW Phase3/ACTIVE·FOLLOWING·TRANSITION_MC) — 한 곳만 램프하면
+     계단이 사라지는 게 아니라 다음 상태 경계로 옮겨갈 뿐이다. 램프 시작점은 **기체 현재
+     고도**(`_step_hold`와 같은 규약). **수평 성분에는 걸지 않는다**(F-6 소관).
+   - 파라미터 `alt_slew_rate` 기본 **3.0 m/s**, 0 이하 = 비활성(R1 타임아웃과 같은 규약).
+     3.0 근거: PX4 실측 수직응답(C1b 하강 1.8 m/s · C1a 상승 ≈1.42 m/s)**보다 빠르게** 잡아
+     램프가 기체 궤적의 병목이 되지 않게 한다 — 지령 계단만 없애고 고도 수렴은 늦추지 않는다
+     (늦추면 C1b 의 종점 포착 실패 F-10 이 악화된다). 틱당 0.3m = 하니스 임계 1.5m 의 1/5.
+   - 이륙 후 첫 FW setpoint 에서 계단이 5m 초과면 **WARN** 을 찍는다 — flight02 의
+     `transition_alt` 유실(U+00A0)을 로그로 잡을 수 있는 두 번째 그물.
+   - 테스트: `fc_bridge/tests/test_state_logic.py` 10건 + `fc_ros/test/test_params.py` 7건 신규,
+     fc_bridge 231 + fc_ros 209 전건 통과(파괴검증으로 red→green 확인).
+   - **남은 것: SITL C1a/C1b 수정 전후 비교** (`PX4_DIR=/root/PX4-vehicle` 필수).
 3. **짧은 경로 `_FW_LOOKAHEAD` 적응** (F-11) — 70m 고정이 40m 경로에서 추종 구간을 없앤다.
    경로 전장에 대한 상한을 두는 정도로.
 4. **`d_end_thresh` 기본값** (§4 결정 5) — 통과량 ≈ `57 − thresh`.

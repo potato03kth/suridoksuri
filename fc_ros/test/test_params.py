@@ -190,3 +190,79 @@ def test_r1_guard_params_exposed_as_launch_args():
     for key in _R1_DEFAULTS:
         assert f'"{key}"' in launch_src, \
             f"phase2.launch.py 에 '{key}' 오버라이드 통로가 없습니다"
+
+
+# ── SITL-7 R5: 천이 고도 계단 램프 (F-9) ──────────────────────────────────
+# 근거: campaign_report.md §2「고도 계단」·§4 F-9,
+#       logs/2026-07-28_flight02/notes.md ② (실기체 재현 −29.6m)
+
+_R5_ALT_SLEW_RATE = 3.0
+
+# PX4 가 실제로 낸 수직속도 (m/s). 램프가 이보다 느리면 램프가 병목이 된다.
+_MEASURED_VERTICAL_RATE_MPS = {
+    "C1b_descent": 1.8,    # 119.8 → 50m 하강 실측
+    "C1a_climb":   1.42,   # 22.25 → 48.96m 를 FOLLOWING 18.98s 에 걸쳐
+}
+
+
+def test_r5_alt_slew_rate_present_with_expected_default():
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    assert "alt_slew_rate" in params, "YAML에 'alt_slew_rate' 파라미터가 없습니다"
+    assert params["alt_slew_rate"] == pytest.approx(_R5_ALT_SLEW_RATE)
+
+
+def test_r5_alt_slew_rate_enabled_by_default():
+    """0 이하로 배포하면 실기체에 아무 효과가 없다 — R1 감시와 같은 규율."""
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    assert params["alt_slew_rate"] > 0.0
+
+
+@pytest.mark.parametrize("label,rate", sorted(_MEASURED_VERTICAL_RATE_MPS.items()))
+def test_r5_alt_slew_rate_is_faster_than_airframe(label, rate):
+    """램프가 기체 궤적의 병목이 되면 안 된다 — 실측 수직속도보다 빨라야 한다.
+    (느리게 잡으면 C1a 처럼 경로 전체를 순항고도 미달로 나는 피해가 재현된다.)"""
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    assert params["alt_slew_rate"] > rate, \
+        (f"alt_slew_rate={params['alt_slew_rate']} m/s 가 실측 {label}={rate} m/s "
+         f"보다 느립니다 — 램프가 고도 수렴을 늦춰 F-10(종점 포착 실패)을 악화시킵니다")
+
+
+def test_r5_tick_step_below_harness_jump_threshold():
+    """틱당 이동이 하니스 setpoint_jump 임계(3×v_approach×dt)를 넘으면
+    계단을 고친 뒤에도 판정이 FAIL 로 남는다."""
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    dt = 1.0 / params["control_hz"]
+    step = params["alt_slew_rate"] * dt
+    thresh = 3.0 * params["v_approach"] * dt
+    assert step < thresh, f"틱당 {step}m 가 임계 {thresh}m 이상입니다"
+
+
+def test_r5_alt_slew_rate_node_declare_default_matches_yaml():
+    import re
+    src = (Path(__file__).parent.parent / "fc_ros" / "nodes"
+           / "offboard_node.py").read_text(encoding="utf-8")
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    m = re.search(r'declare_parameter\(\s*"alt_slew_rate"\s*,\s*([0-9.]+)\s*\)', src)
+    assert m, "offboard_node.py 에 'alt_slew_rate' declare_parameter 가 없습니다"
+    assert float(m.group(1)) == pytest.approx(params["alt_slew_rate"])
+
+
+def test_r5_alt_slew_rate_exposed_as_launch_arg():
+    launch_src = (Path(__file__).parent.parent / "launch"
+                  / "phase2.launch.py").read_text(encoding="utf-8")
+    assert '"alt_slew_rate"' in launch_src
+
+
+def test_r5_fw_setpoint_sites_all_use_the_ramp():
+    """FW 위치 setpoint 를 내는 자리에 `_cruise_alt` 절대값이 남아 있으면
+    계단이 사라지는 게 아니라 다음 상태 경계로 옮겨갈 뿐이다.
+    MC 분기·HOLD 는 이미 3D 슬루(`_mc_pos_ramp`)라 대상이 아니다."""
+    src = (Path(__file__).parent.parent / "fc_ros" / "nodes"
+           / "offboard_node.py").read_text(encoding="utf-8")
+    offenders = [
+        (n, line.strip())
+        for n, line in enumerate(src.split("\n"), 1)
+        if "self._cruise_alt]" in line and "_mc_pos_ramp" not in line
+        and "raw_target" not in line
+    ]
+    assert not offenders, f"램프를 안 타는 setpoint 고도가 남아 있습니다: {offenders}"

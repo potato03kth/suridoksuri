@@ -209,6 +209,41 @@ offboard_node:
     #   이륙 직전 노드가 "계획 경로가 거리 상한 밖이다" 경고를 찍어 알려준다.
     range_limit_m:         300.0
 
+    # ── FW 위치 setpoint 고도 램프 (2026-07-29, SITL-7 R5 / F-9) ────────────
+    #
+    # 왜: `transition_alt != waypoints[-1].z` 이면 **천이 첫 틱 한 번에** 고도
+    # setpoint 가 `wp[-1].z - transition_alt` 만큼 통째로 튄다. TRANSITION_FW
+    # Phase 2 까지는 속도 setpoint(hover)라 위치 setpoint 의 고도 성분이 아예
+    # 없다가, 헤딩 정렬이 끝난 틱에 `_cruise_alt` 절대값이 그대로 나가기 때문.
+    #   SITL 실측  C1a(transition_alt 20m) **+30.12m** (h_up 19.92→50.03)
+    #             C1b(transition_alt 120m) **−69.78m** (119.77→49.99)
+    #   실기체 실측 2026-07-28 flight02 **−29.6m**
+    #             (launch 인자 유실로 transition_alt=50m, wp[-1].z=21.2m)
+    # 피해: C1a 는 300m 전 구간을 순항고도 미달로(22→49m), C1b 는 종점에서
+    # 고도가 아직 88m 라 종점 포착 실패 → 2바퀴 선회 + **수직가속 2.111g**
+    # (캠페인 최대). 근거: campaign_report.md §2 「고도 계단」·§4 F-9.
+    #
+    # 규약: m/s, **0 이하이면 비활성**(종전 = 한 틱에 절대값 발행).
+    # 램프는 `_cruise_alt` 에 닿으면 정확히 안착하므로 수렴 후 동작은 종전과 동일.
+    # 걸리는 곳은 FW 위치 setpoint 4곳뿐(STREAMING/TRANSITION_FW/FOLLOWING/
+    # TRANSITION_MC) — MC 분기·HOLD·비전 상태는 이미 3D 슬루가 걸려 있다.
+    #
+    # 3.0 인 이유 — **기체가 실제로 낼 수 있는 수직속도보다 빠르게** 잡는다.
+    #   PX4 실측 수직 응답: C1b 하강 1.8 m/s / C1a 상승 평균 ≈1.4 m/s
+    #   (22→49m 를 FOLLOWING 19.0s 에 걸쳐).
+    #   3.0 은 그 1.7~2.1배라 **램프가 기체 궤적의 병목이 되지 않는다** —
+    #   즉 고도 수렴을 늦추지 않으면서(C1b 의 종점 포착 실패 F-10 을 악화시키지
+    #   않으면서) 지령 계단만 없앤다.
+    #   틱당 이동은 3.0 × dt(0.1s) = **0.3m** 로, 하니스 setpoint_jump 임계
+    #   (3 × v_approach × dt = 1.5m)의 1/5 이다.
+    # ⚠️ 더 낮추면(예: 1.5) 계단은 더 부드러워지지만 30m 계단 수렴에 20초가
+    #   걸려 300m 경로를 통째로 저고도로 날게 된다 — C1a 의 피해를 램프가
+    #   재현하는 꼴이다. 낮출 거면 반드시 C1a 로 재측정할 것.
+    # ⚠️ 이 값은 계단을 **완화**할 뿐 원인을 없애지 못한다. 원인은
+    #   `transition_alt` 와 경로 고도의 불일치이고, 그 둘을 맞추는 것이 정답이다
+    #   (노드가 5m 초과 불일치에 이륙 후 WARN 을 찍는다).
+    alt_slew_rate:           3.0
+
 mission_node:
   ros__parameters:
     # ROS2 파라미터는 중첩 리스트 불가 → flat 1D, 코드에서 reshape(-1, 3)
