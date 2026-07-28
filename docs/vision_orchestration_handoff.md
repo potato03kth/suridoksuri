@@ -300,6 +300,39 @@ None을 반환해 필터가 아무것도 안 걸렀다. 올바른 키로 다시 
 **교훈: 파괴를 넣은 뒤 "파괴가 실제로 코드에 먹었는가"를 먼저 확인하라**(`inspect.getsource`로
 문자열 존재 확인 등). 파괴검증이 green이면 **테스트 갭을 의심하기 전에 자기 파괴를 의심할 것.**
 
+### ✅ 4-0d. B 트랙 실기체 종단간 — 오케스트레이터 직접 재현 완료 (2026-07-28)
+
+B 세션의 자기보고를 수용하지 않고 실기체에서 직접 돌렸다. 구성: 호스트 `picam-venv`에서
+**실제 `vision.core.wire` + `vision.utils.target_sink`** 를 구동하는 생산자(카메라 대신 고정
+상대 pose) → 소켓 → 임시 컨테이너(§7-3a T1)의 `shim_node` → **rclpy 직접 구독자**(§7-3a T2).
+
+고정 입력 `position_flu = (10, 0, -8)` (기수 전방 10m, 아래 8m). ⚠️ 이를 만드는 cam optical
+좌표는 `(0, -10, +8)`이다 — **나디르 마운트라 `cam z`(렌즈 바깥)가 아래를 향하고 이미지
+위쪽(`-y_cam`)이 기수 전방**이다(`frames.py` ψ_m=0 규약). 직관과 반대라 한 번 틀렸다.
+
+| # | 조건 | 기대 | **실측 수신값** |
+|---|---|---|---|
+| A | attitude 없음 | 침묵 | 수신 **0건** ✅ |
+| B | 기수 북(ψ_enu=90°), 기체 ENU (100,200,30) | (100, 210, 22) | **[100.0, 210.0, 22.0]** ✅ |
+| C | 기수 동(ψ_enu=0°), 기체 위치 동일 | (110, 200, 22) | **[110.0, 200.0, 22.0]** ✅ |
+| D | 기체 (105,195,31)로 이동, 기수 북 | (105, 205, 23) | **[105.0, 205.0, 23.0]** ✅ |
+| E | pose 끊김 후 9초 | 발행 정지 | 81 → 83 (**2건 뒤 정지**) ✅ |
+| F | pose 재개 | 발행 재개 | 83 → 111 ✅ |
+
+- **D가 드리프트 상쇄의 실증이다** — 상대 오차는 그대로인데 기체가 (5,−5,1) 움직이자 목표점도
+  정확히 (5,−5,1) 따라갔다. 절대 좌표를 기억했다면 안 따라간다.
+- **E의 "2건"은 정상이다** — `attitude_stale_s=0.25`s 안에 이미 나간 잔여분이고, 9초 동안
+  36건(4Hz)이 아니라 2건에서 멈춘 것이 stale 판정이 실제로 도는 증거다.
+- **`orientation`이 단위 쿼터니언이 아니라 현재 기수방위로 나간다** — B에서 `[0,0,.7071,.7071]`,
+  C에서 `[0,0,0,1]`. ENU 단위 쿼터니언은 "모름"이 아니라 **"동쪽을 보라"는 명령**이고 그게
+  flight04 yaw 스핀 사고의 원인이었다는 B의 판단이 실측으로 확인됐다.
+- shim 종료 카운터 `pose_pub=236 setpoint_pub=112 vehicle_pose_rx=821` — `setpoint_pub < pose_pub`이
+  "attitude 없던 구간엔 setpoint를 안 냈다"를 카운터로 보여준다.
+
+🔴 **여전히 미검증:** mavros가 안 돌아 pose를 `ros2 topic pub`으로 **합성 주입**했다. 배선·수학·
+degrade는 증명됐지만 **실제 EKF 드리프트 상쇄 성능은 측정되지 않았다.** 그리고 이 시점 RPi에
+**픽스호크가 연결돼 있지 않았다**(`/dev/ttyACM*` 부재, §7-3a T1).
+
 ---
 
 ### 4-1~4-3. 1차 웨이브 (2026-07-28 오전 착수) — **전부 종료·검증 완료**
@@ -603,6 +636,23 @@ CPU 부하 의존이라 **서브에이전트 3개가 돌 때 3/5 실패, 유휴 
 7. **RPi `picam-venv`에 `pytest`가 없다** — 실기체 검증은 "실행해서 로그/산출물 확인" 방식. 억지로 설치 금지.
 8. **컨테이너에서 rclpy를 쓰려면 `source /opt/ros/humble/setup.bash`가 필요**하다(§3-1).
 9. **PX4는 절대 업그레이드·플래시하지 않는다**(vision 세션 기준). 컨테이너 이미지 교체·호스트 ROS2 설치도 금지.
+
+#### 🔴 7-3a. shim 실기체 검증에서 새로 물린 함정 4종 (2026-07-28, 오케스트레이터 실측)
+
+`/vision/landing_setpoint` 재현에 **네 번 실패한 뒤** 성공했다. 전부 shim 코드와 무관한 환경
+문제였고, 각각이 "발행이 안 되는 것처럼 보이는" 거짓 음성을 만든다. **다음 세션은 이 넷을
+먼저 배제하고 코드를 의심하라.**
+
+| # | 함정 | 증상 | 대응 |
+|---|---|---|---|
+| **T1** | **`fc` 컨테이너가 `/dev/ttyACM0`을 필수 device로 요구** | 재부팅 후 픽스호크가 안 올라오면 `docker start fc`가 `error gathering device information ... no such file or directory`로 **실패**한다. 컨테이너 자체가 안 뜬다 | shim만 검증할 거면 같은 이미지로 임시 컨테이너: `docker run -d --rm --name fcverify --network host --ipc private -v /home/suri/drone_ws:/drone_ws ros:humble sleep infinity`. **기존 `fc` 설정 무변경** |
+| **T2** | **ros2cli 데몬이 죽으면 `topic echo`/`node list`가 전부 실패** | `xmlrpc.client.Fault: <Fault 1: "<class 'RuntimeError'>:!rclpy.ok()">`. 토픽은 멀쩡히 나가는데 CLI만 못 본다 | `ros2 daemon stop && ros2 daemon start`, 또는 **rclpy로 직접 구독하는 스크립트**를 쓴다(권장 — FC가 실제로 소비할 방식과 같아 검증 가치도 더 높다) |
+| **T3** | **shim 발행 QoS는 BEST_EFFORT인데 `ros2 topic echo` 기본은 RELIABLE** | QoS 미스매치라 **조용히 아무것도 안 받는다.** "침묵 확인" 판정이 통째로 거짓 양성이 된다 | `--qos-reliability best_effort --qos-durability volatile`. 직접 구독 시엔 `QoSProfile(depth=1, KEEP_LAST, BEST_EFFORT, VOLATILE)` |
+| **T4** | **컨테이너 `/tmp`는 호스트 `/tmp`와 별개다** | 호스트에 올린 스크립트를 `docker exec ... python3 /tmp/x.py`로 부르면 `No such file or directory`. 마운트는 **`/home/suri/drone_ws → /drone_ws` 하나뿐** | 컨테이너에서 실행할 파일은 `/home/suri/drone_ws/` 아래에 두고 `/drone_ws/...`로 부른다. 끝나면 지울 것 |
+
+⚠️ **SSH 인용 중첩으로 스크립트가 조용히 무출력으로 끝나는 일도 재발했다**(§7-2 4번). 다단계
+검증은 **로컬에서 스크립트 파일을 만들어 `ssh ... 'cat > /path'`로 올린 뒤 실행**하는 방식이
+유일하게 안정적이었다.
 
 ### 7-4. 테스트
 
