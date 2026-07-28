@@ -196,7 +196,11 @@ def main(argv=None):
                 return 1
 
     # -- §1 신규 플라이트 폴더 rsync --------------------------------------------
-    remote_ls = ssh_run(args.remote, f"ls -1 {args.remote_path}/logs 2>/dev/null")
+    # 디렉터리만 — logs/ 밑에는 review.md 같은 일반 파일도 있어서 ls -1로 훑으면
+    # 그 파일 이름으로 로컬 디렉터리를 만들려다 FileExistsError로 죽는다.
+    remote_ls = ssh_run(
+        args.remote,
+        f"find {args.remote_path}/logs -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null")
     remote_dirs = [d for d in remote_ls.stdout.splitlines() if d.strip()]
     local_dirs = [d for d in os.listdir(local_logs) if os.path.isdir(os.path.join(local_logs, d))] \
         if os.path.isdir(local_logs) else []
