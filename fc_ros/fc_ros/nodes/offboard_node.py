@@ -47,6 +47,17 @@ from fc_bridge.execution.state_logic import (
     horiz_dist_from_origin, range_limit_exceeded, path_max_range,
     slew_setpoint,
 )
+from fc_bridge.execution.search_pattern import (
+    SpiralState, spiral_advance, spiral_point_ne, spiral_complete,
+    camera_footprint_m, ring_spacing_from_footprint, max_turn_speed,
+    detection_altitude_ok,
+)
+from fc_bridge.execution.precision_land import (
+    latch_candidate, descend_allowed, handoff_due, search_pass_next,
+)
+from fc_ros.adapters.vision_target_bridge import (
+    VisionTargetBridge, subscribe as subscribe_vision,
+)
 from fc_bridge.comm.vehicle_state import VehicleState
 from fc_bridge.utils.rotation import yaw_ned_to_quat_enu
 import enum
@@ -118,6 +129,10 @@ class _State(enum.Enum):
     FOLLOWING = "following"
     TRANSITION_MC = "transition_mc"
     HOLD = "hold"
+    # 비전 정밀착륙 2종 (2026-07-28 F2). `vision_landing:=false`(기본)면 어느
+    # 쪽에도 진입하지 않으며 HOLD→LANDING 기존 경로가 그대로 유지된다.
+    VISION_SEARCH = "vision_search"      # WP1 중심 나선 탐색
+    PRECISION_LAND = "precision_land"    # 비전 유도 정렬·하강
     LANDING = "landing"
     OVERRIDE = "override"
     PILOT_TAKEOVER = "pilot_takeover"
@@ -129,9 +144,19 @@ class _State(enum.Enum):
 #  - IDLE/ARM_TAKEOFF: 아직 이륙지점을 캡처하기 전이라 기준점 자체가 없다
 #  - LANDING: 이미 내려오는 중 — 여기서 OVERRIDE를 걸면 착륙을 방해한다
 #  - OVERRIDE/PILOT_TAKEOVER/DONE: 이미 손을 뗀 상태 (재발동 방지)
+#
+# 2026-07-28 F2 추가 결정 (인수인계 문서 D-b):
+#  - VISION_SEARCH: **포함한다.** 탐색은 의도적으로 WP1 바깥으로 나가지만 상한
+#    300m 대비 탐색 반경(기본 30m)은 자릿수가 다르다. 나선 상태가 폭주하거나
+#    중심점이 잘못 잡히면 "점점 커지는 원"은 스스로 멈출 조건이 없으므로
+#    (`_step_transition_mc`의 "도망가는 캐럿"과 같은 실패 모드) 거리 상한이
+#    유일한 기하학적 제동장치다.
+#  - PRECISION_LAND: **제외한다.** LANDING과 같은 논리 — 이미 내려오는 중이라
+#    여기서 OVERRIDE를 걸면 착륙을 방해한다.
 _RANGE_GUARDED_STATES = frozenset({
     _State.CLIMBING, _State.TRANSITION_FW, _State.STREAMING, _State.ENTRY,
     _State.FOLLOWING, _State.TRANSITION_MC, _State.HOLD,
+    _State.VISION_SEARCH,
 })
 
 
@@ -230,6 +255,57 @@ class OffboardNode(Node):
         self.declare_parameter("entry_timeout",          60.0)
         self.declare_parameter("range_limit_m",         300.0)
 
+        # ── 비전 정밀착륙 (2026-07-28 F2) ────────────────────────────
+        # 🔴 **기본 비활성.** 실기체 FW+OFFBOARD 실적이 0건이라
+        # `sitl_vtol_remediation_plan.md` §4-1 4번이 "첫 실비행에 미검증 변수를
+        # 둘로 만들지 말라"를 명문화하고 있다. 켜는 것은 별도 결정이다.
+        self.declare_parameter("vision_landing",        False)
+        # 탐색 고도(AGL, m). 25m 근거: 초록 매트(3.0m)의 coarse 검출 하한
+        # (`distress_coarse.yaml` min_area=8000px²)이 주는 상한이 **33.57m**
+        # (넓은 화각 가정 = 검출 안전측)이라 8.6m 여유가 있고, 그 고도의
+        # 카메라 풋프린트가 33.4×18.8m(좁은 화각 가정 = 커버리지 안전측)라
+        # WP 오차 ±9m 이내면 한 발짝도 움직이지 않고 잡힌다.
+        # ⚠️ 25m 명목 픽셀면적은 min_area의 1.80배뿐이다(20m는 2.82배) —
+        # 현장 검출률이 떨어지면 **이 값을 20m 쪽으로 내리는 것이 첫 카드**다.
+        self.declare_parameter("vision_search_alt",      25.0)
+        self.declare_parameter("vision_search_radius",   30.0)   # 최대 탐색반경(m)
+        # 링 간격(m). 0 이하면 탐색고도 풋프린트에서 자동 산출(겹침 35%).
+        self.declare_parameter("vision_search_spacing",   0.0)
+        # 나선 선회속도(m/s). 0 이하면 `max_turn_speed`로 자동 산출.
+        # 🔴 상한을 두는 이유는 승차감이 아니라 **커버리지**다 — 선회 구심가속도가
+        # 기체를 기울이면 나디르 카메라 시선이 `AGL·tan(tilt)`만큼 밀리는데
+        # (25m·6° = 2.63m) 이게 링 간격과 같은 자릿수라 탐색 구멍이 생긴다.
+        self.declare_parameter("vision_search_speed",     0.0)
+        self.declare_parameter("vision_search_dwell",     3.0)   # 제자리 확인(s)
+        # 1회 탐색 상한(s). 🔴 **실측 역산값이다.** 기본 설정(25m/30m/겹침35%)에서
+        # 나선 완주에 89s가 걸리고 고도정렬(~5s)+dwell(3s)을 더하면 97s다 —
+        # 90s로 잡으면 **완주 직전에 잘려** 재탐색으로 넘어간다. 23s 여유를 둔다.
+        # 파라미터로 반경·간격·속도를 바꾸면 이 값도 같이 재야 한다.
+        self.declare_parameter("vision_search_timeout", 120.0)
+        # 재탐색(2회차) — 고도를 낮춰 GSD를 벌고 반경을 줄여 시간을 아낀다.
+        self.declare_parameter("vision_retry_alt",       15.0)
+        self.declare_parameter("vision_retry_radius",    18.0)
+        # 래치: 유효 setpoint가 이만큼 연속 + 좌표 산포가 임계 이내여야 탐색을
+        # 멈춘다. 단발 오탐 하나로 엉뚱한 곳으로 날아가는 것을 막는다.
+        self.declare_parameter("vision_latch_ticks",        3)
+        self.declare_parameter("vision_latch_spread_m",   3.0)
+        # 🔴 stale 판정 1.0s — 실측 발행 주파수가 **4.4Hz**(median 0.221s /
+        # p95 0.310s)다. 10Hz를 가정해 0.5s로 잡으면 정상 지터와 여유가
+        # 1.6배뿐이라 헛경보가 난다(인수인계 문서 §7).
+        self.declare_parameter("vision_stale_timeout",    1.0)
+        self.declare_parameter("vision_link_timeout",     3.0)
+        # 🔴 D-a: vision이 `HOLD`(veto)로 빠졌을 때의 종결 시한. vision은 이 값을
+        # **일부러 만들지 않았다** — `FailsafeContract`가 "FC가 자기 제어틱에서
+        # 재는 값"으로 못박았다. 없으면 무한 호버링이다(실측 확인).
+        self.declare_parameter("vision_veto_timeout",    10.0)
+        # 정렬 허용오차(m). 이 안에 들어와야 하강한다 — 수평/수직 분리의 핵심.
+        self.declare_parameter("vision_align_tol",        1.0)
+        self.declare_parameter("vision_descend_speed",    0.8)   # m/s
+        # AUTO.LAND 인계 고도(AGL, m). vision의 `terminal_agl_m`과 같은 숫자여야
+        # 한다 — 계약상 "3m부터 AUTO.LAND 인계"다.
+        self.declare_parameter("vision_land_handoff_agl", 3.0)
+        self.declare_parameter("precision_land_timeout", 60.0)
+
         control_hz = self.get_parameter("control_hz").value
         self._dt = 1.0 / max(control_hz, 2.0)
         self._vehicle_type = str(
@@ -282,6 +358,42 @@ class OffboardNode(Node):
             self.get_parameter("transition_mc_timeout").value)
         self._entry_timeout = float(self.get_parameter("entry_timeout").value)
         self._range_limit_m = float(self.get_parameter("range_limit_m").value)
+
+        # ── 비전 정밀착륙 파라미터 ──────────────────────────────
+        self._vision_landing = bool(
+            self.get_parameter("vision_landing").value)
+        self._vs_alt = float(self.get_parameter("vision_search_alt").value)
+        self._vs_radius = float(
+            self.get_parameter("vision_search_radius").value)
+        self._vs_spacing_param = float(
+            self.get_parameter("vision_search_spacing").value)
+        self._vs_speed_param = float(
+            self.get_parameter("vision_search_speed").value)
+        self._vs_dwell = float(self.get_parameter("vision_search_dwell").value)
+        self._vs_timeout = float(
+            self.get_parameter("vision_search_timeout").value)
+        self._vs_retry_alt = float(
+            self.get_parameter("vision_retry_alt").value)
+        self._vs_retry_radius = float(
+            self.get_parameter("vision_retry_radius").value)
+        self._vs_latch_ticks = int(
+            self.get_parameter("vision_latch_ticks").value)
+        self._vs_latch_spread = float(
+            self.get_parameter("vision_latch_spread_m").value)
+        self._vs_stale_timeout = float(
+            self.get_parameter("vision_stale_timeout").value)
+        self._vs_link_timeout = float(
+            self.get_parameter("vision_link_timeout").value)
+        self._vs_veto_timeout = float(
+            self.get_parameter("vision_veto_timeout").value)
+        self._vs_align_tol = float(
+            self.get_parameter("vision_align_tol").value)
+        self._vs_descend_speed = float(
+            self.get_parameter("vision_descend_speed").value)
+        self._vs_handoff_agl = float(
+            self.get_parameter("vision_land_handoff_agl").value)
+        self._pl_timeout = float(
+            self.get_parameter("precision_land_timeout").value)
 
         # ── 경로 계획 ─────────────────────────────────────────
         from fc_bridge.planning.planner_runner import (
@@ -417,6 +529,29 @@ class OffboardNode(Node):
         self._hold_ticks = 0
         self._hold_stable_ticks = 0
         self._hold_elapsed = 0.0
+        # ── 비전 정밀착륙 상태 (2026-07-28 F2) ────────────────────
+        # 탐색은 "고도정렬 → 제자리확인 → 나선"의 3단이고, 실패 시 저고도로
+        # 한 번 더 돈다. `_vs_pass`가 0이면 1회차(25m/30m), 1이면 재탐색(15m/18m).
+        self._vs_pass = 0
+        self._vs_phase = "align"       # "align" | "dwell" | "spiral"
+        self._vs_elapsed = 0.0
+        self._vs_dwell_elapsed = 0.0
+        self._vs_spiral = SpiralState(0.0, 0.0, 0.0)
+        self._vs_r_start = 0.0         # 나선 시작 반경 (= 링 간격의 절반)
+        self._vs_ramp = None           # 탐색 setpoint 슬루 램프 (NED [N,E,h_up])
+        self._vs_center = None         # 나선 중심 (NED [N, E])
+        self._vs_spacing = 0.0         # 실효 링 간격 (자동산출 결과 보관)
+        self._vs_speed = 0.0           # 실효 선회속도
+        # 래치 — 유효 setpoint를 연속으로 모아 산포를 본다.
+        self._vs_latch_buf: list = []
+        self._vs_latched = None        # 래치된 착륙점 (NED [N, E, h_up])
+        # PRECISION_LAND 플래그
+        self._pl_ramp = None
+        self._pl_elapsed = 0.0
+        self._pl_veto_elapsed = 0.0
+        self._pl_lost_elapsed = 0.0
+        self._pl_target_ne = None      # 최신 수평 목표 (NED [N, E])
+        self._pl_alt = None            # FC가 스케줄하는 목표 고도 (h_up)
         # OVERRIDE (긴급 수동 전환) 플래그
         self._override_target = "MANUAL"
         self._override_ticks = 0
@@ -427,6 +562,27 @@ class OffboardNode(Node):
         self._fw_trans_elapsed = 0.0
         self._mc_trans_elapsed = 0.0
         self._entry_elapsed = 0.0
+
+        # ── 비전 토픽 구독 (vision_landing 일 때만) ───────────────
+        # 🔴 구독조차 만들지 않는다 — 파라미터가 꺼져 있으면 이 노드는 vision의
+        # 존재를 아예 모른다. shim이 안 떠 있어도 부작용이 0이어야 한다.
+        self._vision = None
+        if self._vision_landing:
+            self._vision = VisionTargetBridge(
+                stale_timeout_s=self._vs_stale_timeout,
+                link_timeout_s=self._vs_link_timeout)
+            subscribe_vision(self, self._vision)
+            self.get_logger().info(
+                f"비전 정밀착륙 활성 — 탐색고도 {self._vs_alt:.0f}m "
+                f"반경 {self._vs_radius:.0f}m / 재탐색 {self._vs_retry_alt:.0f}m "
+                f"반경 {self._vs_retry_radius:.0f}m")
+            # 탐색고도가 검출 상한을 넘으면 나선을 아무리 예쁘게 그려도
+            # 검출이 0건이다. 비행 중이 아니라 기동 시점에 알린다.
+            if not detection_altitude_ok(self._vs_alt):
+                self.get_logger().error(
+                    f"⚠️ 탐색고도 {self._vs_alt:.1f}m 가 초록매트 coarse 검출 "
+                    f"상한을 넘는다 — 그 고도에서는 타겟이 min_area 미달이라 "
+                    f"탐색이 구조적으로 실패한다. vision_search_alt 를 낮춰라")
 
         # ── MAVROS 토픽 구독 ─────────────────────────────────
         self.create_subscription(
@@ -658,6 +814,12 @@ class OffboardNode(Node):
 
         elif self._sm == _State.HOLD:
             self._step_hold(state)
+
+        elif self._sm == _State.VISION_SEARCH:
+            self._step_vision_search(state)
+
+        elif self._sm == _State.PRECISION_LAND:
+            self._step_precision_land(state)
 
         elif self._sm == _State.LANDING:
             self._step_landing(state)
@@ -1280,10 +1442,8 @@ class OffboardNode(Node):
                           self._wp1_land_radius, self._wp1_land_speed):
             self._hold_stable_ticks += 1
             if self._hold_stable_ticks >= _HOLD_STABLE_REQ:
-                self.get_logger().info(
-                    f"WP1 도달·안정 → LANDING "
-                    f"(dist={dist:.1f}m speed={speed:.1f}m/s)")
-                self._sm = _State.LANDING
+                self._exit_hold(state, f"WP1 도달·안정 (dist={dist:.1f}m "
+                                       f"speed={speed:.1f}m/s)")
                 return
         else:
             self._hold_stable_ticks = 0
@@ -1292,7 +1452,307 @@ class OffboardNode(Node):
         if self._hold_elapsed > self._hold_timeout:
             self.get_logger().warn(
                 f"WP1 홀드 타임아웃 {self._hold_timeout:.0f}s 초과 "
-                f"(dist={dist:.1f}m) → 강제 LANDING")
+                f"(dist={dist:.1f}m)")
+            self._exit_hold(state, "홀드 타임아웃")
+
+    def _exit_hold(self, state: VehicleState, why: str) -> None:
+        """HOLD 종료 — 비전 착륙이 켜져 있으면 탐색으로, 아니면 종전대로 착륙.
+
+        🔴 이 분기가 F2의 유일한 진입점이다. `vision_landing:=false`(기본)면
+        종전 동작(`HOLD → LANDING`)과 **완전히 동일**하다.
+        """
+        if not self._vision_landing:
+            self.get_logger().info(f"{why} → LANDING")
+            self._sm = _State.LANDING
+            return
+
+        # 나선 중심은 **WP1**이다(기체 현재위치가 아니다). 역천이 오버슈트로
+        # 기체가 WP1을 지나쳐 있을 수 있고, 타겟이 있을 것으로 기대되는 곳은
+        # 어디까지나 계획된 마지막 WP다.
+        self._vs_center = np.array(self._pts[-1], dtype=float)
+        self._enter_vision_search(state, pass_idx=0)
+        self.get_logger().info(f"{why} → VISION_SEARCH (비전 착륙 활성)")
+
+    def _enter_vision_search(self, state: VehicleState, pass_idx: int) -> None:
+        """탐색 1회차/재탐색 공통 진입 — 회차별 고도·반경을 잡고 나선을 초기화한다."""
+        self._vs_pass = pass_idx
+        self._vs_phase = "align"
+        self._vs_elapsed = 0.0
+        self._vs_dwell_elapsed = 0.0
+        self._vs_latch_buf = []
+        # 램프 시작점은 **기체 현재 위치**다 — `_step_hold`와 같은 규약
+        # ("OFFBOARD가 이어받는 setpoint는 항상 실제 위치와 일치시킨다",
+        #  2026-07-20 제어상실 사고 대응).
+        self._vs_ramp = np.array(state.pos_ned, dtype=float)
+
+        alt_agl = self._vs_search_alt()
+        # 링 간격·선회속도 자동 산출 — 파라미터가 0 이하일 때만.
+        _, short_m = camera_footprint_m(alt_agl)
+        self._vs_spacing = (self._vs_spacing_param
+                            if self._vs_spacing_param > 0.0
+                            else ring_spacing_from_footprint(short_m))
+        # 🔴 `_vs_speed`는 **상한**이지 실제 속도가 아니다. 실제 선회속도는 매
+        # 틱 그 순간의 반경으로 다시 구한다(`_step_vision_search`) — 최대반경
+        # 기준 속도를 나선 전체에 쓰면 작은 반경에서 tilt가 폭주한다.
+        # 실측: v=5m/s를 r=5m에 쓰면 tilt 27° → 25m 고도에서 시선이 12.75m
+        # 밀리는데 이건 링 간격(12.2m)과 **같은 자릿수**라 커버리지가 통째로
+        # 틀어진다. r=2m면 51.9°로 비행 자체가 위험하다.
+        self._vs_speed = (self._vs_speed_param
+                          if self._vs_speed_param > 0.0
+                          else self._v_approach)
+        # 나선은 링 간격의 절반에서 시작한다 — 중심부는 직전 `dwell` 단계에서
+        # 이미 풋프린트 안에 들어와 있었으므로 다시 훑을 이유가 없고, r→0
+        # 근처는 등속을 유지하려면 각속도가 커져 tilt가 감당이 안 된다.
+        self._vs_r_start = max(self._vs_spacing / 2.0, 1.0)
+        self._vs_spiral = SpiralState(0.0, self._vs_r_start, 0.0)
+        self.get_logger().info(
+            f"탐색 {pass_idx + 1}회차 — 고도 {alt_agl:.0f}m AGL "
+            f"반경 {self._vs_r_start:.1f}→{self._vs_search_radius():.0f}m "
+            f"링간격 {self._vs_spacing:.1f}m 속도상한 {self._vs_speed:.1f}m/s "
+            f"(풋프린트 단폭 {short_m:.1f}m)")
+
+    def _vs_search_alt(self) -> float:
+        """이번 회차의 탐색 고도 (AGL, m)."""
+        return self._vs_alt if self._vs_pass == 0 else self._vs_retry_alt
+
+    def _vs_search_radius(self) -> float:
+        """이번 회차의 최대 탐색 반경 (m)."""
+        return self._vs_radius if self._vs_pass == 0 else self._vs_retry_radius
+
+    def _agl(self, state: VehicleState) -> float:
+        """이륙지점 지면 기준 AGL (m). CLIMBING의 AGL 판정과 같은 기준(2026-07-07).
+
+        ⚠️ 라이다 AGL이 아니다 — `fc_ros`에 거리계 배선이 없다(인수인계 D-d).
+        평탄지 가정이며, 착륙지 지면이 이륙지점과 높이가 다르면 그만큼 틀린다.
+        """
+        return float(state.pos_ned[2]) - self._takeoff_ground_h
+
+    # ── VISION_SEARCH (WP1 중심 나선 탐색) ─────────────────────
+
+    def _vision_latch_update(self, vt) -> bool:
+        """유효 setpoint를 연속으로 모아 산포를 본다. 래치가 서면 True.
+
+        🔴 **단발 검출로 탐색을 멈추지 않는다.** 탐색 중에는 기체가 계속 움직여
+        타겟이 화각을 스쳐 지나가므로, 한 프레임짜리 오탐 하나로 나선을 버리고
+        엉뚱한 곳으로 날아가면 회복할 방법이 없다. `vision_latch_ticks` 틱
+        연속 + 그 좌표들의 수평 산포가 `vision_latch_spread_m` 이내일 때만
+        "같은 것을 계속 보고 있다"로 인정한다.
+
+        연속성이 깨지면 버퍼를 **비운다** — 띄엄띄엄 본 것을 모아 평균 내면
+        서로 다른 물체의 중점이라는 실재하지 않는 좌표가 나온다.
+        """
+        if not (vt.valid and vt.pos_ned is not None and not vt.veto):
+            self._vs_latch_buf = []
+            return False
+
+        self._vs_latch_buf.append(np.array(vt.pos_ned, dtype=float))
+        # 창을 최신 N개로 유지 — 아직 흔들리면 계속 지켜본다.
+        self._vs_latch_buf = self._vs_latch_buf[-self._vs_latch_ticks:]
+        latched = latch_candidate(
+            self._vs_latch_buf, self._vs_latch_ticks, self._vs_latch_spread)
+        if latched is None:
+            return False
+        self._vs_latched = latched
+        return True
+
+    def _step_vision_search(self, state: VehicleState) -> None:
+        """탐색고도 정렬 → 제자리 확인 → 나선 확대. 래치가 서면 PRECISION_LAND.
+
+        3단으로 나눈 이유는 **싼 것부터 시도**하기 위해서다. 탐색고도의 카메라
+        풋프린트가 25m에서 33.4×18.8m라, WP 오차가 풋프린트 단폭의 절반
+        (±9.4m) 안이면 나선을 한 바퀴도 돌지 않고 제자리에서 잡힌다. 나선은
+        그게 실패했을 때의 수단이다.
+
+        🔴 setpoint의 z는 쓰지 않는다. 이 상태의 목표고도는 **FC가 정한다** —
+        `/vision/landing_setpoint`의 z는 착륙점의 절대고도(≈지면)라 그대로
+        따라가면 탐색 중에 지면으로 내려가 버린다.
+        """
+        self._vs_elapsed += self._dt
+        vt = self._vision.snapshot(time.monotonic())
+
+        # ① 래치 — 어느 단계에 있든 본다(고도 정렬 중에 보여도 잡는다).
+        if self._vision_latch_update(vt):
+            self.get_logger().info(
+                f"타겟 래치 (연속 {self._vs_latch_ticks}틱, "
+                f"N={self._vs_latched[0]:.1f} E={self._vs_latched[1]:.1f}) "
+                f"→ PRECISION_LAND")
+            self._enter_precision_land(state)
+            return
+
+        # ② 생산자 사망 — 탐색을 계속할 이유가 없다. 나선을 마저 도는 것은
+        #    배터리만 쓰고 "매끄럽지 못하게" 보인다.
+        if vt.link_dead:
+            self.get_logger().error(
+                "vision 생산자 사망(link ERROR) → 탐색 중단, GPS 착륙")
+            self._sm = _State.LANDING
+            return
+
+        center = self._vs_center
+        alt_target = self._takeoff_ground_h + self._vs_search_alt()
+
+        if self._vs_phase == "align":
+            raw = np.array([center[0], center[1], alt_target])
+            if (abs(self._agl(state) - self._vs_search_alt()) < 1.0
+                    and float(np.linalg.norm(
+                        state.pos_ned[:2] - center)) < self._wp1_land_radius):
+                self._vs_phase = "dwell"
+                self.get_logger().info(
+                    f"탐색고도 도달 ({self._agl(state):.1f}m AGL) → 제자리 확인 "
+                    f"{self._vs_dwell:.0f}s")
+        elif self._vs_phase == "dwell":
+            raw = np.array([center[0], center[1], alt_target])
+            self._vs_dwell_elapsed += self._dt
+            if self._vs_dwell_elapsed >= self._vs_dwell:
+                self._vs_phase = "spiral"
+                self.get_logger().info("제자리 미검출 → 나선 확대 시작")
+        else:
+            # 🔴 선회속도를 **그 순간의 반경으로** 다시 구한다. 나디르 카메라는
+            # 기체가 기울면 시선이 `AGL·tan(tilt)`만큼 밀리고, 그 오프셋이 링
+            # 간격과 같은 자릿수가 되면 나선이 훑었다고 믿는 곳과 실제로 본
+            # 곳이 어긋나 탐색 구멍이 생긴다. 하한 1.0m/s는 나선이 멈춰버리는
+            # 것을 막는다(반경이 작을수록 허용속도가 0으로 간다).
+            v = min(max(max_turn_speed(self._vs_spiral.radius_m), 1.0),
+                    self._vs_speed)
+            self._vs_spiral = spiral_advance(
+                self._vs_spiral, self._dt, v,
+                self._vs_spacing, self._vs_r_start, self._vs_search_radius())
+            ne = spiral_point_ne(self._vs_spiral, center)
+            raw = np.array([ne[0], ne[1], alt_target])
+
+        if self._vs_ramp is None:
+            self._vs_ramp = np.array(state.pos_ned, dtype=float)
+        self._vs_ramp = slew_setpoint(
+            self._vs_ramp, raw, self._v_approach * self._dt)
+        self._publish_pos_setpoint(self._vs_ramp, state.yaw)
+
+        if self._current_mode != "OFFBOARD":
+            self._request_offboard()
+
+        if self._vs_elapsed % 5.0 < self._dt:
+            self.get_logger().info(
+                f"탐색 {self._vs_pass + 1}회차 [{self._vs_phase}] "
+                f"r={self._vs_spiral.radius_m:.1f}m "
+                f"rev={self._vs_spiral.revolutions:.2f} "
+                f"t={self._vs_elapsed:.0f}/{self._vs_timeout:.0f}s "
+                f"seen={vt.target_seen}")
+
+        # ③ 종료 — 나선 완주 또는 타임아웃.
+        done = (self._vs_phase == "spiral" and spiral_complete(
+            self._vs_spiral, self._vs_search_radius(), self._vs_r_start))
+        timed_out = self._vs_elapsed > self._vs_timeout
+        if not (done or timed_out):
+            return
+
+        why = "나선 완주" if done else f"타임아웃 {self._vs_timeout:.0f}s"
+        nxt = search_pass_next(self._vs_pass)
+        if nxt is not None:
+            self.get_logger().warn(
+                f"탐색 {self._vs_pass + 1}회차 실패 ({why}) → "
+                f"{self._vs_retry_alt:.0f}m 재탐색")
+            self._enter_vision_search(state, pass_idx=nxt)
+        else:
+            self.get_logger().warn(
+                f"탐색 {self._vs_pass + 1}회차 실패 ({why}) → GPS 착륙 폴백")
+            self._sm = _State.LANDING
+
+    # ── PRECISION_LAND (비전 유도 정렬·하강) ────────────────────
+
+    def _enter_precision_land(self, state: VehicleState) -> None:
+        self._sm = _State.PRECISION_LAND
+        self._pl_elapsed = 0.0
+        self._pl_veto_elapsed = 0.0
+        self._pl_lost_elapsed = 0.0
+        self._pl_target_ne = np.array(self._vs_latched[:2], dtype=float)
+        # 하강은 현재 고도에서 시작한다 — 래치 시점의 고도를 유지한 채 먼저
+        # 수평 정렬을 끝낸다.
+        self._pl_alt = float(state.pos_ned[2])
+        self._pl_ramp = np.array(state.pos_ned, dtype=float)
+
+    def _step_precision_land(self, state: VehicleState) -> None:
+        """수평은 vision, **수직은 FC**. 정렬이 서야 내려간다.
+
+        🔴 이 분리가 이 상태의 핵심이다. `/vision/landing_setpoint`를 통째로
+        `_publish_pos_setpoint`에 먹이면 `slew_setpoint`가 3D 벡터 하나로
+        램프하므로 수평 정렬과 수직 하강이 한 예산을 나눠 쓴다 — 25m 상공에서
+        15m 옆 타겟이면 3D 거리 29m를 `v_approach`로 걷느라 **수직 성분이
+        4m/s 하강**이 된다. 정렬되기 전에 지면에 닿는다.
+
+        그래서 수평 오차가 `vision_align_tol` 안에 들어온 틱에만 목표고도를
+        `vision_descend_speed`만큼 내린다. vision 상태머신의
+        CENTER_DESCEND("중심 맞추며 하강") 의도를 FC 쪽에서 구현한 것이다.
+        """
+        self._pl_elapsed += self._dt
+        vt = self._vision.snapshot(time.monotonic())
+        agl = self._agl(state)
+
+        # ① AUTO.LAND 인계 — 고도 도달 또는 vision의 land 힌트.
+        #    `closed_loop_floor_agl_m` = vision의 `terminal_agl_m` = 3.0m라
+        #    계약상 이미 "3m부터 AUTO.LAND 인계"다.
+        if handoff_due(agl, self._vs_handoff_agl, vt.land_handoff_hint):
+            why = (f"인계고도 도달 ({agl:.1f}m AGL)"
+                   if agl <= self._vs_handoff_agl
+                   else f"vision land 인계 힌트 (state={vt.state})")
+            self.get_logger().info(f"{why} → LANDING (AUTO.LAND)")
+            self._sm = _State.LANDING
+            return
+
+        # ② 거부권 — D-a. vision이 HOLD/ABORT_ASCEND로 빠진 채 시한을 넘기면
+        #    무한 호버링을 끊는다.
+        if vt.veto:
+            self._pl_veto_elapsed += self._dt
+            if self._pl_veto_elapsed > self._vs_veto_timeout:
+                self.get_logger().warn(
+                    f"vision 거부권 {self._vs_veto_timeout:.0f}s 지속 "
+                    f"(state={vt.state}) → GPS 착륙 폴백")
+                self._sm = _State.LANDING
+                return
+        else:
+            self._pl_veto_elapsed = 0.0
+
+        # ③ 수평 목표 갱신. 신선하지 않으면 **마지막 목표 위에 그대로 머문다** —
+        #    탐색으로 되돌아가지 않는다(정성 판정이 "재시도 없이"를 요구하고,
+        #    vision 쪽 기조도 2026-07-28 "밀어붙이기"로 전환됐다).
+        guided = bool(vt.valid and vt.pos_ned is not None and not vt.veto)
+        if guided:
+            self._pl_target_ne = np.array(vt.pos_ned[:2], dtype=float)
+            self._pl_lost_elapsed = 0.0
+        else:
+            self._pl_lost_elapsed += self._dt
+
+        err = float(np.linalg.norm(state.pos_ned[:2] - self._pl_target_ne))
+        # ④ 수직 스케줄 — 정렬됐고 **그 틱에** 신선한 유도가 있을 때만 내려간다.
+        #    유도가 끊기면 고도를 그대로 붙들고 수평만 유지한다(추측 하강 금지).
+        aligned = descend_allowed(guided, err, self._vs_align_tol, vt.veto)
+        if aligned:
+            # 인계고도 아래로는 목표를 내리지 않는다 — 그 밑은 AUTO.LAND 몫이라
+            # 여기서 더 내려봐야 ①번 인계 조건이 먼저 걸린다. 방어적 하한.
+            floor_h = self._takeoff_ground_h + self._vs_handoff_agl
+            self._pl_alt = max(
+                self._pl_alt - self._vs_descend_speed * self._dt, floor_h)
+
+        raw = np.array([self._pl_target_ne[0], self._pl_target_ne[1],
+                        self._pl_alt])
+        if self._pl_ramp is None:
+            self._pl_ramp = np.array(state.pos_ned, dtype=float)
+        self._pl_ramp = slew_setpoint(
+            self._pl_ramp, raw, self._v_approach * self._dt)
+        self._publish_pos_setpoint(self._pl_ramp, state.yaw)
+
+        if self._current_mode != "OFFBOARD":
+            self._request_offboard()
+
+        if self._pl_elapsed % 2.0 < self._dt:
+            self.get_logger().info(
+                f"정밀착륙 AGL={agl:.1f}m 수평오차={err:.2f}m "
+                f"{'하강' if aligned else '정렬대기'} "
+                f"state={vt.state} age={vt.age_s:.2f}s "
+                f"t={self._pl_elapsed:.0f}/{self._pl_timeout:.0f}s")
+
+        # ⑤ 전체 타임아웃 — 정렬이 영영 안 서는 경우.
+        if self._pl_elapsed > self._pl_timeout:
+            self.get_logger().warn(
+                f"정밀착륙 타임아웃 {self._pl_timeout:.0f}s 초과 "
+                f"(수평오차 {err:.2f}m) → GPS 착륙 폴백")
             self._sm = _State.LANDING
 
     # ── LANDING ───────────────────────────────────────────────
