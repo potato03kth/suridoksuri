@@ -558,6 +558,30 @@ def test_stale_record_raises_level_but_still_publishes_pose():
     assert json.loads(_kv(target)["age_s"]) == pytest.approx(0.5)
 
 
+#: U5 실측(2026-07-28 실기체 라이브, 4608x2592 + distress_fine.yaml) — 프레임 간격 p95.
+_MEASURED_FRAME_INTERVAL_P95_S = 0.310
+
+
+def test_stale_warn_default_has_margin_over_the_measured_frame_interval():
+    """🔴 기본값이 **실측**보다 여유가 있어야 한다 — 아니면 정상 지터에 헛경보가 뜬다.
+
+    실측 발행 주파수는 약 4.4Hz(median 간격 0.221s / p95 0.310s)이지 문서가 가정해 온
+    10Hz가 아니다. 헛경보는 진짜 경보를 무디게 만들므로 여유를 2배 이상 요구한다.
+    """
+    assert ShimConfig().stale_warn_s >= 2.0 * _MEASURED_FRAME_INTERVAL_P95_S
+    # 그렇다고 무한정 크면 진짜 정지를 못 잡는다 — 상한도 같이 건다.
+    assert ShimConfig().stale_warn_s <= 10.0 * _MEASURED_FRAME_INTERVAL_P95_S
+
+
+def test_normal_frame_interval_does_not_trip_the_stale_warning():
+    """실측 p95 간격만큼 늦은 레코드는 **OK**여야 한다(정상 동작이므로)."""
+    router = ShimRouter()
+    late_ns = int(_MEASURED_FRAME_INTERVAL_P95_S * 1e9)
+    _push(router, _target_line(mono=_MONO), mono=_MONO + late_ns)
+    out = _push(router, _state_hint_line())
+    assert _find(out[0].statuses, shim_core.STATUS_NAME_TARGET).level == shim_core.LEVEL_OK
+
+
 def test_age_is_measured_on_monotonic_clock():
     """컨테이너·호스트 CLOCK_MONOTONIC이 같은 기준임을 실측했으므로 이 뺄셈이 성립한다."""
     router = ShimRouter()

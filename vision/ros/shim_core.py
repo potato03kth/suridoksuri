@@ -224,7 +224,13 @@ DEFAULT_STATUS_TOPIC = "/vision/target_status"
 DEFAULT_LANDING_TARGET_TOPIC = "/mavros/landing_target/raw"
 #: body FLU의 ROS 표준 프레임 이름. mavros가 baselink=FLU로 쓰는 그 이름이다.
 DEFAULT_POSE_FRAME_ID = "base_link"
-DEFAULT_STALE_WARN_S = 0.5
+#: 🔴 **실측 근거가 있는 값이다**(U5, 2026-07-28 실기체 라이브).
+#: `main.py live`(4608x2592, `distress_fine.yaml`)의 프레임 간격 실측: **median 0.221s /
+#: p95 0.310s / ROS `topic hz` 4.35Hz** — 즉 실제 발행은 **약 4.4Hz**이지 문서가 가정해 온
+#: 10Hz가 아니다. 0.75s는 p95의 약 2.4배 = **연속 3프레임 이상 누락**에 해당하므로 정상 지터로는
+#: 뜨지 않는다. 처음에 0.5s를 넣었다가 실측 p95(0.310s)와의 여유가 1.6배뿐이라 상향했다 —
+#: 이건 거부 임계값이 아니라 **로그 레벨 임계값**이고, 헛경보는 진짜 경보를 무디게 만든다.
+DEFAULT_STALE_WARN_S = 0.75
 #: `uncertainty`가 None(=지금 항상)일 때 공분산 대각에 넣는 "모름" 값. 0은 "완벽히 확실"이라는
 #: 거짓말이라 쓸 수 없다.
 DEFAULT_UNKNOWN_COVARIANCE = 1e6

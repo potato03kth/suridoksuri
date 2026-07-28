@@ -241,14 +241,38 @@ orientation이 **하나의 `frame_id`를 공유**하므로 body FLU 좌표 옆�
 - **QoS: BEST_EFFORT / KEEP_LAST / depth=1.** `fc_ros`의 `_MAVROS_QOS`와 같은 계열(§9 F1)이되
   depth만 1인 이유는 제어용 스트림이라 **최신성 > 완전성**이기 때문(`utils/target_sink.py`의
   drop-oldest 큐와 같은 철학). 호환성을 정하는 것은 reliability/durability이지 depth가 아니다.
-- **`stale_warn_s`: 0.5** — 이건 **거부 임계값이 아니라 로그 레벨 임계값**이다. 실제 거부는 FC가
-  자기 제어틱에서 한다.
+- **`stale_warn_s`: 0.75 — 🔴 실측 근거 있음(U5).** 이건 **거부 임계값이 아니라 로그 레벨
+  임계값**이고 실제 거부는 FC가 자기 제어틱에서 한다. 값의 근거는 아래 U5 실측 절.
 - **`unknown_covariance`: 1e6** — `uncertainty`가 None(=지금 항상)일 때 대각에 넣는 "모름".
   0을 넣으면 "분산 0 = 완벽히 정확"이라 `robot_localization` 같은 기성 필터가 절대 신뢰로
   받아들인다(파괴검증 D6).
 - **`publish_landing_target`: False** — `px4_config.yaml:214`가 `listen_lt: false`라 구독자가
   아예 없다. 켜는 것은 FC 결정(D2).
 - **`reconnect_delay_s`/`heartbeat_period_s`: 1.0** — 재접속은 shim 책임이다(vision이 서버).
+
+### 🔴 U5 실측 — 실제 발행 주파수는 10Hz가 아니라 **약 4.4Hz**다 (2026-07-28 실기체)
+
+`stale_timeout_s`의 근거가 될 숫자라 실카메라로 직접 쟀다. 조건: `main.py live`
++ `distress_fine.yaml` + `nominal.yaml`, `LiveFrameSource` 기본 해상도 **4608x2592**
+(=`nominal.yaml`의 `image_size`, solvePnP 캘리브와 어긋나지 않게 하는 그 값), 44.2초 연속.
+
+| 지표 | 값 |
+|---|---|
+| 프레임 간격 median | **0.2207 s** (= 4.53 Hz) |
+| 프레임 간격 p95 | **0.310 s** |
+| 컨테이너 `ros2 topic hz /vision/target_status` | **4.35 Hz** (min 0.204s / max 0.918s / std 0.080s) |
+| 기동 포함 벽시계 평균 | 3.66 Hz (44.2초, 첫 프레임 6.9초 포함) |
+
+**→ 이 저장소가 여러 곳에서 가정해 온 "10Hz 제어 스트림"은 실제와 2배 이상 다르다**
+(`utils/target_sink.py`의 큐 길이 8 = "≈10Hz에서 0.8초" 주석도 실제로는 **≈1.8초**치다 —
+안전한 방향이라 이번에 값을 바꾸지는 않았다). 병목은 **4608x2592 전해상도 처리**이고,
+해상도를 낮추면 올라가겠지만 그러면 `nominal.yaml` 캘리브와 어긋나 거리가 통째로 틀린다
+(`vision/CLAUDE.md` "캘리브레이션 해상도 불일치" 절) — **해상도/주파수 트레이드오프는
+사용자 결정 사항**이다.
+
+**FC에 주는 함의:** `stale_timeout_s`를 0.5s 근처로 잡으면 정상 지터(p95 0.310s)와의 여유가
+1.6배뿐이라 헛경보가 난다. shim의 `stale_warn_s` 기본값을 **0.75s**(p95의 약 2.4배 =
+연속 3프레임 이상 누락)로 정한 근거가 이것이고, 회귀테스트가 이 관계를 고정한다.
 
 ### 실행
 
