@@ -22,6 +22,16 @@ basename 지정.
 `state_hint`(상태머신 Decision) 1건. 끄면 `NullSink`라 레코드 조립 비용조차 들지 않는다
 (기존 실행 경로 무변경). 확인: `nc 127.0.0.1 8091`.
 
+🔴 **기동(bind) 실패는 하드 페일이다 — 종료코드 3으로 즉시 죽는다**(2026-07-28 사용자 결정).
+`--target-sink`를 **명시적으로 준** 실행에서 "켜달라고 했는데 조용히 안 켜지는" 상태로 계속
+도는 것은 디버깅 중 최악이다. 십중팔구 포트 충돌이므로 stderr에 포트 번호와 함께 사유를 낸다.
+(발행 **도중**의 예외는 반대로 절대 죽이지 않는다 — `_publish_to_sink` docstring 참조.)
+
+또한 `--display`가 켜져 있으면(`window`/`stream`/`file`) 화면에 **유도 발행 상태 오버레이**
+(소비자 수 / 마지막 seq / 드롭 수)를 상시 표시한다 — `--display`와 `--target-sink`가 완전히
+독립이라 "화면은 뜨는데 유도 좌표는 아무 데도 안 나가는" 상태가 실제로 가능하기 때문이다.
+소비자가 0명이면 빨간 큰 글씨로 경고한다. `--display none`이면 오버레이 비용은 0이다.
+
 사용 예:
   # 데스크톱에서 영상 보며 디버깅
   python -m vision.main flight.mp4 --preset presets/video.yaml --display window
@@ -73,7 +83,7 @@ from vision.utils.target_sink import (
     SocketTargetSink,
     TargetSink,
 )
-from vision.utils.visualize import save_result, draw_detections
+from vision.utils.visualize import save_result, draw_detections, draw_sink_status
 
 
 _VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv"}
@@ -98,6 +108,10 @@ SINK_REASON_SOLVE_FAILED = "pose_solve_failed"
 # 취지가 사유를 남기는 것인데, 사유가 뭉개지면 있으나 마나다).
 SINK_REASON_MAT_GEOMETRY_UNAVAILABLE = "mat_geometry_unavailable"
 SINK_REASON_LANDING_POINT_UNPROJECTABLE = "landing_point_unprojectable"
+
+# `--target-sink` bind 실패 전용 종료코드. 2(argparse 사용법 오류)/1(입력 파일 없음)과 겹치지
+# 않게 새로 뒀다 — 스크립트가 "포트 충돌로 못 떴다"를 다른 실패와 구분할 수 있어야 한다.
+EXIT_SINK_BIND_FAILED = 3
 
 
 def _show_window(annotated, *, wait: int) -> bool:
@@ -357,6 +371,15 @@ def _publish_to_sink(
     그래서 `except Exception`이 의도적으로 넓다(좁히면 예상 못 한 예외가 그대로 루프를 죽인다).
     `BaseException`(KeyboardInterrupt/SystemExit)은 **일부러 안 잡는다** — 그건 정상 종료 경로다.
 
+    🔴 **여기(발행)와 기동(bind)의 정책이 정반대인 이유 — 헷갈리면 안 된다.**
+    `_make_target_sink()`의 bind 실패는 **즉사**(종료코드 3)인데 여기 발행 실패는 **무시하고
+    계속**이다. 모순이 아니라 시점이 다르다:
+      - **bind는 기동 시점 1회**다. 이때 죽으면 기체는 아직 지상에 있고, 실패의 뜻은 "켜달라고
+        명시한 발행이 처음부터 안 켜졌다"는 설정 오류다 → 조용히 계속 도는 게 더 위험하다.
+      - **발행은 비행 중 매 프레임**이다. 소비자가 끊겼다는 이유로 여기서 죽으면 **비행 중에
+        검출이 통째로 멈춘다** → 착륙 유도보다 검출이 먼저 죽는, 정확히 막아야 할 일이다.
+    즉 "기동 실패는 못 뜬 것이고, 발행 실패는 소비자 사정"이다.
+
     `NullSink`(기본값, `--target-sink` 미지정)면 즉시 돌아온다 — 레코드 조립 비용조차 들이지
     않아 기존 실행 경로가 조금도 달라지지 않는다(`if streamer is not None` opt-in 전례와 동일).
     """
@@ -373,6 +396,36 @@ def _publish_to_sink(
             sink.publish_state_hint(decision, frame_id=frame_id)
     except Exception as e:  # noqa: BLE001 — 비차단·무크래시 계약이 예외 종류보다 우선한다
         logger.warning("frame %d: target sink 발행 실패(무시하고 계속): %s", frame_id, e)
+
+
+def _draw_sink_overlay(annotated, sink: TargetSink) -> None:
+    """유도 발행 상태를 화면(annotated 프레임)에 덧그린다 — **제자리 수정**.
+
+    🔴 **호출자는 `display != "none"`일 때만 부른다.** 드론 기본 경로(`--display none`)에서
+    오버레이 비용이 정확히 0이어야 하기 때문이다(§7.9 헤드리스 전제, 회귀테스트로 고정).
+
+    **왜 화면에 띄우나(2026-07-28 사용자 결정):** `--display`와 `--target-sink`는 완전히
+    독립이라 **화면은 멀쩡히 뜨고 검출도 되는데 유도 좌표는 아무 데도 안 나가는** 상태가 실제로
+    가능하다. bind 실패는 기동 시점에 즉사시켜 막지만(`_make_target_sink`), **bind는 됐는데
+    소비자가 0명**인 경우는 죽일 수 없다 — 시작 직후엔 소비자가 아직 안 붙는 게 정상이므로.
+    그 사각지대를 화면에 상시 노출하는 것이 이 함수의 유일한 목적이다.
+
+    `draw_detections()` **뒤에** 부르는 것이 계약이라 검출 결과를 훼손하지 않고(패널도 반투명),
+    `_publish_to_sink()` **뒤에** 부르므로 이 프레임의 발행까지 반영된 seq가 보인다.
+    """
+    if isinstance(sink, SocketTargetSink):
+        draw_sink_status(
+            annotated,
+            enabled=True,
+            consumers=sink.client_count,
+            seq=sink.last_seq,
+            dropped=sink.dropped,
+            endpoint=f"{sink.host}:{sink.port}",
+        )
+    else:
+        # `NullSink`(= `--target-sink` 미지정)도 "유도 좌표가 아무 데도 안 나간다"는 같은
+        # 사실이므로 조용히 넘어가지 않는다 — 다만 운영자의 명시적 선택이라 색만 다르다.
+        draw_sink_status(annotated, enabled=False)
 
 
 def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] = None) -> Observation:
@@ -511,12 +564,23 @@ def _run_image(
         latency=latency,
     )
 
+    # `--display none`이면 주석 프레임 자체를 만들지 않는다(기존 동작) → 오버레이 비용도 0.
+    annotated = None
+    if display != "none":
+        annotated = draw_detections(state.original, state.detections, state.confirmed)
+        _draw_sink_overlay(annotated, sink)
+
     if output:
-        save_result(state, output)
+        if annotated is not None:
+            # 화면에 보이는 것과 **같은 프레임**을 파일로 남긴다 — `--display file`은 창이
+            # 없어서 이 파일이 곧 "화면"이고, 유도 발행 상태가 거기 안 보이면 의미가 없다.
+            Path(output).parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(output, annotated)
+        else:
+            save_result(state, output)  # --display none: 기존 경로 그대로(오버레이 없음)
         print(f"Saved: {output}")
 
-    if display in ("window", "stream"):
-        annotated = draw_detections(state.original, state.detections, state.confirmed)
+    if annotated is not None:
         if streamer is not None:
             streamer.push_frame(annotated)  # 비차단(§7.9 비침습 전제)
         if display == "window":
@@ -577,6 +641,10 @@ def _run_video(
                 frame_count, len(state.detections), state.confirmed is not None, latency,
             )
             frame_count += 1
+
+            # 발행 뒤에 그려야 이 프레임의 seq까지 반영된다. `none`이면 비용 0.
+            if display != "none":
+                _draw_sink_overlay(annotated, sink)
 
             if streamer is not None:
                 streamer.push_frame(annotated)  # 비차단(§7.9 비침습 전제) — 파이프라인 루프를 지연시키지 않음
@@ -697,6 +765,10 @@ def _run_live(
                 )
                 frame_count += 1
 
+                # 발행 뒤에 그려야 이 프레임의 seq까지 반영된다. `none`이면 비용 0.
+                if display != "none":
+                    _draw_sink_overlay(annotated, sink)
+
                 if streamer is not None:
                     streamer.push_frame(annotated)  # 비차단(§7.9 비침습 전제)
 
@@ -725,12 +797,23 @@ def _run_live(
 def _make_target_sink(args, logger) -> TargetSink:
     """`--target-sink` 미지정이면 `NullSink`, 지정이면 기동된 `SocketTargetSink`.
 
-    🔴 **기동(bind)에 실패해도 `NullSink`로 강등하고 계속 간다.** `utils/target_sink.py`의
-    `start()`는 "포트 충돌을 조용히 삼키면 안 된다"는 이유로 예외를 올리도록 설계돼 있고 그
-    판단은 옳지만, `main.py` 레벨의 요구는 **검출 파이프라인이 sink 때문에 죽지 않는 것**이
-    더 강하다(착륙 유도보다 검출이 먼저 죽을 수는 없다). 그래서 "조용히"가 아니라 **시끄럽게**
-    — ERROR 로그 + stderr 출력 — 알린 뒤 강등한다. `--display stream`(MjpegStreamer)은 반대로
-    예외를 그대로 올리는데, 그건 디버그용 스트림이라 실패가 곧 운용 중단 사유이기 때문이다.
+    🔴 **기동(bind) 실패는 하드 페일이다 — 종료코드 `EXIT_SINK_BIND_FAILED`(3)로 즉시 죽는다.**
+    (2026-07-28 사용자 결정. 이전 구현은 `NullSink`로 강등하고 검출을 계속했다 — 뒤집혔다.)
+
+    근거:
+    - `--target-sink`는 **명시적으로 켜달라고 준 플래그**다. "켰는데 조용히 안 켜진 채로 계속
+      도는" 상태는 디버깅 중 최악이다 — 화면도 뜨고 로그도 돌고 검출도 되는데 정작 유도
+      좌표만 아무 데도 안 나간다(이 비대칭이 바로 사용자가 지목한 위험이다).
+    - `utils/target_sink.py::start()`가 이미 "포트 충돌을 조용히 삼키면 안 된다"고 판단해
+      예외를 올린다 — 이제 `main.py`가 그 판단을 **뒤집지 않고 그대로 존중**한다.
+    - `--display stream`(MjpegStreamer)이 예외를 그대로 올리는 기존 관례와도 일치한다.
+
+    ⚠️ **이것은 발행(publish) 실패와 정책이 정반대이며, 그래야 한다** — bind는 기동 시점 1회뿐
+    이라 죽어도 지상이지만, 발행은 비행 중 매 프레임이라 거기서 죽으면 검출이 통째로 멈춘다
+    (`_publish_to_sink` docstring "여기(발행)와 기동(bind)의 정책이 정반대인 이유" 참조).
+
+    ⚠️ **`--target-sink` 미지정 기본 경로는 조금도 달라지지 않는다** — 소켓을 바인드하지도,
+    이 하드 페일 경로를 지나지도 않는다(회귀테스트로 고정).
     """
     if not args.target_sink:
         return NullSink()
@@ -738,13 +821,19 @@ def _make_target_sink(args, logger) -> TargetSink:
     try:
         sink.start()
     except OSError as e:
-        msg = (
-            f"target sink 기동 실패 ({args.target_sink_host}:{args.target_sink_port}) — "
-            f"발행 없이 검출만 계속합니다: {e}"
+        endpoint = f"{args.target_sink_host}:{args.target_sink_port}"
+        logger.error("target sink 기동 실패 (%s) — 하드 페일로 종료합니다: %s", endpoint, e)
+        # stderr에 **원인이 한눈에 보이게** 남긴다. 십중팔구 포트 충돌이므로 포트 번호와
+        # 확인 명령까지 같이 준다(원격 세션이 재조사 없이 바로 진단할 수 있게).
+        print(
+            f"Error: --target-sink 기동 실패 — {endpoint} 에 bind 하지 못했습니다: {e}\n"
+            f"       십중팔구 포트 {args.target_sink_port} 충돌입니다. "
+            f"점유 프로세스 확인: ss -ltnp | grep {args.target_sink_port}\n"
+            f"       --target-sink 를 명시했으므로 조용히 강등하지 않고 즉시 종료합니다 "
+            f"(exit {EXIT_SINK_BIND_FAILED}). 다른 포트: --target-sink-port <N>",
+            file=sys.stderr,
         )
-        logger.error(msg)
-        print(f"Error: {msg}", file=sys.stderr)
-        return NullSink()
+        sys.exit(EXIT_SINK_BIND_FAILED)
     logger.info("target sink 시작: %s:%d (JSON Lines)", sink.host, sink.port)
     print(f"target sink: {sink.host}:{sink.port}")
     return sink
@@ -871,10 +960,16 @@ def main() -> None:
 
     # vision↔fc 인터페이스(§9 V5). **기본은 NullSink** — `--target-sink`를 명시하지 않으면
     # 소켓도 스레드도 뜨지 않고 레코드 조립도 일어나지 않는다(기존 실행 경로 완전 무변경).
-    sink: TargetSink = _make_target_sink(args, logger)
+    sink: TargetSink = NullSink()
 
     streamer = None
     try:
+        # 🔴 이 호출은 반드시 try **안**이어야 한다 — bind 실패는 `SystemExit`로 즉사하는데
+        # (하드 페일), 그때도 아래 finally가 blackbox 큐 스레드/파일 핸들을 정리해야 한다
+        # (`test_streamer_start_failure_still_closes_blackbox`가 세운 리소스 leak 계약).
+        # `sink`는 위에서 이미 `NullSink`로 초기화돼 있어 finally의 `sink.close()`도 안전하다.
+        sink = _make_target_sink(args, logger)
+
         if args.display == "stream":
             streamer = MjpegStreamer(host=args.stream_host, port=args.stream_port)
             streamer.start()

@@ -66,17 +66,17 @@
 | `utils/image_loader.py` | 파일 경로 → BGR numpy 배열 |
 | `utils/calibration_loader.py` | **신설(ArUco 브랜치 Phase 3)** — `vision/calibration/<camera_id>/nominal.yaml` 로드 어댑터. `CameraCalibration`(camera_matrix/dist_coeffs/image_size/accuracy/not_for_closed_loop_30cm/calib_id 등) 반환, `core/target.py::solve_target_pose()` 입력으로 바로 연결. `compute_nominal_intrinsics.py`가 만드는 `nominal.yaml` 스키마 전용(`calib_analyze.py`의 `<calib_id>.yaml`은 스키마가 달라 별개 — 과설계 금지, 필요해지면 그때 확장). `calib_id`는 로드에 쓴 파일 경로 문자열(§7.3 provenance echo) |
 | `utils/video_reader.py` | 영상 파일 → 프레임 이터레이터 |
-| `utils/visualize.py` | bbox 드로잉, 결과 이미지 저장 |
+| `utils/visualize.py` | bbox 드로잉, 결과 이미지 저장. **[2026-07-28] `draw_sink_status()` 추가** — 유도(정밀착륙) 발행 상태 오버레이(소비자 수/마지막 seq/드롭 수/엔드포인트). `--display`와 `--target-sink`가 완전히 독립이라 "화면은 뜨는데 유도 좌표는 아무 데도 안 나가는" 상태가 가능하다는 사각지대 대응(사용자 결정). 소비자 0명=빨강+큰 글씨, sink 꺼짐=주황, 정상=초록. `draw_detections()`가 만든 사본을 **제자리에서** 고치고(사본 재생성 없음) 좌상단 **반투명** 패널에만 그려 검출 결과를 가리지 않는다. ⚠️ 문자열은 **ASCII만**(Hershey 폰트가 한글을 못 그린다). 호출 게이팅(`--display none`이면 비용 0)은 호출자 책임 — 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절 |
 | `utils/geo_project.py` | 픽셀 좌표 → GPS 좌표 (FC 연동 시 사용) |
 | `utils/logging.py` | 이중싱크 사람로그(터미널+.log 로테이션) + provenance 헤더(config+git해시+캘리브id) (§7.4/§7.3). `main.py`/`replay.py`에 연결됨 |
 | `utils/blackbox.py` | 프레임별 JSONL 블랙박스 + 거절이유 로깅. bounded queue+drop-oldest 비차단 (§7.4). `main.py`/`replay.py`에 연결됨 |
 | `utils/stream.py` | `MjpegStreamer` — 라이브 저해상 MJPEG-over-HTTP 스트림(§7.9 항목5, "작동영상 피드백 3경로" (b)). `push_frame()`은 bounded queue+drop-oldest 비차단(`blackbox.py`와 동일 패턴 재사용). 다운스케일·인코딩·HTTP 서빙은 전부 별도 스레드. `main.py --display stream`/`replay.py --display stream`으로 opt-in 연결(항상 켜지지 않음). 기본값 결정 근거는 아래 "라이브 스트림 어댑터 기본값" 참조 |
-| `utils/target_sink.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 1 — 작업 V1)** — `TargetSink` 포트(§7.2가 이름으로만 지정해 뒀던 것) + `NullSink` + `SocketTargetSink`(**localhost TCP 서버**, 호스트 쪽 발행자) + `sample_clocks()` + `_DropOldestQueue`. 컨테이너 안의 Phase 2 shim 노드가 **클라이언트로 접속**해 JSON Lines를 읽어 ROS2 토픽으로 재발행한다. **TCP를 고른 결정적 근거는 `NetworkMode=host`** — 컨테이너가 호스트 네트워크 네임스페이스를 그대로 공유해 `127.0.0.1`이 추가 설정 0으로 통한다. 반면 UDS는 소켓 파일이 컨테이너 마운트 네임스페이스에 보여야 하는데 마운트가 `/home/suri/drone_ws` 하나뿐이라 **컨테이너 실행 설정 변경(=FC 도메인+배포 절차)** 을 요구해 기각(상세는 파일 docstring). 바인드는 **`127.0.0.1` 고정**(`utils/stream.py`의 `0.0.0.0`과 반대 — `NetworkMode=host`라 0.0.0.0이면 비행 중 유도 스트림이 주변 네트워크에 노출된다). **비차단이 최우선 계약** — `publish()`는 bounded queue에 넣기만 하고 소켓 I/O를 한 줄도 안 한다(인코딩·전송·accept 전부 별도 스레드), 가득 차면 drop-oldest(`utils/blackbox.py`/`utils/stream.py` 패턴 재사용), 느린 소비자는 `send_timeout_s`로 끊는다, `start()` 전/`stop()` 후 `publish()`는 조용한 no-op. **SIGTERM 핸들러**(`install_signal_handlers()`)는 `tools/h264_stream.py::_install_sigterm_handler`와 동일 패턴(핸들러는 이벤트만 세팅) — 이 저장소의 원격 프로세스는 SIGINT가 SIG_IGN이라 SIGTERM이 유일한 신호다. **rclpy를 import하지 않는다**(Phase 2 shim이 유일한 ROS 접점). 기본값 근거는 아래 "target_sink 소켓 기본값" 절 |
+| `utils/target_sink.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 1 — 작업 V1)** — `TargetSink` 포트(§7.2가 이름으로만 지정해 뒀던 것) + `NullSink` + `SocketTargetSink`(**localhost TCP 서버**, 호스트 쪽 발행자) + `sample_clocks()` + `_DropOldestQueue`. 컨테이너 안의 Phase 2 shim 노드가 **클라이언트로 접속**해 JSON Lines를 읽어 ROS2 토픽으로 재발행한다. **TCP를 고른 결정적 근거는 `NetworkMode=host`** — 컨테이너가 호스트 네트워크 네임스페이스를 그대로 공유해 `127.0.0.1`이 추가 설정 0으로 통한다. 반면 UDS는 소켓 파일이 컨테이너 마운트 네임스페이스에 보여야 하는데 마운트가 `/home/suri/drone_ws` 하나뿐이라 **컨테이너 실행 설정 변경(=FC 도메인+배포 절차)** 을 요구해 기각(상세는 파일 docstring). 바인드는 **`127.0.0.1` 고정**(`utils/stream.py`의 `0.0.0.0`과 반대 — `NetworkMode=host`라 0.0.0.0이면 비행 중 유도 스트림이 주변 네트워크에 노출된다). **비차단이 최우선 계약** — `publish()`는 bounded queue에 넣기만 하고 소켓 I/O를 한 줄도 안 한다(인코딩·전송·accept 전부 별도 스레드), 가득 차면 drop-oldest(`utils/blackbox.py`/`utils/stream.py` 패턴 재사용), 느린 소비자는 `send_timeout_s`로 끊는다, `start()` 전/`stop()` 후 `publish()`는 조용한 no-op. **SIGTERM 핸들러**(`install_signal_handlers()`)는 `tools/h264_stream.py::_install_sigterm_handler`와 동일 패턴(핸들러는 이벤트만 세팅) — 이 저장소의 원격 프로세스는 SIGINT가 SIG_IGN이라 SIGTERM이 유일한 신호다. ⚠️ **단 `main.py`/`replay.py`는 이 메서드를 부르지 않는다**(신호당 핸들러가 하나뿐이라 라이브 graceful shutdown을 덮어쓴다 — 2026-07-25 실기체 버그). **rclpy를 import하지 않는다**(Phase 2 shim이 유일한 ROS 접점). **[2026-07-28] 관측 접근자** — `client_count`(기존)/`last_seq`(신설) 둘 다 락으로 보호된다: 화면 오버레이(`utils/visualize.py::draw_sink_status`)가 파이프라인 스레드에서 매 프레임 읽는데 클라이언트 목록은 accept/send 스레드가 만지므로 스레드 교차 접근이 상시 일어난다. 기본값 근거는 아래 "target_sink 소켓 기본값" 절 |
 | `ros/shim_core.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 2 — 컨테이너 shim)** — JSON Lines 레코드 → **"발행 계획"(ROS 메시지를 서술하는 dataclass)** 순수 변환. `ShimConfig`/`ShimRouter` + `PosePlan`/`StatusPlan`/`LandingTargetPlan`/`ShimOutput` + `validate_record`/`parse_line`/`kv_value`. 🔴 **stdlib만 쓴다 — 취향이 아니라 강제다**: `vision.core.wire`를 import하면 `wire.py → core/target.py → import cv2` 체인 때문에 **fc 컨테이너에서 즉시 죽는다**(cv2 없음, 실측). 그래서 계약 상수(`SCHEMA_VERSION`/`REQUIRED_*_KEYS`)를 **의도적으로 복제**하고, 그 복제가 어긋나는 것은 랩탑 테스트가 `vision.core.wire`와 **직접 대조**해 잡는다(런타임은 격리, 검증은 대조). rclpy도 numpy도 import하지 않아 랩탑에서 그냥 단위테스트된다. 아래 "컨테이너 ROS2 shim 노드" 절 참조 |
 | `ros/shim_node.py` | **신설(2026-07-28, 같은 Phase 2)** — `shim_core`의 얇은 rclpy 어댑터. **저장소에서 rclpy를 import하는 유일한 파일**이고 컨테이너 안에서만 실행된다(`python3 -m vision.ros.shim_node`). 소켓 **클라이언트**(vision이 서버)라 재접속 루프를 이쪽이 갖고, EOF를 받으면 pose를 끊고 status만 ERROR로 낸다. 판단은 한 줄도 없다 — "계획 → msg 필드 대입"과 소켓 수명주기뿐이고, 그 **얇음 자체가 회귀테스트 대상**이다(`test_shim_core.py`가 이 파일을 **AST로 파싱해** msg 프레임 상수 참조·와이어 키 직접 읽기를 금지한다 — 소스 문자열 검색은 docstring 산문까지 잡아 쓸모없어진다). SIGTERM 핸들러는 `tools/h264_stream.py`와 동일 패턴 |
 | `utils/frame_source.py` | `FrameRecord` + `LiveFrameSource`/`DirFrameSource`/`BagFrameSource` 어댑터 + `open_dir_or_bag()` 팩토리 (§7.2/§7.5/§7.9 항목4). Live=실카메라(재시도 후 `ConnectionError`), Dir=녹화폴더(프레임파일+선택적 `telemetry.jsonl`), Bag=단일 비디오파일(+선택적 사이드카 `<basename>.jsonl`). **`LiveFrameSource`는 2026-07-24 카메라 브링업(`docs/vision_camera_bringup.md`) Phase 4에서 picamera2 백엔드로 재구현됨** — 이전 `cv2.VideoCapture` 구현은 V4L2 raw 경로와 비호환임이 실측 확인돼(`docs/vision_status.md` 2026-07-22b) 폐기. 생성자 인자도 `device`(cv2 정수/경로) → `camera_num`(picamera2 카메라 인덱스) + `resolution`(기본 `nominal.yaml`의 `image_size` 4608x2592와 일치, solvePnP 캘리브레이션과 어긋나지 않게)으로 교체. `create_still_configuration(main={"format": "RGB888", ...})` 요청이 실제로는 BGR 바이트순서를 준다는 picamera2 명명 역전(`tools/calib_capture.py`에서 실기체로 이미 확인된 사실)을 재사용해 별도 색공간 변환 없이 BGR 관례를 만족시킨다. picamera2는 이 `.venv`에 없는 RPi 전용 라이브러리라 `open()` 내부 지연 import로 격리(모듈 최상단 import 금지 — 그러면 이 `.venv`의 `DirFrameSource`/`BagFrameSource` 사용처까지 깨짐). 단위테스트는 `sys.modules`에 가짜 `picamera2` 모듈을 주입해 실기 없이 검증하고, 지연 import 격리 자체도 회귀테스트(소스 텍스트에 최상단 import 없음 + `sys.modules["picamera2"]=None`으로 강제 차단해도 모듈 import는 성공) 대상 |
-| `main.py` | CLI 진입점. 이미지/영상 자동 분기. `--log-dir`/`--log-name`으로 이중싱크 로거+JSONL 블랙박스 실행(항상 on). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `--calib`(기본 `calibration/cam109-imx708af75/nominal.yaml`)로 캘리브레이션을 1회 로드해 재사용, 확정 ArUco 검출이 있으면 `solve_target_pose()` 호출 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절). **§9 6번 상태머신 배선** — 실행 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나를 재사용(`_run_image`/`_run_video`/`_run_live` 전부, 단일 이미지 경로도 관측 1개짜리로 통과)해 매 프레임 `_build_observation()`으로 `Observation`을 만들고 `update()` 결과를 JSONL `state`/`command`에 싣는다(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절. **[2026-07-28] `--target-sink` 배선(인터페이스 Phase 1 마무리, §9 작업 V5)** — `--target-sink`/`--target-sink-host`/`--target-sink-port`로 `SocketTargetSink` opt-in(기본 꺼짐=`NullSink`), 세 실행경로(`_run_image`/`_run_video`/`_run_live`) 전부에서 매 프레임 `target`+`state_hint` 레코드 발행. 아래 "`--target-sink` 파이프라인 배선" 절 |
-| `replay.py` | 오프라인 재생 CLI(`python -m vision.replay <녹화폴더\|bag> --preset ...`, §7.9 (a)). `open_dir_or_bag`로 Dir/Bag 자동판별 → 동일 `Pipeline`으로 재생 → 로거+블랙박스 기록. **결정론적**(§7.5). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `main.py`와 동일한 `--calib`/`TargetEstimate`→`chosen.target_estimate` 배선(헬퍼는 상호 import 안 함 원칙에 따라 얇게 중복). **§9 6번 상태머신 배선** — `main.py`와 동일 원칙(얇게 중복)으로 재생 루프 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나 재사용, `record.telemetry.get("alt")`가 있으면 `Observation.agl_m`으로 흘려보내고 없으면 None으로 우아하게 degrade(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절 |
+| `main.py` | CLI 진입점. 이미지/영상 자동 분기. `--log-dir`/`--log-name`으로 이중싱크 로거+JSONL 블랙박스 실행(항상 on). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `--calib`(기본 `calibration/cam109-imx708af75/nominal.yaml`)로 캘리브레이션을 1회 로드해 재사용, 확정 ArUco 검출이 있으면 `solve_target_pose()` 호출 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절). **§9 6번 상태머신 배선** — 실행 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나를 재사용(`_run_image`/`_run_video`/`_run_live` 전부, 단일 이미지 경로도 관측 1개짜리로 통과)해 매 프레임 `_build_observation()`으로 `Observation`을 만들고 `update()` 결과를 JSONL `state`/`command`에 싣는다(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절. **[2026-07-28] `--target-sink` 배선(인터페이스 Phase 1 마무리, §9 작업 V5)** — `--target-sink`/`--target-sink-host`/`--target-sink-port`로 `SocketTargetSink` opt-in(기본 꺼짐=`NullSink`), 세 실행경로(`_run_image`/`_run_video`/`_run_live`) 전부에서 매 프레임 `target`+`state_hint` 레코드 발행. 아래 "`--target-sink` 파이프라인 배선" 절. **[2026-07-28] bind 하드 페일 + 발행상태 오버레이(사용자 결정)** — 기동 실패 시 강등 없이 **종료코드 3**으로 즉사(stderr에 포트 포함), `--display`가 켜져 있으면 매 프레임 `draw_sink_status()`로 소비자 수/seq/드롭을 화면에 표시(`none`이면 비용 0). 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절 |
+| `replay.py` | 오프라인 재생 CLI(`python -m vision.replay <녹화폴더\|bag> --preset ...`, §7.9 (a)). `open_dir_or_bag`로 Dir/Bag 자동판별 → 동일 `Pipeline`으로 재생 → 로거+블랙박스 기록. **결정론적**(§7.5). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `main.py`와 동일한 `--calib`/`TargetEstimate`→`chosen.target_estimate` 배선(헬퍼는 상호 import 안 함 원칙에 따라 얇게 중복). **§9 6번 상태머신 배선** — `main.py`와 동일 원칙(얇게 중복)으로 재생 루프 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나 재사용, `record.telemetry.get("alt")`가 있으면 `Observation.agl_m`으로 흘려보내고 없으면 None으로 우아하게 degrade(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절. **[2026-07-28] `--target-sink` 배선 + 발행상태 오버레이** — `main.py`와 문자 그대로 같은 CLI 인자/기본 꺼짐/하드페일(exit 3). 🔴 **재생 경로에만 있는 가치: `telemetry.jsonl`의 AGL이 실려 `state_hint`가 `TERMINAL`까지 진행하는 유일한 경로**(main.py는 AGL 경로 자체가 없음). `_solve_target_chosen()` → `_solve_target_estimate()`로 교체(JSONL `chosen` 무변경). 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절 |
 | `tools/rpi_capture.py` | RPi 헤드리스 캘리브레이션 촬영 — 저해상도 스냅샷 자동갱신(브라우저) + 촬영 트리거(버튼/Enter). **2026-07-22b에 GStreamer `libcamerasrc`(작동 불가였음, libcamera PiSP IPA 결여) 대신 V4L2 RAW 직접 캡처+수동 디베이어로 전면 재작성해 브링업 완료** — media-ctl/v4l2-ctl로 rp1-cfe 파이프라인 직접 구성. 대상 media 디바이스(`/dev/mediaN`)는 부팅마다 번호가 바뀔 수 있어 하드코딩 대신 매 호출 동적 탐색(2026-07-22d, 아래 "media 디바이스 동적 탐색" 절). gray-world 화이트밸런스 보정 포함(아래 절). **수동 초점/노출/게인 제어 + 초점 스윕 도구 포함(2026-07-22e, 아래 "수동 초점/노출/게인 제어" 절)** — libcamera 우회 경로라 연속 AF/AE가 없어 방치돼 있던 것에 대한 대응. 상세 경과는 메모리 `project_rpi5_ubuntu_camera_stack.md` |
 | `tools/jsonl_view.py` | JSONL 블랙박스 뷰어/플롯 최소본(§7.9 항목6). `BlackBoxLogger`가 남긴 `.jsonl`을 읽어 시간축 score/latency/state 3단 플롯을 PNG로 저장(`matplotlib` Agg 백엔드, headless-safe). `python vision/tools/jsonl_view.py <jsonl> [--output out.png] [--x-axis ts\|frame_id]`. **하드웨어 의존 없음** — `rpi_capture.py`와 달리 `.venv`에 설치되고(`matplotlib` in `requirements.txt`) `tests/test_jsonl_view.py` 대상이다(tools/의 "CI/pytest 대상 아님" 규칙은 RPi 하드웨어 전용 스크립트에만 적용). |
 | `tools/calib_analyze.py` | **신설(2026-07-23)** — `calib_capture.py`가 만든 촬영 세트(`<raw_root>/<set>/<distance>m/<stem>.{png,json}`)를 캘리브레이션 아티팩트로. 그룹(set,distance_m)별 `cv2.calibrateCamera` → 사진별 재투영오차로 불량컷 색출·이상치 제외 재캘리브레이션 → **`fx`/`fy` vs `LensPosition` 직선적합으로 L=0(무한대) 외삽**(핵심 목적 — 기체 운용고도 10~40m는 사실상 무한대)·얇은렌즈 물리 일관성 검사(`b/a`→mm, IMX708급 통상 초점거리와 비교)·디옵터 가정(`LensPosition≈1/distance_m`) 직접 검정 → 세트B(2.5m, 최대커버리지)와 외삽값 대조 → fy/fx·주점·HFOV 등 정합성 검사(실패해도 크래시 없이 보고) → 진단 플롯 3종(Agg, `vision/results/`) → `vision/calibration/<camera_id>/<calib_id>.yaml` 아티팩트(그룹별 결과 전부 보존, `recommended`=fx/fy 외삽절편+세트B의 cx/cy/dist_coeffs, 근거는 yaml `note`). 모든 임계값 CLI 파라미터(매직넘버 금지, §7.3). **하드웨어 의존 없음** — `jsonl_view.py`와 동일한 예외로 `.venv` 설치 + `tests/test_calib_analyze.py` 대상. 정확성은 진짜 K/dist를 아는 합성 체스보드 투영 왕복 테스트로 담보(실촬영 사진은 이 스크립트 작성 시점에 아직 없었음 — `docs/vision_camera_bringup.md`). `recommended-source` CLI로 폴백/강제선택 가능, 그룹<2면 적합 생략 + LensPosition 최저 그룹 폴백(사유 yaml 명시, §9 견고성). |
@@ -686,14 +686,10 @@ Phase 1(`core/wire.py`/`core/frames.py`/`utils/target_sink.py`)이 만들어 놓
   — 침묵은 "노드 사망"으로 예약돼 있어(소비자가 EOF/타임아웃으로 잰다) 검출 상실 때 침묵하면
   두 경우가 구분되지 않는다. 종단간 실측에서 마커 이탈 20프레임이 전부
   `valid=false, reason="no_target_detection", position_frd=null`로 나갔다.
-- **🔴 sink는 절대 검출을 죽이지 않는다 — 두 층으로.** ① 발행부는 `except Exception`으로
-  넓게 삼키고 경고만 남긴다(`BaseException`은 일부러 안 잡는다 — Ctrl+C/SIGTERM은 정상 종료
-  경로다). ② **기동(bind) 실패도 `NullSink`로 강등**하고 계속 간다.
-  ⚠️ ②는 `utils/target_sink.py::start()`의 문서화된 판단("포트 충돌을 조용히 삼키면 안 된다")과
-  긴장 관계다. 해소 방식은 "조용히"가 아니라 **시끄럽게** — ERROR 로그 + stderr 출력 — 알린 뒤
-  강등하는 것이다. `--display stream`(MjpegStreamer)은 반대로 예외를 그대로 올리는데, 그건
-  디버그 스트림이라 실패가 곧 운용 중단 사유이기 때문이다. **사용자 확인이 필요한 갈림길**:
-  "유도 발행이 안 되면 아예 이륙을 막아야 한다"가 정책이면 이 강등을 되돌려야 한다.
+- **🔴 발행(publish) 실패는 절대 검출을 죽이지 않는다.** 발행부는 `except Exception`으로 넓게
+  삼키고 경고만 남긴다(`BaseException`은 일부러 안 잡는다 — Ctrl+C/SIGTERM은 정상 종료 경로다).
+- **🔴 기동(bind) 실패는 반대로 하드 페일이다 — 종료코드 3으로 즉사한다(2026-07-28 사용자
+  결정으로 계약이 뒤집혔다).** 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절 참조.
 - **🔴 `sink.install_signal_handlers()`를 부르지 않는다.** `signal.signal`은 신호당 핸들러가
   **하나**뿐이라, `_run_live`의 `_install_sigterm_handler` 뒤에 sink 핸들러를 걸면 그걸
   **덮어써서** `stop_event`가 영영 세팅되지 않는다 — 실기체에서만 드러났던 SIGTERM graceful
@@ -706,6 +702,93 @@ Phase 1(`core/wire.py`/`core/frames.py`/`utils/target_sink.py`)이 만들어 놓
   `target=80 (valid=60 / invalid=20), state_hint=80`, `seq` 1~160 단조증가, main() 종료 시 EOF
   수신. FLU/FRD 부호도 규약대로(`position_flu` z=−10.076 / `position_frd` z=+10.076, y 부호 반전).
   소비자 0명으로도, 소비자가 끊겨도 파이프라인은 80프레임을 그대로 처리했다.
+
+---
+
+## bind 하드 페일 + 유도 발행 상태 오버레이 + replay 배선 (2026-07-28, 사용자 결정)
+
+바로 위 배선 절이 남겨 뒀던 **"사용자 확인이 필요한 갈림길"이 닫힌 작업**이다.
+
+> 질문: *"소켓 bind 실패 시 `NullSink`로 강등해 검출을 계속할 것인가, 죽일 것인가."*
+> 🔵 **사용자 답(2026-07-28):** *"'유도 좌표가 아무 데도 안 나가는 상황'에 화면은 뜰 수 있는가?
+> 만약 그렇다면, 지금은 디버깅이 활발한 상태이니까, 걍 안되면 죽여버릴 수 있도록 하여라.
+> 화면에도 보이도록."*
+
+**답은 "뜰 수 있다"이다** — `--display`(창/MJPEG 스트림)와 `--target-sink`는 코드상 **완전히
+독립**이라 화면·검출·로그가 전부 멀쩡한 채 유도 좌표만 허공으로 가는 상태가 실제로 가능하다.
+그래서 두 갈래로 대응했다: **막을 수 있는 것(bind 실패)은 죽이고, 못 막는 것(소비자 0명)은
+화면에 상시 노출한다.**
+
+### 1. bind 실패 = 하드 페일 (계약이 **뒤집혔다**)
+
+- `main.py`/`replay.py` 둘 다 `sys.exit(EXIT_SINK_BIND_FAILED)` = **종료코드 3**. 2(argparse
+  사용법)/1(입력 파일 없음)과 겹치지 않게 새로 뒀다 — 스크립트가 "포트 충돌로 못 떴다"를
+  다른 실패와 구분할 수 있어야 한다.
+- stderr에 **엔드포인트 + 포트 번호 + `ss -ltnp | grep <port>` + 대안 플래그**를 낸다(십중팔구
+  포트 충돌이므로 원격 세션이 재조사 없이 바로 진단 가능하게).
+- 이제 `utils/target_sink.py::start()`의 문서화된 판단("포트 충돌을 조용히 삼키면 안 된다")과
+  **일치**하고, `--display stream`(MjpegStreamer)이 예외를 그대로 올리는 관례와도 맞다.
+- ⚠️ **발행(publish) 실패와 정책이 정반대이며, 그래야 한다.** bind는 **기동 시점 1회**라 죽어도
+  기체는 지상이고 실패의 뜻은 "명시적으로 켠 발행이 처음부터 안 켜졌다"는 설정 오류다. 발행은
+  **비행 중 매 프레임**이라 거기서 죽으면 소비자 사정으로 검출이 통째로 멈춘다. 이 구분은
+  `main.py::_publish_to_sink` docstring에 코드 주석으로도 박아 뒀다.
+- ⚠️ **`--target-sink` 미지정 기본 실행은 조금도 달라지지 않는다**(소켓 미바인드, 하드 페일
+  경로 자체를 안 지남 — 회귀테스트로 고정).
+- `_make_target_sink()` 호출은 **`try/finally` 안**에 있다 — `SystemExit`로 죽어도 `finally`가
+  blackbox 큐 스레드/파일 핸들을 정리해야 하기 때문(리소스 leak 회귀테스트로 고정).
+- 폐기: 옛 계약을 고정하던 `test_sink_bind_failure_degrades_to_nullsink_and_keeps_detecting`.
+
+### 2. 유도 발행 상태 화면 오버레이 (`utils/visualize.py::draw_sink_status`)
+
+**bind는 됐는데 소비자가 0명인 경우가 진짜 사각지대다** — 죽일 수 없다(시작 직후엔 소비자가
+아직 안 붙는 게 정상). 그래서 `--display`가 켜져 있으면(`window`/`stream`/`file`) 매 프레임
+좌상단에 **소비자 수 / 마지막 발행 seq / 드롭 수 / 엔드포인트**를 그린다.
+
+- **3색 상태:** 소비자 있음=초록 / **소비자 0명=빨강 + 1.4배 큰 헤드라인**("눈에 확 띄게") /
+  sink 자체 꺼짐=주황(같은 "유도가 안 나간다"지만 운영자의 명시적 선택이라 구분).
+- **`--display none`이면 비용이 정확히 0** — 호출 자체가 게이팅된다(드론 기본 경로, §7.9).
+  회귀테스트가 `draw_sink_status` 호출 횟수 0을 단언한다.
+- **검출 결과를 안 가린다:** `draw_detections()` **뒤에** 좌상단 패널에만 그리고, 패널은
+  `addWeighted`로 **반투명**이라 밑 영상이 비친다. 회귀테스트가 패널 밖 픽셀 비트 동일을 단언.
+- **사본을 또 만들지 않는다** — `draw_detections()`가 이미 만든 배열을 제자리에서 고치고 같은
+  객체를 돌려준다(매 프레임 전체 복사가 한 번 더 늘어나면 안 된다).
+- ⚠️ **오버레이 문자열은 ASCII만.** `cv2.putText`의 Hershey 폰트는 한글을 못 그려 조용히 깨진다
+  — 소스 레벨 회귀테스트로 고정.
+- 접근자: `SocketTargetSink.client_count`(기존) + **`last_seq`(신설)**. 둘 다 락으로 보호 —
+  클라이언트 목록은 accept/send 스레드가 만지고 오버레이는 파이프라인 스레드가 매 프레임 읽는다.
+- `--display file`은 창이 없으므로 **저장 파일이 곧 화면**이다 → `_run_image`가 `save_result()`
+  대신 오버레이가 얹힌 `annotated`를 쓴다(`--display none`은 기존 `save_result()` 경로 유지).
+
+### 3. `replay.py` sink 배선 — Phase 1 후속 세션이 남긴 갭
+
+🔴 **재생 경로에만 있는 가치:** `replay.py`는 Dir/Bag + `telemetry.jsonl`(AGL) 재생이라
+**`agl_m`이 실린 `state_hint`를 회귀로 잡을 수 있는 유일한 경로**다 — `main.py`는 AGL을 받는
+경로가 아예 없어(`_build_observation(agl_m=None)`) 상태머신이 구조적으로 `TERMINAL`에 못 간다.
+즉 **착륙 최종단계의 유도 힌트가 소비자에게 실제로 흘러가는가**는 여기서만 검증된다.
+
+- `main.py`와 **문자 그대로 같은 CLI 인자 이름**(`--target-sink`/`--target-sink-host`/
+  `--target-sink-port`), 같은 기본 꺼짐, 같은 하드페일 종료코드. 정책이 갈리면 회귀검증
+  경로로서의 가치가 사라진다.
+- `_solve_target_chosen()` → `_solve_target_estimate()`로 교체(main.py가 이미 한 것과 동일한
+  이유 — `build_target_record()`는 dict가 아니라 dataclass를 요구). **JSONL `chosen` 형태·내용
+  무변경**(기존 회귀테스트 3건이 그대로 통과).
+- 실패 사유 6종(`no_calibration`/`no_target_detection`/`mat_geometry_unavailable`/
+  `landing_point_unprojectable`/`pose_solve_failed`)도 main.py와 같은 문자열로 내보낸다.
+
+### 종단간 실측 (2026-07-28, 로컬)
+
+- **하드 페일:** 포트 18091을 실제로 점유한 상태에서 `python -m vision.main ... --target-sink
+  --target-sink-port 18091` → `[Errno 98] Address already in use` + 진단 메시지, **종료코드 3**.
+  `python -m vision.replay ...` 같은 조건에서도 **종료코드 3**(동일 메시지).
+- **replay 종단간:** ArUco 80프레임 + `telemetry.jsonl`(frame_id≥3에서 `alt=2.0`)을
+  `--target-sink --target-sink-port 18097 --display stream --output ...`로 재생하고 **순수
+  stdlib 소비자**(시스템 python3, vision 미import)를 별도 프로세스로 붙임 → `target=80,
+  state_hint=80`, seq 1~160 **드롭 0**, 상태열 `CENTER_DESCEND → LOCK → PRECISION_SERVO →
+  TERMINAL(×77)`, 첫 TERMINAL 힌트 `reason="near_ground_enter_terminal"`, 재생 종료 시 EOF 수신.
+- **오버레이(헤드리스라 창을 못 띄워 화면 버퍼로 증명):** `--display file` 저장 PNG에서
+  소비자 0명 = 빨강 `CONSUMERS 0 - GUIDANCE GOES NOWHERE`, sink 꺼짐 = 주황 `SINK OFF - NO
+  GUIDANCE OUT`. 소비자가 실제로 붙은 재생 mp4의 60번 프레임에서는 초록 `CONSUMERS 1` +
+  `sink 127.0.0.1:18097 seq 122 dropped 0`이 찍혔고 **ArUco 검출 박스와 신뢰도 라벨은 그대로**.
 
 ---
 
@@ -1148,14 +1231,15 @@ pytest vision/tests/ -q -k main # 특정만
 | ② 조난자 fine 프리셋 통합(`presets/distress_fine.yaml`, 2026-07-25) | `distress_coarse.yaml` 뒤에 `white_box_detector` 캐스케이드 실로드·매트+박스 실제 확정·`Detection.meta`에 `landing_point_px` 실제 기록(`Pipeline.from_config` 경유, 클래스 직접 호출 아님) | ✅ test_replay(`test_distress_fine_preset_confirmed_detection_carries_landing_point_meta`) |
 | utils/image_loader | 경로→BGR ndarray(shape/dtype + **채널 순서가 실제로 BGR인지를 3분할 B/G/R 띠로 왕복 확인** — 여기서 RGB로 뒤집히면 뒤의 HSV 색 검출이 통째로 어긋난다)·PNG 무손실 왕복(임의 정규화 없음)·`Path` 객체 수용·1채널 원본도 3채널로 확장·결정론 · 없는 파일→`FileNotFoundError`(메시지에 경로 포함)·디렉터리/쓰레기 바이트/0바이트→조용한 None이 아니라 `ValueError`. **파괴검증 5종(I-D1~D5)으로 red 확인** | ✅ test_image_loader |
 | utils/video_reader | **실제 mp4를 써서 실제 디코딩**(몽키패치 없음, `test_frame_source.py`와 같은 원칙) — 전 프레임 이터레이트(BGR shape/dtype) · **순서 보존**(프레임마다 다른 밝기를 심어 확인 — 시간축 모듈 `fusion`/`tracker`가 전적으로 여기 기댄다) · `while True` 루프가 EOF에서 실제로 멈춤(무한루프 회귀) + 소진 후 재이터레이트는 빈 목록 · 결정론 · `fps`/`frame_count`가 인코딩값·실제 이터레이션 수와 일치(하드코딩 아님) · 컨텍스트 종료: `__enter__`가 self 반환 + `__exit__`이 실제로 `VideoCapture`를 release(본문에서 예외가 나도, 닫힌 뒤 읽어도 크래시 없이 빈 목록) · 없는 파일→`FileNotFoundError`·영상 아닌 파일→`IOError`(0프레임으로 삼키지 않음). **파괴검증 7종(V-D1~D7)으로 red 확인** | ✅ test_video_reader |
-| utils/visualize | draw_detections 형상·save_result 파일 생성 | ❌ TODO |
+| utils/visualize `draw_sink_status`(발행상태 오버레이, 2026-07-28) | **소비자 0명이면 경고색이 실제 픽셀로 찍힘**(경고를 정상색으로 바꾸면 red) + 경고 헤드라인이 정상보다 **크다**(잉크량 비교) · 소비자 있으면 정상색이고 경고색은 0픽셀 · sink 꺼짐은 두 색 어느 쪽과도 구분되는 제3색 · seq/dropped 값이 실제로 픽셀에 반영(라벨만 그리고 숫자를 버리면 red) · **검출 그리기 비훼손**: 패널 밖 영역이 비트 단위로 동일 · 제자리 수정(같은 배열 객체 반환)·shape/dtype 보존 · 결정론 · 초소형(64px)~실기체(4608px) 프레임 무크래시 · **오버레이 문자열 ASCII 전용**(Hershey 폰트가 한글을 못 그림 — 소스 레벨 회귀) | ✅ test_visualize |
+| utils/visualize `draw_detections`/`save_result` | 형상·파일 생성 | ❌ TODO (위 오버레이 테스트가 이걸 대신하지 않는다) |
 | utils/geo_project | **폐기 예정(plan §12) — 신규 테스트 금지** | 폐기 |
 | utils/logging | 이중싱크 핸들러 구성·콘솔레벨이 파일레벨 억제 안 함·재호출 시 핸들러 중복 안 됨·provenance에 git해시/config/캘리브id | ✅ test_logging |
 | utils/blackbox | 프레임/거절이유 JSONL 기록·close() 큐 가득해도 안전 · **[2026-07-28] 플래키 수정** — 예전 `test_bounded_queue_drops_oldest_under_burst`는 "**파일에** 남은 레코드가 ≤ max_queue"를 단언했는데 `__init__`이 `QueueListener`를 이미 start()해 둔 상태라 넣는 동안 리스너가 동시에 파일로 흘려보낸다(파일 건수는 스케줄링 의존 — 생산 루프에 틱당 0.2ms만 양보해도 50건이 남아 실패). drop-oldest가 보장하는 건 "**큐에** 최대 N건"이지 "**싱크에** 최대 N건"이 아니다. 3건으로 쪼갬: ① 소비 스레드 없이 `_DropOldestQueueHandler`만 두고 **매 스텝** `qsize == min(넣은수, 상한)` + 잔여 = 최신 N건(`test_target_sink.py`의 `_DropOldestQueue` 결정론 패턴 재사용. ⚠️ 최종 상태만 보면 "가득 차면 큐를 통째로 비우는" 구현도 50/5에서 우연히 통과 — 파괴검증 D-B3 실측) ② 그 상한이 `BlackBoxLogger`에 실제 배선됐는지 구조 검증(`_queue.maxsize == max_queue` + 핸들러 타입) ③ end-to-end는 **부하 무관 불변식**만(최신 프레임 불유실 + 순서·유일성·부분열). **파괴검증 4종(D-B1~B4)으로 red 확인** | ✅ test_blackbox |
 | utils/stream `MjpegStreamer`(§7.9 항목5) | 실제 HTTP 서버 기동 → 실제 프레임 push → 실제 클라이언트로 `/stream` 접속해 진짜 MJPEG 바이트 수신·`cv2.imdecode` 디코드 성공·VGA 박스 축소(종횡비 유지, 업스케일 없음)·`push_frame()` 비차단(클라이언트 없음/느린 클라이언트 붙어있어도 논-블로킹, 실측 시간)·`start()` 전 `push_frame` 안전 no-op·idempotent stop/restart | ✅ test_stream |
 | utils/frame_source | Dir/Bag: 실제 파일→실제 프레임 디코딩·순서 결정론·telemetry.jsonl(사이드카 포함) frame_id 매칭·빈/누락 입력 에러. Live: 연결 실패 시 재시도 후 `ConnectionError`·읽기 실패 시 `ConnectionError`·`open_dir_or_bag` 디렉터리/파일 자동판별 | ✅ test_frame_source |
-| main.py | `--display` 게이팅: **none=imshow 0회**(헤드리스 안전 불변식)·file→output 강제·stream 미구현 · **로거+JSONL 블랙박스 실연결**: 실행 시 실제 `.log`/`.jsonl`이 디스크에 생성되고 detections/latency/provenance가 올바름 · **§9 6번 상태머신 배선**: 반복 ArUco 프레임 실제 영상 실행 → JSONL `state`가 전부 null 아니고 ACQUIRE에 머물지 않고 실제로 진행(LOCK/PRECISION_SERVO 도달)함을 실제 파이프라인으로 확인, `command`도 함께 실림 · **[2026-07-25] ② 조난자 fine 체인**: 흰 박스 확정 반복 영상(`distress_fine.yaml`)도 ArUco와 별개 경로로 CENTER_DESCEND를 넘어 진행함을 실제 파이프라인으로 확인 · **[2026-07-28] `--target-sink` 배선**: opt-in 불변식(미지정 시 소켓 미기동 + 발행 시도 0) · 매 프레임 `target` 1건 + `state_hint` 1건, `REQUIRED_*_KEYS` 전량 + `seq` 단조증가 + 맨 이름 `command` 키 부재 · **§5.4 침묵 금지**: 검출 없음/calib 없음도 사유가 붙은 `valid=false`로 계속 발행(포즈는 0이 아니라 null) · **🔴 sink 실패 무영향**: 발행마다 예외를 던지는 sink에서도 전 프레임이 JSONL에 남음 + bind 실패는 `NullSink` 강등(검출 계속) · **SIGTERM 비가로채기 회귀**(핸들러 하나 규칙) + 종료 시 sink 정리 · **실소켓 종단간**: 순수 stdlib 소비자가 `readline()`으로 JSONL을 읽고 main() 종료 시 EOF 수신. **파괴검증 8종(D-A1~A8)으로 red 확인** · **[2026-07-28] `tan(HFOV/2)` 배선**: `_landing_sm_config`가 calib 인트린식에서 유도(+calib None/fx<=0 폴백) + **`main()`을 실제로 돌려** nominal과 다른 `--calib`을 준 뒤 그 유도값이 상태머신 생성자까지 도달함을 확인(호출부가 기본 config로 되돌아가면 red). **파괴검증 D10** | ✅ test_main |
-| replay.py | `open_dir_or_bag`로 Dir/Bag 자동판별 재생·실제 프레임 처리로 JSONL(telemetry 포함)/사람로그 실생성·`--output` 지정 시 실제 mp4 기록 · **§9 6번 상태머신 배선**: 반복 ArUco 녹화 재생 → JSONL `state` 실제 진행 확인(main.py와 동일) + **telemetry.jsonl의 alt가 실제로 상태머신에 흘러 TERMINAL까지 도달**함을 실제 재생으로 확인(AGL 배선이 진짜로 연결됐다는 증거) · **[2026-07-25] ② 조난자 fine 체인**: 흰 박스 확정 녹화 재생도 CENTER_DESCEND를 넘어 진행 + telemetry alt로 TERMINAL까지 도달 확인(ArUco와 별개 경로) + `landing_point_px`가 실제 `Pipeline.from_config` 경로로 `Detection.meta`에 실림을 확인 | ✅ test_replay |
+| main.py | `--display` 게이팅: **none=imshow 0회**(헤드리스 안전 불변식)·file→output 강제·stream 미구현 · **로거+JSONL 블랙박스 실연결**: 실행 시 실제 `.log`/`.jsonl`이 디스크에 생성되고 detections/latency/provenance가 올바름 · **§9 6번 상태머신 배선**: 반복 ArUco 프레임 실제 영상 실행 → JSONL `state`가 전부 null 아니고 ACQUIRE에 머물지 않고 실제로 진행(LOCK/PRECISION_SERVO 도달)함을 실제 파이프라인으로 확인, `command`도 함께 실림 · **[2026-07-25] ② 조난자 fine 체인**: 흰 박스 확정 반복 영상(`distress_fine.yaml`)도 ArUco와 별개 경로로 CENTER_DESCEND를 넘어 진행함을 실제 파이프라인으로 확인 · **[2026-07-28] `--target-sink` 배선**: opt-in 불변식(미지정 시 소켓 미기동 + 발행 시도 0) · 매 프레임 `target` 1건 + `state_hint` 1건, `REQUIRED_*_KEYS` 전량 + `seq` 단조증가 + 맨 이름 `command` 키 부재 · **§5.4 침묵 금지**: 검출 없음/calib 없음도 사유가 붙은 `valid=false`로 계속 발행(포즈는 0이 아니라 null) · **🔴 발행 실패 무영향**: 발행마다 예외를 던지는 sink에서도 전 프레임이 JSONL에 남음 · **SIGTERM 비가로채기 회귀**(핸들러 하나 규칙) + 종료 시 sink 정리 · **실소켓 종단간**: 순수 stdlib 소비자가 `readline()`으로 JSONL을 읽고 main() 종료 시 EOF 수신 · **[2026-07-28] bind 하드 페일**(계약 뒤집힘, 옛 강등 테스트 폐기): 종료코드가 `EXIT_SINK_BIND_FAILED`(≠0) + stderr에 포트 번호 + 프레임 0건 처리 + **진짜로 점유된 포트**에서도 동일(몽키패치 없음) + 죽어도 blackbox.close() 보장(leak 회귀) · **[2026-07-28] 발행상태 오버레이**: `--display none`은 `draw_sink_status` 호출 0회(비용 0) / `--display file` 저장본이 `none` 저장본과 다르고 경고색 픽셀이 실제로 있음 / sink 꺼짐은 OFF색으로 구분 / 오버레이 인자가 **실제 sink 카운터**(seq 2,4,6…)여야 함(하드코딩 0이면 red). **파괴검증 8종(D-A1~A8) + 신규 6종(D1~D6)으로 red 확인**  · **[2026-07-28] `tan(HFOV/2)` 배선**: `_landing_sm_config`가 calib 인트린식에서 유도(+calib None/fx<=0 폴백) + **`main()`을 실제로 돌려** nominal과 다른 `--calib`을 준 뒤 그 유도값이 상태머신 생성자까지 도달함을 확인(호출부가 기본 config로 되돌아가면 red). **파괴검증 D10** | ✅ test_main |
+| replay.py | `open_dir_or_bag`로 Dir/Bag 자동판별 재생·실제 프레임 처리로 JSONL(telemetry 포함)/사람로그 실생성·`--output` 지정 시 실제 mp4 기록 · **§9 6번 상태머신 배선**: 반복 ArUco 녹화 재생 → JSONL `state` 실제 진행 확인(main.py와 동일) + **telemetry.jsonl의 alt가 실제로 상태머신에 흘러 TERMINAL까지 도달**함을 실제 재생으로 확인(AGL 배선이 진짜로 연결됐다는 증거) · **[2026-07-25] ② 조난자 fine 체인**: 흰 박스 확정 녹화 재생도 CENTER_DESCEND를 넘어 진행 + telemetry alt로 TERMINAL까지 도달 확인(ArUco와 별개 경로) + `landing_point_px`가 실제 `Pipeline.from_config` 경로로 `Detection.meta`에 실림을 확인 · **[2026-07-28] `--target-sink` 배선**: opt-in 불변식(미지정 시 소켓 미기동) · bind 하드 페일이 main.py와 **같은 종료코드**(진짜 점유 포트, 프레임 0건) · **🔴 합격 기준 — AGL이 실린 재생에서 `state_hint`가 `TERMINAL`까지 진행**(main.py는 AGL 경로가 없어 구조적으로 불가, 이 테스트가 유일) · **실소켓 종단간**: 순수 stdlib 소비자가 받은 state_hint에 TERMINAL 실재 + seq 단조증가 + EOF · 오버레이 게이팅(`none`=0회, `stream`=매 프레임 + 실제 seq) | ✅ test_replay |
 | tools/jsonl_view.py | 실제 `main.py` 실행으로 만든 진짜 JSONL 로드·행 수=JSONL type=frame 행 수 일치·score/latency 라인 포인트 수=행 수(결측은 nan 구멍, 이어붙이지 않음)·state 미기록 시 안내 텍스트·rejection→세로선·PNG 실파일 생성 | ✅ test_jsonl_view |
 | tools/calib_analyze.py | **★합성 왕복(핵심):** 진짜 K/dist를 알고 합성 투영한 ~20장 사이드카 → 복원 fx/fy/cx/cy 1% 이내·dist 허용오차 내 · fx-vs-LensPosition 직선적합이 알려진 (L,fx) 직선을 복원 · 이상치 검출(코너 오염 이미지가 플래그되고 제외 시 RMS 개선) · 부분 데이터(그룹 1개)에서 크래시 없이 적합 생략+`recommended` 폴백 사유 기록 · yaml 아티팩트 `yaml.safe_load` 왕복 + 필수 키 전부(`checks[].ok`가 python bool인지 — numpy.bool_ 누출 회귀 포함) · `--redetect` PNG 재검출 경로 · CLI(`main()`) end-to-end로 진단 플롯 3종 PNG 실파일 생성 | ✅ test_calib_analyze |
 | tools/color_calibrate.py(§9 빌드순서 5번) | **★합성 왕복(핵심):** 산출된 임계값을 실제 `ColorFilter`/`RedRingDetector`에 먹여 합성 패치가 실제로 검출되고 배경은 배제되는지 확인(문자열만 맞는 게 아니라 파이프라인이 실제로 동작하는지) · 백분위수가 소수(2~3%) 이상치(글레어/랩어라운드 스필오버)에 강건함을 raw min/max와 대조해 직접 증명 · 빨강 Hue 랩어라운드 감지(0/179 양끝에 걸친 합성 패치)·`wrap_min_fraction` 미만이면 오판 안 함·두 소비자(`ColorFilter`/`RedRingDetector`) 각각 호환 파라미터 키셋 검증 · `parse_roi`/`crop_roi` 경계값·범위이탈 에러 · `load_frame`이 `DirFrameSource`/이미지 직접로드 재사용(frame_index 선택 포함) · 진단 PNG(오버레이+히스토그램) 실파일 생성 · CLI(`main()`) end-to-end(정상/입력없음/ROI범위밖) · 골든셋(`tests/golden/distress/10m/`) 실제 프레임 교차확인(`distress_coarse.yaml` 손튜닝값과 sanity, §9 견고성) | ✅ test_color_calibrate |

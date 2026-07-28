@@ -6,6 +6,7 @@ JSONL 블랙박스가 실제로 생성되고 텔레메트리·latency가 올바�
 import http.client
 import json
 import math
+import socket
 import sys
 import threading
 import time
@@ -16,8 +17,15 @@ import numpy as np
 import pytest
 
 import vision.replay as replay_mod
+from vision.core.wire import (
+    RECORD_TYPE_STATE_HINT,
+    RECORD_TYPE_TARGET,
+    REQUIRED_STATE_HINT_KEYS,
+    REQUIRED_TARGET_KEYS,
+)
 from vision.utils.frame_source import BagFrameSource, DirFrameSource, open_dir_or_bag
 from vision.utils.stream import MjpegStreamer
+from vision.utils.target_sink import SocketTargetSink
 
 _DICTIONARY = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 _VERTIPORT_FINE_PRESET = str(Path(replay_mod.__file__).parent / "presets" / "vertiport_fine.yaml")
@@ -647,3 +655,242 @@ def test_replay_landing_sm_config_derives_half_hfov_tan_from_calibration():
     logger = logging.getLogger("test_replay_landing_sm_config")
     assert _landing_sm_config(_FakeCalib(), logger).half_hfov_tan == pytest.approx(1.0)
     assert _landing_sm_config(None, logger).half_hfov_tan == pytest.approx(NOMINAL_HALF_HFOV_TAN)
+
+
+# ===========================================================================
+# `--target-sink` 배선 (2026-07-28) — Phase 1 후속 세션이 명시적으로 남긴 갭
+#
+# 🔴 **왜 재생 경로에 반드시 있어야 하는가:** `replay.py`는 Dir/Bag + `telemetry.jsonl`(AGL)
+# 재생이라 **`agl_m`이 실린 `state_hint`를 회귀로 잡을 수 있는 유일한 경로**다 — `main.py`는
+# AGL을 받는 경로가 아예 없어서(`_build_observation(agl_m=None)`) 상태머신이 구조적으로
+# `TERMINAL`까지 가지 못한다. 즉 "착륙 최종단계의 유도 힌트가 소비자에게 실제로 흘러가는가"는
+# 여기서만 검증된다.
+#
+# 정책은 main.py와 **문자 그대로 동일**하다: 같은 CLI 인자 이름 / 기본 꺼짐 / bind 실패는
+# 강등 없는 하드 페일(exit 3).
+# ===========================================================================
+
+
+class _RecordingSocketTargetSink(SocketTargetSink):
+    """발행된 레코드를 그대로 모아두는 진짜 sink(진짜 서버가 뜬다, port=0 임시포트).
+    test_main.py와 같은 수법 — 테스트 파일 간 상호 import를 피해 얇게 중복한다."""
+
+    instances: list = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.records: list[dict] = []
+        _RecordingSocketTargetSink.instances.append(self)
+
+    def publish(self, record: dict) -> None:
+        self.records.append(record)
+        super().publish(record)
+
+
+@pytest.fixture
+def recording_sink_cls(monkeypatch):
+    _RecordingSocketTargetSink.instances = []
+    monkeypatch.setattr(replay_mod, "SocketTargetSink", _RecordingSocketTargetSink)
+    return _RecordingSocketTargetSink
+
+
+def test_replay_target_sink_is_off_by_default_and_never_binds_a_socket(tmp_path, monkeypatch):
+    """opt-in 불변식(main.py와 동일): 켜지 않으면 소켓도 스레드도 안 뜨고 발행 시도조차 없다."""
+    started = []
+    monkeypatch.setattr(
+        replay_mod.SocketTargetSink, "start", lambda self: started.append(True)
+    )
+    rec_dir = _make_aruco_recording_dir(tmp_path, n=2)
+    log_dir = tmp_path / "logs"
+    replay_mod.run_replay(
+        str(rec_dir), _VERTIPORT_FINE_PRESET, display="none", output=None,
+        log_dir=str(log_dir), log_name="nosinkrep",
+    )
+    assert started == [], "--target-sink 미지정인데 소켓 sink가 기동됐다"
+    assert "target sink 발행 실패" not in (log_dir / "nosinkrep.log").read_text()
+
+
+def test_replay_sink_bind_failure_is_a_hard_failure_with_nonzero_exit(
+    tmp_path, monkeypatch, capsys
+):
+    """bind 실패는 강등이 아니라 즉사 — main.py와 **같은 종료코드**여야 한다(정책이 갈리면
+    호출 스크립트가 두 CLI를 다르게 분기해야 하고, 회귀검증 경로로서의 가치가 사라진다).
+    몽키패치 없이 진짜로 포트를 점유해서 확인한다."""
+    squatter = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    squatter.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    squatter.bind(("127.0.0.1", 0))
+    squatter.listen(1)
+    port = squatter.getsockname()[1]
+    try:
+        rec_dir = _make_aruco_recording_dir(tmp_path, n=2)
+        log_dir = tmp_path / "logs"
+        with pytest.raises(SystemExit) as exc:
+            replay_mod.run_replay(
+                str(rec_dir), _VERTIPORT_FINE_PRESET, display="none", output=None,
+                log_dir=str(log_dir), log_name="bindfailrep", target_sink=True,
+                target_sink_port=port,
+            )
+        assert exc.value.code == replay_mod.EXIT_SINK_BIND_FAILED != 0
+        assert str(port) in capsys.readouterr().err, "stderr에 포트 번호가 없다"
+        # 프레임은 한 장도 처리되지 않아야 한다(강등 동작이면 2건이 남는다).
+        jsonl = log_dir / "bindfailrep.jsonl"
+        frames = [json.loads(l) for l in jsonl.read_text().splitlines()] if jsonl.exists() else []
+        assert [r for r in frames if r.get("type") == "frame"] == []
+    finally:
+        squatter.close()
+
+
+def test_replay_agl_drives_state_hints_all_the_way_to_terminal(
+    tmp_path, recording_sink_cls
+):
+    """🔴 이 배선의 합격 기준: **AGL이 실린 재생에서 `state_hint`가 `TERMINAL`까지 진행**한다.
+    (`main.py`는 AGL 경로가 없어 이 상태를 절대 못 만든다 — 이 테스트가 유일하다.)
+    발행 레코드를 직접 관측해 소켓 타이밍에 기대지 않고 결정론적으로 고정한다."""
+    alts = [None, None, None] + [2.0] * 9
+    rec_dir = _make_aruco_recording_dir_with_telemetry(tmp_path, n=12, alts=alts)
+    log_dir = tmp_path / "logs"
+
+    frame_count = replay_mod.run_replay(
+        str(rec_dir), _VERTIPORT_FINE_PRESET, display="none", output=None,
+        log_dir=str(log_dir), log_name="sinkagl", target_sink=True, target_sink_port=0,
+    )
+    assert frame_count == 12
+
+    sink = recording_sink_cls.instances[-1]
+    targets = [r for r in sink.records if r["type"] == RECORD_TYPE_TARGET]
+    hints = [r for r in sink.records if r["type"] == RECORD_TYPE_STATE_HINT]
+    assert len(targets) == 12 and len(hints) == 12, "매 프레임 target 1건 + state_hint 1건"
+    for rec in targets:
+        assert all(k in rec for k in REQUIRED_TARGET_KEYS)
+    for rec in hints:
+        assert all(k in rec for k in REQUIRED_STATE_HINT_KEYS)
+        assert rec["command_is_advisory"] is True
+        assert "command" not in rec       # §6.3 — command는 명령이 아니다
+
+    states = [h["state"] for h in hints]
+    assert "TERMINAL" in states, f"AGL이 실렸는데 TERMINAL 미도달 — 실제 상태열: {states}"
+    assert all(t["valid"] is True for t in targets)
+    seqs = [r["seq"] for r in sink.records]
+    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+
+
+class _GatedSource:
+    """소비자가 붙을 때까지 첫 프레임을 미루는 래퍼 — 실소켓 종단간 테스트를 타이밍이 아니라
+    **결정론**으로 만든다(test_main.py `_GatedVideoReader`와 같은 수법)."""
+
+    gate: threading.Event = threading.Event()
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __enter__(self):
+        self._inner.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        return self._inner.__exit__(*exc)
+
+    def __iter__(self):
+        _GatedSource.gate.wait(20.0)
+        yield from self._inner
+
+
+def test_replay_sink_streams_terminal_state_hints_to_a_stdlib_consumer(tmp_path, monkeypatch):
+    """종단간: 순수 stdlib 소비자(`socket` + `makefile().readline()`, vision 미import)가 실제
+    JSON Lines를 읽고, 그 안에 **AGL로 도달한 `TERMINAL` state_hint**가 실제로 들어 있다.
+    재생 종료 시 EOF까지 확인(§5.4 "프로세스 사망 → 소비자가 EOF 즉시 수신")."""
+    real_open = replay_mod.open_dir_or_bag
+    _GatedSource.gate = threading.Event()
+    monkeypatch.setattr(replay_mod, "open_dir_or_bag", lambda p: _GatedSource(real_open(p)))
+
+    alts = [None, None, None] + [2.0] * 9
+    rec_dir = _make_aruco_recording_dir_with_telemetry(tmp_path, n=12, alts=alts)
+    port = 18101
+    errors: list = []
+    result: dict = {}
+
+    def _run():
+        try:
+            result["n"] = replay_mod.run_replay(
+                str(rec_dir), _VERTIPORT_FINE_PRESET, display="none", output=None,
+                log_dir=str(tmp_path / "logs"), log_name="e2erep",
+                target_sink=True, target_sink_port=port,
+            )
+        except BaseException as e:      # noqa: BLE001 - 스레드 예외를 테스트로 전달
+            errors.append(e)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    try:
+        conn = None
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline and conn is None:
+            try:
+                conn = socket.create_connection(("127.0.0.1", port), timeout=5.0)
+            except OSError:
+                time.sleep(0.01)
+        assert conn is not None, "sink 서버에 접속하지 못했다"
+
+        with conn:
+            _GatedSource.gate.set()          # 이제 프레임이 흐른다
+            conn.settimeout(20.0)
+            f = conn.makefile("r", encoding="utf-8")
+            lines = []
+            while True:                      # EOF까지 읽는다(=재생 종료)
+                line = f.readline()
+                if line == "":
+                    break
+                lines.append(line)
+
+        t.join(timeout=20.0)
+        assert not t.is_alive() and not errors, f"run_replay가 정상 종료하지 않음: {errors}"
+        assert result.get("n") == 12
+
+        assert all(l.endswith("\n") for l in lines), "JSONL 프레이밍(한 줄=한 레코드) 위반"
+        records = [json.loads(l) for l in lines]
+        hints = [r for r in records if r["type"] == RECORD_TYPE_STATE_HINT]
+        targets = [r for r in records if r["type"] == RECORD_TYPE_TARGET]
+        assert targets and hints
+        assert "TERMINAL" in [h["state"] for h in hints], (
+            f"실소켓으로 받은 state_hint에 TERMINAL이 없다: {[h['state'] for h in hints]}"
+        )
+        assert all(len(t_["position_frd"]) == 3 for t_ in targets)
+        seqs = [r["seq"] for r in records]
+        assert seqs == sorted(seqs), "seq가 단조증가가 아니다(순서가 뒤바뀌었다)"
+    finally:
+        _GatedSource.gate.set()
+        t.join(timeout=10.0)
+
+
+def test_replay_display_none_never_draws_the_sink_overlay(tmp_path, monkeypatch):
+    """헤드리스 기본 경로에서 오버레이 비용은 0(main.py와 동일 계약)."""
+    calls = []
+    monkeypatch.setattr(replay_mod, "draw_sink_status", lambda *a, **k: calls.append(k))
+    rec_dir = _make_aruco_recording_dir(tmp_path, n=2)
+    replay_mod.run_replay(
+        str(rec_dir), _VERTIPORT_FINE_PRESET, display="none", output=None,
+        log_dir=str(tmp_path / "logs"), log_name="ovnonerep",
+        target_sink=True, target_sink_port=0,
+    )
+    assert calls == [], "--display none 인데 오버레이를 그렸다"
+
+
+def test_replay_display_stream_draws_the_sink_overlay_with_live_counters(tmp_path, monkeypatch):
+    """`--display`가 켜지면 매 프레임 오버레이를 그리고, 실제 sink 카운터가 실려야 한다."""
+    seen = []
+    real = replay_mod.draw_sink_status
+
+    def _spy(image, **kwargs):
+        seen.append(kwargs)
+        return real(image, **kwargs)
+
+    monkeypatch.setattr(replay_mod, "draw_sink_status", _spy)
+    rec_dir = _make_aruco_recording_dir(tmp_path, n=3)
+    replay_mod.run_replay(
+        str(rec_dir), _VERTIPORT_FINE_PRESET, display="stream", output=None,
+        log_dir=str(tmp_path / "logs"), log_name="ovstreamrep", stream_port=0,
+        target_sink=True, target_sink_port=0,
+    )
+    assert len(seen) == 3
+    assert all(k["enabled"] is True and k["consumers"] == 0 for k in seen)
+    assert [k["seq"] for k in seen] == [2, 4, 6], "발행 seq가 화면에 반영되지 않는다"

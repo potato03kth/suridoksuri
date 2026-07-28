@@ -302,8 +302,24 @@ class SocketTargetSink(TargetSink):
 
     @property
     def client_count(self) -> int:
+        """현재 접속해 있는 소비자 수.
+
+        ⚠️ **락이 필수다** — 이 목록은 accept 스레드가 추가하고 send 스레드가(죽은 소비자를
+        정리하며) 제거한다. 파이프라인 스레드가 화면 오버레이(`utils/visualize.py::
+        draw_sink_status`)를 그리려고 매 프레임 읽는 값이라 스레드 교차 접근이 상시 일어난다.
+        """
         with self._clients_lock:
             return len(self._clients)
+
+    @property
+    def last_seq(self) -> int:
+        """마지막으로 발급된 `seq`(= 지금까지 조립한 레코드 수). 0이면 아직 한 건도 없다.
+
+        화면 오버레이가 "발행이 실제로 돌고 있는가"를 보여주는 값이다 — 프레임이 넘어가는데
+        이 숫자가 멈춰 있으면 발행이 죽은 것이다. `next_seq()`와 같은 락을 쓴다.
+        """
+        with self._seq_lock:
+            return self._seq
 
     # ---------- 파이프라인 스레드에서 호출 (비차단) ----------
 

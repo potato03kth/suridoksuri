@@ -29,6 +29,7 @@ from vision.core.wire import (
 )
 from vision.utils.frame_source import FrameRecord
 from vision.utils.target_sink import SocketTargetSink
+from vision.utils.visualize import SINK_OVERLAY_ALERT_COLOR, SINK_OVERLAY_OFF_COLOR
 
 _DICTIONARY = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 _VERTIPORT_FINE_PRESET = str(Path(main_mod.__file__).parent / "presets" / "vertiport_fine.yaml")
@@ -840,8 +841,24 @@ def test_sink_exceptions_never_stop_the_detection_pipeline(tmp_path, monkeypatch
     )
 
 
-def test_sink_bind_failure_degrades_to_nullsink_and_keeps_detecting(tmp_path, monkeypatch):
-    """기동(bind) 실패도 검출을 죽이지 않는다 — NullSink로 강등하고 계속 간다(시끄럽게)."""
+# ---------------------------------------------------------------------------
+# 🔴 기동(bind) 실패 = 하드 페일 (2026-07-28 사용자 결정 — 계약이 **뒤집혔다**)
+#
+# 이전 계약: bind 실패 시 `NullSink`로 **강등**하고 검출을 계속한다
+#   (테스트 `test_sink_bind_failure_degrades_to_nullsink_and_keeps_detecting`, 폐기됨).
+# 새 계약: **즉시 죽는다**(종료코드 3, stderr에 포트 포함).
+#
+# 사용자 판단의 근거는 `--display`와 `--target-sink`가 완전히 독립이라는 사실이다 —
+# 강등하면 "화면은 멀쩡히 뜨고 검출도 되는데 유도 좌표만 아무 데도 안 나가는" 상태로
+# 계속 돌게 되고, 디버깅이 활발한 지금 그건 최악이다. `--target-sink`를 **명시적으로**
+# 준 실행에서 조용히 안 켜지느니 죽는 편이 낫다.
+# ⚠️ 이 뒤집힘은 **기동(bind)에만** 적용된다 — 발행(publish) 중 예외는 여전히 삼킨다
+#   (`test_sink_exceptions_never_stop_the_detection_pipeline`가 그대로 살아 있다).
+# ---------------------------------------------------------------------------
+
+
+def test_sink_bind_failure_is_a_hard_failure_with_nonzero_exit(tmp_path, monkeypatch, capsys):
+    """bind 실패는 강등이 아니라 **즉사**다 — 종료코드가 0이 아니고 stderr에 포트가 보인다."""
     monkeypatch.setattr(
         main_mod.SocketTargetSink,
         "start",
@@ -856,11 +873,196 @@ def test_sink_bind_failure_degrades_to_nullsink_and_keeps_detecting(tmp_path, mo
             "--log-name", "bindfail", *_sink_args("8091"),
         ],
     )
-    main_mod.main()  # SystemExit/OSError로 죽으면 안 된다
+    with pytest.raises(SystemExit) as exc:
+        main_mod.main()
 
-    records = [json.loads(l) for l in (log_dir / "bindfail.jsonl").read_text().splitlines()]
-    assert len(records) == 1, "sink 기동 실패로 검출 파이프라인이 죽었다"
+    assert exc.value.code == main_mod.EXIT_SINK_BIND_FAILED != 0, (
+        "bind 실패인데 0으로 끝났다 — 호출 스크립트가 성공으로 오인한다"
+    )
+    err = capsys.readouterr().err
+    assert "8091" in err, "stderr에 포트 번호가 없으면 포트 충돌을 한눈에 못 본다"
+    assert "bind" in err.lower()
     assert "target sink 기동 실패" in (log_dir / "bindfail.log").read_text()
+    # 프레임은 한 장도 처리되지 않아야 한다(강등돼 계속 도는 옛 동작이면 1건이 남는다).
+    jsonl = log_dir / "bindfail.jsonl"
+    frames = [
+        json.loads(l) for l in jsonl.read_text().splitlines()
+    ] if jsonl.exists() else []
+    assert [r for r in frames if r.get("type") == "frame"] == [], (
+        "sink가 안 떴는데 검출이 계속됐다 — 강등 동작이 되살아났다"
+    )
+
+
+def test_sink_bind_failure_on_a_really_occupied_port_exits_nonzero(tmp_path, monkeypatch, capsys):
+    """몽키패치 없이 **진짜로 포트를 점유**한 뒤 실행 — 실제 운용에서 겪는 그대로."""
+    squatter = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    squatter.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    squatter.bind(("127.0.0.1", 0))
+    squatter.listen(1)
+    port = squatter.getsockname()[1]
+    try:
+        img_path = _write_image(tmp_path)
+        monkeypatch.setattr(
+            sys, "argv",
+            [
+                "vision.main", img_path, "--log-dir", str(tmp_path / "logs"),
+                "--log-name", "portclash", *_sink_args(str(port)),
+            ],
+        )
+        with pytest.raises(SystemExit) as exc:
+            main_mod.main()
+        assert exc.value.code != 0
+        assert str(port) in capsys.readouterr().err
+    finally:
+        squatter.close()
+
+
+def test_sink_bind_failure_still_closes_blackbox(tmp_path, monkeypatch):
+    """리소스 leak 회귀(`test_streamer_start_failure_still_closes_blackbox`와 같은 계약):
+    하드 페일로 죽더라도 blackbox 큐 스레드/파일 핸들은 반드시 정리돼야 한다 —
+    `_make_target_sink` 호출이 `try/finally` 밖으로 나가면 이 테스트가 red가 된다."""
+    closed = []
+    real_close = main_mod.BlackBoxLogger.close
+    monkeypatch.setattr(
+        main_mod.BlackBoxLogger, "close",
+        lambda self, *a, **kw: (closed.append(True), real_close(self, *a, **kw))[1],
+    )
+    monkeypatch.setattr(
+        main_mod.SocketTargetSink,
+        "start",
+        lambda self: (_ for _ in ()).throw(OSError("address already in use")),
+    )
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", _write_image(tmp_path), "--log-dir", str(tmp_path / "logs"),
+            "--log-name", "bindfailclose", *_sink_args("8091"),
+        ],
+    )
+    with pytest.raises(SystemExit):
+        main_mod.main()
+    assert closed == [True], "하드 페일 경로에서 blackbox.close()가 안 불렸다(리소스 leak)"
+
+
+# ---------------------------------------------------------------------------
+# 유도 발행 상태 화면 오버레이 (2026-07-28 사용자 요구 "화면에도 보이도록")
+#
+# bind 실패는 위에서 즉사시켜 막지만, **bind는 됐는데 소비자가 0명**인 경우는 죽일 수 없다
+# (시작 직후엔 소비자가 아직 안 붙는 게 정상). 그게 진짜 사각지대다 — 화면도 뜨고 검출도
+# 되는데 유도 좌표는 허공으로 간다. 그래서 발행 상태를 화면에 상시 노출한다.
+#
+# ⚠️ 여기서는 헤드리스라 창을 못 띄운다 → **`--display file`로 저장된 프레임의 픽셀**을 봐서
+#    "화면에 실제로 그려진다"를 증명한다(창이 없는 `--display file`에선 그 파일이 곧 화면이다).
+# ---------------------------------------------------------------------------
+
+_ALERT = SINK_OVERLAY_ALERT_COLOR
+_OFF = SINK_OVERLAY_OFF_COLOR
+
+
+def _count_colour(img: np.ndarray, bgr) -> int:
+    return int(np.count_nonzero(np.all(img == np.array(bgr, dtype=np.uint8), axis=2)))
+
+
+def test_display_none_never_draws_the_sink_overlay(tmp_path, monkeypatch):
+    """🔴 드론 기본 경로(`--display none`)에서 오버레이 비용은 **정확히 0**이어야 한다 —
+    §7.9 헤드리스 전제. 게이팅을 지우면(항상 그리면) 이 테스트가 red가 된다."""
+    calls = []
+    monkeypatch.setattr(main_mod, "draw_sink_status", lambda *a, **k: calls.append(k))
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", _write_image(tmp_path), "--log-dir", str(tmp_path / "logs"),
+            *_sink_args(),
+        ],
+    )
+    main_mod.main()
+    assert calls == [], "--display none 인데 오버레이를 그렸다(헤드리스 경로에 비용이 붙었다)"
+
+
+def test_display_file_draws_the_sink_overlay_into_the_saved_frame(
+    tmp_path, monkeypatch, recording_sink_cls
+):
+    """`--display file`은 창이 없으므로 저장된 프레임이 곧 화면이다 — 거기에 실제로 그려진
+    픽셀이 있어야 하고, `--display none` 저장본과 **달라야** 한다(같으면 안 그려진 것)."""
+    img_path = _write_image(tmp_path)
+    out_none = tmp_path / "none.png"
+    out_file = tmp_path / "file.png"
+
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", img_path, "--output", str(out_none),
+            "--log-dir", str(tmp_path / "logs"), "--log-name", "ovnone", *_sink_args(),
+        ],
+    )
+    main_mod.main()
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", img_path, "--display", "file", "--output", str(out_file),
+            "--log-dir", str(tmp_path / "logs"), "--log-name", "ovfile", *_sink_args(),
+        ],
+    )
+    main_mod.main()
+
+    a, b = cv2.imread(str(out_none)), cv2.imread(str(out_file))
+    assert a is not None and b is not None
+    assert a.shape == b.shape
+    assert not np.array_equal(a, b), "--display file 저장본에 오버레이가 안 그려졌다"
+    # 소비자가 0명인 실행이므로 경고색이 실제 픽셀로 찍혀 있어야 한다.
+    assert _count_colour(b, _ALERT) > 0, "소비자 0명인데 화면에 경고가 안 보인다"
+    assert _count_colour(a, _ALERT) == 0, "--display none 저장본이 오염됐다"
+
+
+def test_sink_off_is_also_visible_on_screen(tmp_path, monkeypatch):
+    """`--target-sink` 미지정도 "유도 좌표가 아무 데도 안 나간다"는 같은 사실이므로 화면에
+    보여야 한다 — 다만 운영자의 명시적 선택이라 경고색이 아니라 OFF색으로 구분한다."""
+    out = tmp_path / "off.png"
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", _write_image(tmp_path), "--display", "file", "--output", str(out),
+            "--log-dir", str(tmp_path / "logs"), "--log-name", "ovoff",
+        ],
+    )
+    main_mod.main()
+    img = cv2.imread(str(out))
+    assert _count_colour(img, _OFF) > 0, "sink가 꺼져 있다는 사실이 화면에 안 보인다"
+    assert _count_colour(img, _ALERT) == 0, "꺼짐과 소비자0을 같은 색으로 그리면 구분이 안 된다"
+
+
+def test_overlay_reports_live_sink_counters_not_hardcoded_zeros(
+    tmp_path, monkeypatch, recording_sink_cls
+):
+    """오버레이가 **실제 sink 카운터**를 읽는지 — 하드코딩된 0을 그리면 통과하면 안 된다.
+    영상 6프레임을 돌리면 seq가 12(target+state_hint)까지 올라가 있어야 한다."""
+    seen = []
+    real = main_mod.draw_sink_status
+
+    def _spy(image, **kwargs):
+        seen.append(kwargs)
+        return real(image, **kwargs)
+
+    monkeypatch.setattr(main_mod, "draw_sink_status", _spy)
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", _write_aruco_video(tmp_path, n_frames=6), "--preset",
+            _VERTIPORT_FINE_PRESET, "--display", "file", "--output", str(tmp_path / "ov.mp4"),
+            "--log-dir", str(tmp_path / "logs"), "--log-name", "ovlive", *_sink_args(),
+        ],
+    )
+    main_mod.main()
+
+    assert len(seen) == 6, "프레임마다 한 번씩 그려야 한다"
+    assert all(k["enabled"] is True for k in seen)
+    assert all(k["consumers"] == 0 for k in seen), "붙은 소비자가 없는데 0이 아니다"
+    assert [k["seq"] for k in seen] == [2, 4, 6, 8, 10, 12], (
+        "발행 seq가 화면에 반영되지 않는다(하드코딩이거나 발행 전에 그렸다)"
+    )
+    assert all(k["dropped"] == 0 for k in seen)
+    sink = recording_sink_cls.instances[-1]
+    assert all(k["endpoint"] == f"{sink.host}:{sink.port}" for k in seen)
 
 
 class _FakeLiveSourceSigtermAfter2FramesWithSink(_FakeLiveSourceSigtermAfter2Frames):
