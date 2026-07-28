@@ -19,6 +19,41 @@ v3.2 → v3.3 핵심 변경:
     np.gradient divide-by-zero(NaN setpoint)로 offboard 경로추종이 시작되지
     못하던 실기체 결함의 근본 수정. min_wp_chord(기본 0.1 m)로 병합 임계.
   • 경고 print에 flush=True — ros2 launch 파이프 버퍼링에서도 실시간 출력.
+
+v3.3 → v3.4 핵심 변경 (2026-07-29, F-12 플래너 블로킹):
+  • [PERF] `_solve_g2_nr` 의 계산량 중 **결과에 영향을 주지 않는 부분**을
+    제거했다. 출력 경로는 그대로다(10개 시나리오 최대 위치차 1.4e-6 m).
+      L자 3WP  v_cruise=18 : 19.59 s → 0.126 s (155배)
+      폐회로 5WP v_cruise=18 : 110.7 s → 0.404 s (274배)
+    세 가지였다:
+      1) 야코비안이 **대역폭 5의 띠행렬**인데 열마다 전체 잔차를 다시 계산했다
+         (N=33 에서 9024칸 중 비영 403칸). → `_jacobian_fd` 로 희소 계산,
+         조밀 계산과 **비트 단위 동일**(`_seg_deps` 로 의존 블록 판정).
+      2) `max_iter=60` 을 매번 전량 소진했다. 이 잔차계는 방정식 3(N−1)개에
+         미지수 3N−5개로 **2개 과결정**이라 정확해가 없고 `|F| < tol` 이
+         원리적으로 도달 불가인데, 기존 정체 판정이 `norm_F < 10*tol` 을
+         and 조건으로 걸고 있어 영원히 발동하지 않았다. 실측상 |F| 는 10회에서
+         멈춘다(31.73 → … → 11.6303 이후 불변). → 상대개선율 기반 정체 판정 +
+         선탐색 실패(하강방향 아님) 시 종료.
+      3) `clip_attempts` 3회 재시도가 완전히 헛돌았다 — 세그먼트 길이배율 v 가
+         경계 (-0.5, 1.2) 에 한 번도 닿지 않아(실측 v∈[-0.06, 0.004]) 세 번의
+         |F| 가 소수점 15자리까지 같았다. → clip 이 실제로 걸린 적이 있을
+         때만 재시도(`clip_hit`).
+    회귀 테스트: `tests/test_eta3_v3_nr_cost.py` (판정 기준은 벽시계가 아니라
+    결정적인 `_fresnel_endpoint` 호출 수).
+
+  ⚠️ 아직 남은 **알고리즘 결함**(이번 변경 범위 밖 — 경로가 바뀌므로 별도 결정):
+    • `_insert_wps_if_infeasible` 의 이등분 삽입은 판정식
+      `k_need = 2Δθ/chord` 를 **바꾸지 못한다** — 중점을 넣으면 Δθ 와 chord 가
+      함께 절반이 되어 k_need 가 불변이다(실측: 4패스 내내 0.007854 고정,
+      위반 세그먼트만 2→4→8→16→32). 그래서 한 번 발동하면 항상 max_insert 를
+      다 태워 N 이 16배가 되고, 삽입점이 폴리라인 **위에** 놓이므로 경로가
+      폴리라인에 못박혀 선회가 조인트 한 곳의 꺾임으로 몰린다
+      (v_cruise=18 L자: max_insert 0→4 에서 폴리라인 이탈 15.06 m → 0.15 m,
+      |κ|max 0.490 → 1.247, 헤딩 점프 46.7° → 85.9°).
+    • 위 2)의 2개 과결정 때문에 NR 은 원리적으로 잔차 0 에 못 간다
+      (실측 pos 잔차 5~36 m). affine 보정이 WP 통과만 살려낼 뿐,
+      세그먼트 조인트마다 접선이 꺾여 |κ| 가 한계의 50~161배로 튄다.
 """
 from __future__ import annotations
 import time
@@ -146,8 +181,17 @@ _V_CLIP_HI_DEFAULT = 1.2
 def _unpack(x: np.ndarray, N: int,
             theta_bc: tuple, kappa_bc: tuple,
             kappa_max: float, chords: np.ndarray,
-            v_lo: float, v_hi: float
+            v_lo: float, v_hi: float,
+            clip_hit: list | None = None
             ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """설계변수 x 를 (θ, κ, L) 로 푼다.
+
+    `clip_hit` 이 주어지면 세그먼트 길이배율 v 가 [v_lo, v_hi] 밖으로 나가
+    `np.clip` 이 실제로 값을 바꾼 적이 있는지를 `clip_hit[0]` 에 기록한다.
+    한 번도 걸리지 않았다면 **더 넓은 clip 으로 다시 푸는 것은 같은 함수를
+    같은 초기값에서 다시 푸는 것**이라 결과가 비트 단위로 같다 —
+    `_solve_g2_nr` 의 재시도 생략 판정에 쓴다.
+    """
     n_inner = N - 2
     n_segs = N - 1
     th = np.empty(N)
@@ -158,8 +202,23 @@ def _unpack(x: np.ndarray, N: int,
         th[1:-1] = x[0:n_inner]
         kp[1:-1] = kappa_max * np.tanh(x[n_inner:2 * n_inner])
     v = x[2 * n_inner:2 * n_inner + n_segs]
+    if clip_hit is not None and not clip_hit[0]:
+        if v.size and (float(np.min(v)) < v_lo or float(np.max(v)) > v_hi):
+            clip_hit[0] = True
     Ls = np.maximum(chords * np.exp(np.clip(v, v_lo, v_hi)), 1e-3)
     return th, kp, Ls
+
+
+def _seg_residual(th: np.ndarray, kp: np.ndarray, Ls: np.ndarray,
+                  wps: np.ndarray, w_head: float, k: int,
+                  n_quad: int = 100) -> tuple[float, float, float]:
+    """세그먼트 k 의 잔차 3성분. `_residual` 이 블록마다 부르는 것과 같은 식."""
+    p = _fresnel_endpoint(th[k], kp[k], kp[k + 1], Ls[k], n_quad)
+    target = wps[k + 1] - wps[k]
+    th_end = th[k] + 0.5 * (kp[k] + kp[k + 1]) * Ls[k]
+    return (p[0] - target[0],
+            p[1] - target[1],
+            w_head * _wrap(th_end - th[k + 1]))
 
 
 def _residual(x: np.ndarray,
@@ -169,20 +228,62 @@ def _residual(x: np.ndarray,
               chords: np.ndarray,
               w_head: float,
               v_lo: float, v_hi: float,
-              n_quad: int = 100) -> np.ndarray:
+              n_quad: int = 100,
+              clip_hit: list | None = None) -> np.ndarray:
     N = len(wps)
     n_segs = N - 1
     th, kp, Ls = _unpack(x, N, theta_bc, kappa_bc,
-                         kappa_max, chords, v_lo, v_hi)
+                         kappa_max, chords, v_lo, v_hi, clip_hit)
     F = np.empty(3 * n_segs)
     for k in range(n_segs):
-        p = _fresnel_endpoint(th[k], kp[k], kp[k + 1], Ls[k], n_quad)
-        target = wps[k + 1] - wps[k]
-        F[3 * k] = p[0] - target[0]
-        F[3 * k + 1] = p[1] - target[1]
-        th_end = th[k] + 0.5 * (kp[k] + kp[k + 1]) * Ls[k]
-        F[3 * k + 2] = w_head * _wrap(th_end - th[k + 1])
+        F[3 * k], F[3 * k + 1], F[3 * k + 2] = _seg_residual(
+            th, kp, Ls, wps, w_head, k, n_quad)
     return F
+
+
+def _seg_deps(j: int, n_inner: int, n_segs: int) -> tuple[int, ...]:
+    """설계변수 x[j] 가 영향을 주는 세그먼트(잔차 블록) 인덱스.
+
+    잔차 블록 k 는 (θ_k, θ_{k+1}, κ_k, κ_{k+1}, L_k) 에만 의존한다 —
+    즉 야코비안은 **대역폭 5의 띠행렬**이고, x[j] 하나를 흔들었을 때
+    변하는 행은 최대 2블록(6행)뿐이다. 나머지 행은 유한차분식
+    `(f(x+εe_j) − f(x))/ε` 의 분자가 **비트 단위로 0** 이므로 정확히 0이다.
+    따라서 이 희소성을 쓴 야코비안은 조밀 계산과 비트 단위로 같고,
+    Fresnel 적분 호출을 O(N²) → O(N) 으로 줄인다.
+    """
+    if j < n_inner:                     # θ_{j+1}  → 블록 j, j+1
+        cand = (j, j + 1)
+    elif j < 2 * n_inner:               # κ_{i+1}  → 블록 i, i+1
+        i = j - n_inner
+        cand = (i, i + 1)
+    else:                               # L_k      → 블록 k
+        cand = (j - 2 * n_inner,)
+    return tuple(k for k in cand if 0 <= k < n_segs)
+
+
+def _jacobian_fd(x: np.ndarray, F: np.ndarray, args: tuple,
+                 eps_jac: float, n_quad: int = 100) -> np.ndarray:
+    """희소성을 이용한 전방 유한차분 야코비안 (조밀 계산과 비트 단위 동일)."""
+    (wps, theta_bc, kappa_bc, kappa_max, chords, w_head, v_lo, v_hi) = args
+    N = len(wps)
+    n_segs = N - 1
+    n_inner = N - 2
+    n_j = len(x)
+    J = np.zeros((3 * n_segs, n_j))
+    for j in range(n_j):
+        ks = _seg_deps(j, n_inner, n_segs)
+        if not ks:
+            continue
+        xp = x.copy()
+        xp[j] += eps_jac
+        th, kp, Ls = _unpack(xp, N, theta_bc, kappa_bc,
+                             kappa_max, chords, v_lo, v_hi)
+        for k in ks:
+            r = _seg_residual(th, kp, Ls, wps, w_head, k, n_quad)
+            J[3 * k, j] = (r[0] - F[3 * k]) / eps_jac
+            J[3 * k + 1, j] = (r[1] - F[3 * k + 1]) / eps_jac
+            J[3 * k + 2, j] = (r[2] - F[3 * k + 2]) / eps_jac
+    return J
 
 
 def _solve_g2_nr(wps: np.ndarray,
@@ -192,7 +293,9 @@ def _solve_g2_nr(wps: np.ndarray,
                  th_init_full: np.ndarray | None = None,
                  max_iter: int = 60, tol: float = 1e-5,
                  eps_jac: float = 1e-6,
-                 verbose: bool = False
+                 verbose: bool = False,
+                 stall_rtol: float = 1e-6,
+                 stall_patience: int = 2
                  ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
     N = len(wps)
     n_segs = N - 1
@@ -236,10 +339,12 @@ def _solve_g2_nr(wps: np.ndarray,
         x[2 * n_inner:] = 0.0
 
         args = (wps, theta_bc, kappa_bc, kappa_max, chords, w_head, v_lo, v_hi)
+        clip_hit = [False]
         prev_norm = np.inf
+        stall = 0
 
         for it in range(max_iter):
-            F = _residual(x, *args)
+            F = _residual(x, *args, clip_hit=clip_hit)
             norm_F = float(np.linalg.norm(F))
 
             if verbose:
@@ -256,12 +361,8 @@ def _solve_g2_nr(wps: np.ndarray,
             if norm_F < tol:
                 break
 
-            m_j, n_j = len(F), len(x)
-            J = np.zeros((m_j, n_j))
-            for j in range(n_j):
-                xp = x.copy()
-                xp[j] += eps_jac
-                J[:, j] = (_residual(xp, *args) - F) / eps_jac
+            J = _jacobian_fd(x, F, args, eps_jac)
+            n_j = len(x)
 
             try:
                 lam = 1e-8 * np.trace(J.T @ J) / max(n_j, 1)
@@ -276,15 +377,38 @@ def _solve_g2_nr(wps: np.ndarray,
 
             c_armijo = 1e-4
             step = 1.0
+            ls_ok = False
             for _bt in range(20):
-                if np.linalg.norm(_residual(x + step * dx, *args)) \
+                if np.linalg.norm(_residual(x + step * dx, *args,
+                                            clip_hit=clip_hit)) \
                         <= (1.0 - c_armijo * step) * norm_F:
+                    ls_ok = True
                     break
                 step *= 0.5
+            if not ls_ok:
+                # 20회 반감(step≈1e-6)해도 Armijo 감소를 못 얻었다 = dx 는 이
+                # 지점에서 하강방향이 아니다. 원본은 그래도 step·dx 를 더하고
+                # 남은 반복을 전부 소진했지만, 그 갱신량은 |dx|의 1e-6 배라
+                # 잔차를 바꾸지 못한다(실측: it≥10 이후 |F| 가 1e-10 이내로
+                # 고정). 여기서 끊는다.
+                break
             x += step * dx
 
-            if abs(prev_norm - norm_F) < 1e-10 and norm_F < 10 * tol:
-                break
+            # ── 정체 판정 ────────────────────────────────────────────
+            # 원래 조건 `abs(prev-cur)<1e-10 and norm_F < 10*tol` 은 **해가
+            # 존재할 때만** 성립한다. 이 문제는 방정식 3(N−1)개에 미지수
+            # 3N−5개로 **2개 과결정**이라 일반적으로 정확해가 없고 |F| 가
+            # tol 에 도달하지 못한다 → 두 번째 절이 영원히 거짓 → 매번
+            # max_iter 를 다 태웠다. 최소제곱 최소점에 앉은 것도 수렴이므로
+            # **상대 개선율**로 판정한다.
+            if np.isfinite(prev_norm):
+                denom = max(prev_norm, 1e-300)
+                if (prev_norm - norm_F) / denom < stall_rtol:
+                    stall += 1
+                    if stall >= stall_patience:
+                        break
+                else:
+                    stall = 0
             prev_norm = norm_F
 
         F_final = _residual(x, *args)
@@ -293,6 +417,14 @@ def _solve_g2_nr(wps: np.ndarray,
             best = (norm_final, x.copy(), v_lo, v_hi)
 
         if norm_final < tol:
+            break
+
+        if not clip_hit[0]:
+            # 세그먼트 길이배율이 clip 경계에 **한 번도** 닿지 않았다면 더 넓은
+            # clip 은 같은 함수를 같은 초기값에서 다시 푸는 것이라 궤적이
+            # 비트 단위로 같다. 실측(v_cruise 17/18, N=33): v∈[-0.06, 0.004]
+            # 로 경계 (-0.5, 1.2) 근처에도 못 가고 attempt 0/1/2 의 |F| 가
+            # 소수점 15자리까지 동일했다 → 재시도 2회는 순수 3배 낭비였다.
             break
 
     norm_best, x_best, v_lo_best, v_hi_best = best
