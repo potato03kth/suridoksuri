@@ -17,6 +17,8 @@ from vision.core.state_machine import (
     LandingStateMachine,
     NOMINAL_HALF_HFOV_TAN,
     Observation,
+    TERMINAL_COMMIT_DRIFT_M_DEFAULT,
+    TERMINAL_COMMIT_DRIFT_MEASURED,
     half_hfov_tan_from_calibration,
 )
 
@@ -145,12 +147,17 @@ def test_hold_recovers_when_candidate_reacquired():
 
 
 # ===========================================================================
-# 3. TERMINAL 블라인드 지속시간 초과 → 재상승(ABORT_ASCEND) — §5.1이 "핵심"이라 명시
+# 3. TERMINAL 블라인드 — [2026-07-28] 기조 전환으로 **재상승하지 않는다**
+#
+#    옛 동작(블라인드 초과/드리프트 초과 → ABORT_ASCEND)은 삭제된 게 아니라
+#    `allow_terminal_abort_ascend=True` 뒤로 옮겨졌다. 아래 3-A가 옛 동작(레거시 게이트),
+#    3-B가 새 기본 동작, 3-C가 둘 사이의 등가성/분리 회귀다.
 # ===========================================================================
 
 
-def test_terminal_blind_duration_exceeded_triggers_abort_ascend():
-    cfg = LandingSMConfig(max_blind_duration_s=2.0)
+def test_legacy_terminal_blind_duration_exceeded_triggers_abort_ascend():
+    """옛 동작 — `allow_terminal_abort_ascend=True`로만 도달한다(§5.1 갱신 서술)."""
+    cfg = LandingSMConfig(max_blind_duration_s=2.0, allow_terminal_abort_ascend=True)
     sm = LandingStateMachine(cfg)
     for o in _normal_sequence_observations():
         d = sm.update(o)
@@ -192,10 +199,11 @@ def test_terminal_visual_reacquisition_resets_blind_timer():
     assert d.state == LandingState.TERMINAL  # 리셋 안 됐으면 누적 1.6초로 여기서 이미 초과했을 것
 
 
-def test_terminal_drift_estimate_exceeded_triggers_abort_ascend():
-    """§5.1 "예상 착륙점 이탈 임계" — 블라인드 지속시간이 아직 안 찼어도 마지막 유효
-    중심오차x고도로 추정한 이탈이 임계를 넘으면 즉시 재상승해야 한다."""
-    cfg = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.5)
+def test_legacy_terminal_drift_estimate_exceeded_triggers_abort_ascend():
+    """옛 동작 — §5.1 "예상 착륙점 이탈 임계"가 `ABORT_ASCEND`를 내던 그 경로.
+    `allow_terminal_abort_ascend=True`로만 도달한다."""
+    cfg = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.5,
+                          allow_terminal_abort_ascend=True)
     sm = LandingStateMachine(cfg)
     # 마지막 유효 관측이 중심오차 크고 고도 낮은 상태로 TERMINAL 진입하도록 직접 구성.
     sm.update(_obs(0.0, 0, n_candidates=1, center_error_norm=0.5, fine_locked=True))
@@ -373,7 +381,8 @@ def test_drift_estimate_includes_tan_half_hfov_term():
     e=0.5, AGL=2.0 -> 옛 식 1.000 / 새 식 0.767. 임계를 그 사이(0.9)에 두면
     tan 항이 빠지는 순간 red 가 된다.
     """
-    cfg = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.9)
+    cfg = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.9,
+                          allow_terminal_abort_ascend=True)
     sm = _terminal_sm_with_last_obs(cfg, center_error_norm=0.5, agl_m=2.0)
     d = sm.update(_obs(0.5, 5, n_candidates=0))
     assert d.state == LandingState.TERMINAL, "tan(HFOV/2) 항이 빠져 게이트가 과발동했다"
@@ -385,11 +394,13 @@ def test_drift_estimate_actually_consumes_half_hfov_tan_config():
     계수만 바꿔 결과가 뒤집혀야 한다."""
     obs_kwargs = dict(center_error_norm=0.5, agl_m=2.0)
 
-    wide = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.9, half_hfov_tan=2.0)
+    wide = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.9, half_hfov_tan=2.0,
+                           allow_terminal_abort_ascend=True)
     d = _terminal_sm_with_last_obs(wide, **obs_kwargs).update(_obs(0.5, 5, n_candidates=0))
     assert d.state == LandingState.ABORT_ASCEND  # 0.5*2.0*2.0 = 2.0 > 0.9
 
-    narrow = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.9, half_hfov_tan=0.1)
+    narrow = LandingSMConfig(max_blind_duration_s=100.0, max_drift_estimate_m=0.9, half_hfov_tan=0.1,
+                             allow_terminal_abort_ascend=True)
     d = _terminal_sm_with_last_obs(narrow, **obs_kwargs).update(_obs(0.5, 5, n_candidates=0))
     assert d.state == LandingState.TERMINAL      # 0.5*2.0*0.1 = 0.1 < 0.9
 
@@ -427,3 +438,320 @@ def test_fix_did_not_loosen_the_safety_gate():
         f"게이트가 헐거워졌다: 새 발동점 e*AGL>{trip_at:.4f} > 옛 발동점 1.0. "
         "식을 고쳤으면 max_drift_estimate_m 도 같이 내려야 한다."
     )
+
+
+# ===========================================================================
+# TERMINAL 밀어붙이기 기조 전환 (2026-07-28, 사용자 확정)
+#
+# "실패해도 다시 시도한다"(재상승) -> "최종적으로 실패하더라도 마지막 값으로 밀어붙인다".
+# 단 무제한이 아니다 — 매트가 0.105m 라이즈드 구조물이라 가장자리에 걸치면 전복(진짜 사고)이다.
+# 설계·기각한 대안·기존 `closed_loop_floor_agl_m` 계약과의 대조는
+# `docs/vision_plan.md` §5.1/§8 과 `core/state_machine.py` TERMINAL 분기 주석 참조.
+#
+# ⚠️ 아래 테스트들은 **일부러 `LandingSMConfig()`의 기본값을 밟는다.** 이 저장소는 테스트가
+#    모든 필드를 명시로 넘겨 기본값을 한 번도 안 밟는 바람에 기본값을 뒤집어도 전건 통과한
+#    사고가 두 번 났다(`corner_hysteresis`가 지금도 그 상태다). 기본값 자체가 검증 대상이다.
+# ===========================================================================
+
+
+def _terminal_default_sm(center_error_norm: float, agl_m: float = 2.0):
+    """**인자 없는 `LandingSMConfig()`** 로 TERMINAL 까지 진행시킨다(기본값을 실제로 밟는다).
+
+    `_terminal_sm_with_last_obs` 와 달리 config 를 받지 않는 것이 요점이다.
+    """
+    sm = LandingStateMachine()          # ← 기본값. 인자를 추가하지 마라(테스트의 목적이 사라진다).
+    sm.update(_obs(0.0, 0, n_candidates=1, center_error_norm=center_error_norm, fine_locked=True))
+    for i in range(3):
+        sm.update(_obs(0.1 * (i + 1), i + 1, n_candidates=1,
+                       center_error_norm=center_error_norm, fine_locked=True))
+    d = sm.update(_obs(0.4, 4, n_candidates=1, center_error_norm=center_error_norm,
+                       fine_locked=True, agl_m=agl_m))
+    assert d.state == LandingState.TERMINAL
+    return sm
+
+
+def test_default_terminal_never_ascends_and_commits_on_blind_timeout():
+    """🔴 기조 전환의 핵심 — 기본 config 로 블라인드가 길어지면 **재상승이 아니라 커밋**한다.
+
+    마지막 유효 관측은 e=0.01, AGL=2.0 -> drift = 0.01*2.0*0.7673 = 0.0153 m 로
+    밀어붙이기 예산(0.30) 안이다. 블라인드 2.0초를 넘기는 순간 `command="land"`가 나와야 한다.
+    """
+    sm = LandingStateMachine()          # ← 기본값(allow_terminal_abort_ascend=False)
+    for o in _normal_sequence_observations():
+        d = sm.update(o)
+    assert d.state == LandingState.TERMINAL
+
+    last_ts = _normal_sequence_observations()[-1].ts
+    rows = []
+    for i, dt in enumerate([0.5, 0.7, 0.7, 0.7]):   # 누적 0.5/1.2/1.9/2.6
+        last_ts += dt
+        d = sm.update(_obs(last_ts, 500 + i, n_candidates=0))
+        rows.append((d.state, d.command, d.reason))
+
+    assert rows[:3] == [
+        (LandingState.TERMINAL, "descend", "terminal_blind_deadreckoning"),
+    ] * 3
+    assert rows[3] == (
+        LandingState.TERMINAL, "land", "terminal_commit_handoff_blind_timeout"
+    )
+    assert LandingState.ABORT_ASCEND not in [r[0] for r in rows]
+
+
+def test_default_terminal_drift_beyond_commit_budget_holds_instead_of_ascending():
+    """🔴 밀어붙이기의 상한 — 예산을 넘은 이탈은 커밋하지 않는다. 그렇다고 재상승도 아니다.
+
+    e=0.5, AGL=2.0 -> drift = 0.767 m > 0.30 예산. 매트 여유(0.3379m)를 넘어서므로
+    지금 내려앉으면 0.105m 라이즈드 플랫폼 밖이다.
+    """
+    sm = _terminal_default_sm(center_error_norm=0.5, agl_m=2.0)
+    d = sm.update(_obs(0.5, 5, n_candidates=0))
+
+    assert d.state == LandingState.HOLD
+    assert d.command == "hold"
+    assert d.reason == "terminal_hold_drift_exceeds_commit"
+    assert d.state != LandingState.ABORT_ASCEND
+
+    # 막다른 상태가 아니다 — 재포착하면 CENTER_DESCEND 로 돌아온다(기조: 재상승 금지).
+    d = sm.update(_obs(0.6, 6, n_candidates=1, center_error_norm=0.01, fine_locked=True))
+    assert d.state == LandingState.CENTER_DESCEND
+    assert d.command != "ascend"
+
+
+def test_commit_gate_beats_blind_timer_when_both_trip():
+    """🔴 분기 순서 회귀 — 기하 게이트가 타이머보다 먼저 평가돼야 한다.
+
+    순서를 뒤집으면 "예산을 넘었는데 시간이 다 됐으니 커밋" 이 되어 정확히 사고 경로로 간다.
+    """
+    sm = _terminal_default_sm(center_error_norm=0.5, agl_m=2.0)   # drift 0.767 > 0.30
+    d = sm.update(_obs(0.4 + 99.0, 5, n_candidates=0))            # 블라인드 99초 = 확실히 초과
+    assert d.state == LandingState.HOLD, "타이머가 기하 게이트를 이겨 매트 밖으로 커밋했다"
+    assert d.reason == "terminal_hold_drift_exceeds_commit"
+    assert d.command != "land"
+
+
+def test_commit_threshold_is_actually_separate_from_max_drift_estimate_m():
+    """🔴 필수 파괴검증 ① — 밀어붙이기 임계를 `max_drift_estimate_m` 으로 되돌리면 red.
+
+    drift 를 두 임계 **사이**(0.30 < d < 0.75)에 두면 두 값이 이름만 다르고 실제로는
+    같은 값을 쓰는 구현에서 결과가 뒤집힌다.
+    e=0.35, AGL=2.0 -> 0.35*2.0*0.7673 = 0.5371 m.
+    """
+    cfg = LandingSMConfig()
+    assert cfg.max_terminal_commit_drift_m != cfg.max_drift_estimate_m, (
+        "두 임계가 같은 값이 되면 안전 폴백 게이트와 기하 게이트가 하나로 뭉개진다."
+    )
+    drift = 0.35 * 2.0 * cfg.half_hfov_tan
+    assert cfg.max_terminal_commit_drift_m < drift < cfg.max_drift_estimate_m, (
+        f"테스트 전제가 깨졌다: {cfg.max_terminal_commit_drift_m} < {drift:.4f} "
+        f"< {cfg.max_drift_estimate_m} 이어야 한다."
+    )
+
+    sm = _terminal_default_sm(center_error_norm=0.35, agl_m=2.0)
+    d = sm.update(_obs(0.5, 5, n_candidates=0))
+    assert d.state == LandingState.HOLD, (
+        "0.5371m 이탈로 커밋했다 — 밀어붙이기 임계가 max_drift_estimate_m(0.75)을 쓰고 있다."
+    )
+
+
+def test_commit_gate_is_bounded_not_unlimited():
+    """🔴 필수 파괴검증 ② — 임계 비교를 통째로 무력화하면 red(무제한 밀어붙이기 금지).
+
+    매트 반변이 1.5m 인데 이탈 추정이 2.3m 다. 어떤 해석으로도 매트 위가 아니다.
+    """
+    sm = _terminal_default_sm(center_error_norm=1.0, agl_m=3.0)   # 1.0*3.0*0.7673 = 2.302 m
+    for i in range(6):                                            # 시간이 아무리 흘러도
+        d = sm.update(_obs(0.4 + 0.7 * (i + 1), 600 + i, n_candidates=0))
+        assert d.state == LandingState.HOLD, "이탈 2.3m 인데 밀어붙였다(임계 비교가 죽었다)"
+        assert d.command not in ("descend", "land")
+
+
+def test_allow_terminal_abort_ascend_default_is_false():
+    """🔴 필수 파괴검증 ③ — 기본값을 True 로 뒤집으면 red.
+
+    선언값과 실제 동작 **양쪽**을 본다. 선언만 보면 분기가 플래그를 안 읽어도 통과한다.
+    """
+    assert LandingSMConfig().allow_terminal_abort_ascend is False
+
+    sm = LandingStateMachine()
+    for o in _normal_sequence_observations():
+        sm.update(o)
+    last_ts = _normal_sequence_observations()[-1].ts
+    states = []
+    for i in range(8):
+        last_ts += 0.7
+        states.append(sm.update(_obs(last_ts, 700 + i, n_candidates=0)).state)
+    assert LandingState.ABORT_ASCEND not in states, (
+        "기본값이 재상승 동작으로 뒤집혔다 — 2026-07-28 기조 전환이 무효화됐다."
+    )
+
+
+# --- 옛 동작 등가성 --------------------------------------------------------
+#
+# 골든은 **변경 이전 커밋의 state_machine.py 를 실제로 실행해서** 뽑았다(손으로 유추하지 않음).
+# `allow_terminal_abort_ascend=True` 가 상태·명령·사유 **세 열 전부**를 그대로 재현해야 한다.
+
+_LEGACY_GOLDEN_BLIND_TIMEOUT = [
+    ("ACQUIRE", "scan", "no_candidate"),
+    ("CENTER_DESCEND", "center", "coarse_candidate_found"),
+    ("CENTER_DESCEND", "center", "centering"),
+    ("LOCK", "hold", "fine_lock_signal_first_seen"),
+    ("LOCK", "hold", "lock_confirming"),
+    ("PRECISION_SERVO", "descend", "lock_confirmed"),
+    ("PRECISION_SERVO", "descend", "servoing"),
+    ("TERMINAL", "descend", "near_ground_enter_terminal"),
+    ("TERMINAL", "descend", "terminal_blind_deadreckoning"),
+    ("TERMINAL", "descend", "terminal_blind_deadreckoning"),
+    ("TERMINAL", "descend", "terminal_blind_deadreckoning"),
+    # 🔴 전이 프레임의 command 가 "ascend" 가 아니라 "hold" 인 것까지 옛 동작이다
+    #    (옛 코드가 ABORT_ASCEND 전이 시 command 를 대입하지 않아 초기값이 남는다).
+    ("ABORT_ASCEND", "hold", "blind_duration_exceeded"),
+    ("CENTER_DESCEND", "ascend", "recovered_after_ascend"),
+]
+
+_LEGACY_GOLDEN_DRIFT = [
+    ("CENTER_DESCEND", "center", "coarse_candidate_found"),
+    ("LOCK", "hold", "fine_lock_signal_first_seen"),
+    ("PRECISION_SERVO", "descend", "lock_confirmed"),
+    ("PRECISION_SERVO", "center", "servoing"),
+    ("TERMINAL", "descend", "near_ground_enter_terminal"),
+    ("ABORT_ASCEND", "hold", "drift_estimate_exceeded"),
+    ("ABORT_ASCEND", "ascend", "ascending"),
+]
+
+
+def _rows(sm, observations):
+    return [(d.state.value, d.command, d.reason) for d in (sm.update(o) for o in observations)]
+
+
+def test_legacy_flag_reproduces_pre_change_behaviour_exactly_blind_timeout():
+    """🔴 되돌리기 한 줄이 **정확히** 옛 동작을 재현하는지(등가성 자체가 회귀 대상)."""
+    seq = _normal_sequence_observations() + [
+        _obs(1.2, 8), _obs(1.9, 9), _obs(2.6, 10), _obs(3.3, 11),
+        _obs(4.0, 12, n_candidates=1, center_error_norm=0.01, fine_locked=True),
+    ]
+    sm = LandingStateMachine(LandingSMConfig(allow_terminal_abort_ascend=True))
+    assert _rows(sm, seq) == _LEGACY_GOLDEN_BLIND_TIMEOUT
+
+    # 대조군: 같은 관측열인데 기본값(밀어붙이기)이면 결과가 실제로 달라야 한다 —
+    # 안 달라지면 플래그가 아무것도 안 하고 있다는 뜻이다(pseudo 방지).
+    sm_new = LandingStateMachine()
+    assert _rows(sm_new, seq) != _LEGACY_GOLDEN_BLIND_TIMEOUT
+
+
+def test_legacy_flag_reproduces_pre_change_behaviour_exactly_drift():
+    seq = [
+        _obs(0.0, 0, n_candidates=1, center_error_norm=0.5, fine_locked=True),
+        _obs(0.1, 1, n_candidates=1, center_error_norm=0.5, fine_locked=True),
+        _obs(0.2, 2, n_candidates=1, center_error_norm=0.5, fine_locked=True),
+        _obs(0.3, 3, n_candidates=1, center_error_norm=0.5, fine_locked=True),
+        _obs(0.4, 4, n_candidates=1, center_error_norm=0.5, fine_locked=True, agl_m=2.0),
+        _obs(0.5, 5, n_candidates=0),
+        _obs(0.6, 6, n_candidates=0),
+    ]
+    sm = LandingStateMachine(LandingSMConfig(allow_terminal_abort_ascend=True))
+    assert _rows(sm, seq) == _LEGACY_GOLDEN_DRIFT
+
+    sm_new = LandingStateMachine()
+    assert _rows(sm_new, seq) != _LEGACY_GOLDEN_DRIFT
+
+
+def test_abort_ascend_enum_member_is_not_deleted():
+    """옛 동작 복원 경로가 살아 있으려면 enum 멤버가 남아 있어야 한다(§ 되돌리기 한 줄)."""
+    assert LandingState.ABORT_ASCEND.value == "ABORT_ASCEND"
+
+
+# --- 임계값의 출처와 미측정 플래그 -----------------------------------------
+
+
+def test_commit_threshold_matches_landing_geometry_drift_allowance():
+    """임계가 지어낸 숫자가 아니라 착륙점 기하가 예산으로 잡은 그 δ 와 같은 값인지.
+
+    `core/` 는 `modules/` 를 import 할 수 없어(import 규칙) 값을 복제했다 —
+    두 값이 조용히 갈라지는 것을 여기서 막는다.
+    """
+    from vision.modules.distress_box import (
+        AIRCRAFT_RADIUS_M_DEFAULT,
+        LANDING_DRIFT_ALLOWANCE_M_DEFAULT,
+        compute_landing_window,
+    )
+
+    assert TERMINAL_COMMIT_DRIFT_M_DEFAULT == LANDING_DRIFT_ALLOWANCE_M_DEFAULT
+    assert LandingSMConfig().max_terminal_commit_drift_m == LANDING_DRIFT_ALLOWANCE_M_DEFAULT
+
+    # 유도 확인: 착륙 기하가 실제로 δ 이상의 매트 여유를 남기는가(임계의 근거 자체).
+    window = compute_landing_window(
+        mat_size_m=3.0, white_box_size_m=0.20,
+        aircraft_radius_m=AIRCRAFT_RADIUS_M_DEFAULT,
+        drift_allowance_m=LANDING_DRIFT_ALLOWANCE_M_DEFAULT,
+        safety_window_bias=0.5,
+    )
+    assert window["feasible"] is True
+    assert window["mat_edge_margin_m"] >= TERMINAL_COMMIT_DRIFT_M_DEFAULT, (
+        "밀어붙이기 임계가 매트 여유보다 크다 — 예산 안에서 커밋해도 매트를 벗어난다."
+    )
+
+
+def test_commit_threshold_is_declared_unmeasured_and_propagates():
+    """🔴 `core/frames.py` 의 `MOUNT_YAW_PSI_M_MEASURED` 패턴 — 값에 실측 근거가 없다는
+    사실이 코드에 남고 `Decision` 까지 전파돼야 한다. 실측 없이 True 로 뒤집으면 red."""
+    from vision.modules.distress_box import AIRCRAFT_RADIUS_MEASURED
+
+    assert TERMINAL_COMMIT_DRIFT_MEASURED is False
+    # 근거의 뿌리 — 기체 반경 R 이 미측정인 한 이 임계도 미검증이다.
+    assert AIRCRAFT_RADIUS_MEASURED is False
+    assert LandingSMConfig().terminal_commit_drift_measured is False
+
+    sm = LandingStateMachine()
+    d = sm.update(_obs(0.0, 0, n_candidates=1))
+    assert d.commit_drift_measured is False
+
+    # 플래그는 하드코딩이 아니라 config 에서 읽힌다(실측 후 True 로 올릴 수 있어야 한다).
+    sm2 = LandingStateMachine(LandingSMConfig(terminal_commit_drift_measured=True))
+    assert sm2.update(_obs(0.0, 0, n_candidates=1)).commit_drift_measured is True
+
+
+def test_commit_threshold_is_a_named_config_field_not_a_magic_number():
+    """임계를 config 로 낮추면 예산 안이던 이탈이 실제로 거절돼야 한다(§7.3)."""
+    tight = LandingSMConfig(max_terminal_commit_drift_m=0.001)
+    sm = LandingStateMachine(tight)
+    sm.update(_obs(0.0, 0, n_candidates=1, center_error_norm=0.05, fine_locked=True))
+    for i in range(3):
+        sm.update(_obs(0.1 * (i + 1), i + 1, n_candidates=1, center_error_norm=0.05,
+                       fine_locked=True))
+    d = sm.update(_obs(0.4, 4, n_candidates=1, center_error_norm=0.05, fine_locked=True,
+                       agl_m=2.0))
+    assert d.state == LandingState.TERMINAL
+    d = sm.update(_obs(0.5, 5, n_candidates=0))
+    assert d.state == LandingState.HOLD          # 0.05*2.0*0.7673 = 0.0767 > 0.001
+
+
+def test_commit_gate_consumes_the_same_drift_estimate_formula():
+    """새 게이트도 `half_hfov_tan` 을 실제로 곱한 값을 본다 — tan 항이 빠지면 결과가 뒤집힌다.
+
+    e=0.2, AGL=2.0 -> 새 식 0.3069(>0.30, 거절) / tan 항이 빠진 옛 식 0.4(도 >0.30)이라
+    구분이 안 되므로, 계수 자체를 config 로 갈라 결과가 뒤집히는지로 본다.
+    """
+    obs_kwargs = dict(center_error_norm=0.2, agl_m=2.0)
+
+    wide = LandingSMConfig(half_hfov_tan=2.0)      # 0.2*2.0*2.0 = 0.8 > 0.30 -> 거절
+    d = _terminal_sm_with_last_obs(wide, **obs_kwargs).update(_obs(0.5, 5, n_candidates=0))
+    assert d.state == LandingState.HOLD
+
+    narrow = LandingSMConfig(half_hfov_tan=0.1)    # 0.2*2.0*0.1 = 0.04 < 0.30 -> 커밋 가능
+    d = _terminal_sm_with_last_obs(narrow, **obs_kwargs).update(_obs(0.5, 5, n_candidates=0))
+    assert d.state == LandingState.TERMINAL
+    assert d.reason == "terminal_blind_deadreckoning"
+
+
+def test_new_terminal_behaviour_is_deterministic():
+    """§7.5 — 밀어붙이기/거절 분기가 들어와도 같은 관측열은 같은 상태·명령·사유열."""
+    observations = _normal_sequence_observations() + [
+        _obs(1.2, 8), _obs(1.9, 9), _obs(2.6, 10), _obs(3.3, 11),
+        _obs(4.0, 12, n_candidates=1, center_error_norm=0.5, fine_locked=True, agl_m=2.0),
+        _obs(4.7, 13), _obs(5.4, 14),
+    ]
+    a = _rows(LandingStateMachine(), observations)
+    b = _rows(LandingStateMachine(), observations)
+    assert a == b
+    # 이 관측열이 실제로 새 경로를 밟는지(빈 회귀 방지)
+    assert any(r[1] == "land" for r in a)

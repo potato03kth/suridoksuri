@@ -27,7 +27,7 @@
 | `core/state.py` | `VisionState`, `Detection` 데이터 계약 | 낮음 — 필드 추가 시 신중 |
 | `core/runner.py` | `Pipeline` 클래스: `from_config()`, `partial()` | 낮음 |
 | `core/target.py` | **ArUco 브랜치 Phase 3(`docs/vision_aruco_branch.md`)** — `TargetEstimate` dataclass(상대 pose+신뢰도+타입+frame_id+timestamp+uncertainty(항상 None, 자리만)+calib provenance(`calib_accuracy`/`not_for_closed_loop_30cm`/`calib_id`)) + `solve_target_pose()`(`cv2.solvePnP`→rvec/tvec→`cv2.Rodrigues`→quaternion) + `marker_object_points()`(50cm 정사각 4코너, `ARUCO_TARGET_SIZE_M`) + **[2026-07-28] 초록구역(② 조난자) 확장** — `DISTRESS_MAT_SIZE_M`(3.0)/`DISTRESS_MAT_PLATFORM_HEIGHT_M`(0.105)/`MAT_PLANE_REFERENCE` + `order_quad_corners_clockwise()`(approxPolyDP의 보장 없는 코너 순서를 solvePnP 대응 순서로 정규화) + `project_pixel_onto_target_plane()`(착륙점 픽셀 -> 타겟 평면 역투영) + `solve_target_pose(position_at_pixel=...)`(주면 position이 tvec 대신 그 평면상 점 — **None이면 ArUco 경로 무변경**). 아래 "초록구역 상대 pose 산출" 절 참조. `rotation_matrix_to_quaternion()`(scipy 미의존 순수 numpy, 표준 Shepperd's method — `vision/requirements.txt`에 scipy 없어 직접 구현). **순수 기하 계산만(파일 I/O 없음)** — import 규칙("core/ ← numpy, opencv만 허용")대로 yaml 로드는 `utils/calibration_loader.py`에 분리. 좌표계=카메라 광학 프레임, 단위=미터, orientation=quaternion(x,y,z,w) — 전부 `docs/vision_aruco_branch.md` §1 확정 전제, 재논의 대상 아님. **Phase 4(파이프라인 통합) 완료** — `main.py`/`replay.py`가 `state.detections`에서 확정 ArUco 검출을 찾아 `solve_target_pose()`를 호출하고 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절) | 낮음 |
-| `core/state_machine.py` | **신설(§9 빌드순서 6번, `docs/vision_plan.md` §5.1)** — 공통 상태머신 + 안전 폴백. `LandingState`(str Enum: `ACQUIRE`/`CENTER_DESCEND`/`LOCK`/`PRECISION_SERVO`/`TERMINAL`/`HOLD`/`ABORT_ASCEND`) + `Observation`(프레임 단위 관측: `ts`/`frame_id`/`n_candidates`/`center_error_norm`/`fine_locked`/`agl_m`/`target_estimate`/`scale_source`) + `Decision`(`state`/`command`/`reason`/`blind_duration_s`/`scale_source`) + `LandingSMConfig`(매직넘버 금지, §7.3 — `max_blind_duration_s`/`max_drift_estimate_m`/`lock_confirm_frames`/`loss_tolerance_frames`/`center_tolerance_norm`/`max_candidates_for_lock`/`terminal_agl_m`) + `LandingStateMachine.update(obs)->Decision`. **순수 로직(파일 I/O·wall-clock·난수 없음)** — `core/target.py`와 동일 패턴, `Observation.ts`를 그대로 쓰므로 같은 관측열은 항상 같은 상태열(§7.5 결정론). **타겟 종류 무관 공통 골격** — 버티포트/조난자/십자 전용 분기 없음, 타겟별 특수성은 호출자가 `Observation` 필드를 어떻게 채우는지로만 표현된다. **커밋 게이트가 구조적으로 강제됨** — `PRECISION_SERVO`/`TERMINAL`은 오직 `LOCK`의 `_consecutive_fine_locked >= lock_confirm_frames` 통과를 거쳐야만 도달 가능(코드상 다른 진입 경로 없음), 후보가 모호(`n_candidates > max_candidates_for_lock`)한 채 락을 시도하면 `HOLD`로 거절. **안전 폴백 두 갈래** — (a) `CENTER_DESCEND`/`PRECISION_SERVO`에서 검출 상실이 `loss_tolerance_frames`를 넘으면 `HOLD`(재포착 시 `CENTER_DESCEND`로 복귀 가능, 막다른 상태 아님), (b) `TERMINAL`에서 블라인드 지속시간이 `max_blind_duration_s`를 넘거나 근사 이탈추정(마지막 유효 정규화 중심오차×마지막 유효 AGL)이 `max_drift_estimate_m`을 넘으면 `ABORT_ASCEND`(§5.1 "안 보이는데 계속 내려간다" 금지). `TERMINAL` 진입은 `PRECISION_SERVO`에서 `agl_m<=terminal_agl_m`일 때만(AGL이 항상 None이면 구조적으로 절대 진입 못 함 — 크래시 없이 안전하게 폐루프 서보에 계속 머무는 축퇴 동작). `modules/`가 아니다(`__call__(VisionState)->VisionState` 인터페이스 아님, `registry.py` 미등록, preset yaml 미사용) — 프레임 단위 관측을 시간축으로 누적하는 상위 레이어 | 낮음 |
+| `core/state_machine.py` | **신설(§9 빌드순서 6번, `docs/vision_plan.md` §5.1)** — 공통 상태머신 + 안전 폴백. `LandingState`(str Enum: `ACQUIRE`/`CENTER_DESCEND`/`LOCK`/`PRECISION_SERVO`/`TERMINAL`/`HOLD`/`ABORT_ASCEND`) + `Observation`(프레임 단위 관측: `ts`/`frame_id`/`n_candidates`/`center_error_norm`/`fine_locked`/`agl_m`/`target_estimate`/`scale_source`) + `Decision`(`state`/`command`/`reason`/`blind_duration_s`/`scale_source`) + `LandingSMConfig`(매직넘버 금지, §7.3 — `max_blind_duration_s`/`max_drift_estimate_m`/`lock_confirm_frames`/`loss_tolerance_frames`/`center_tolerance_norm`/`max_candidates_for_lock`/`terminal_agl_m` + **[2026-07-28]** `max_terminal_commit_drift_m`/`terminal_commit_drift_measured`/`allow_terminal_abort_ascend`) + `LandingStateMachine.update(obs)->Decision`(`Decision`에 `commit_drift_measured` 추가, `command`에 `"land"` 추가). **순수 로직(파일 I/O·wall-clock·난수 없음)** — `core/target.py`와 동일 패턴, `Observation.ts`를 그대로 쓰므로 같은 관측열은 항상 같은 상태열(§7.5 결정론). **타겟 종류 무관 공통 골격** — 버티포트/조난자/십자 전용 분기 없음, 타겟별 특수성은 호출자가 `Observation` 필드를 어떻게 채우는지로만 표현된다. **커밋 게이트가 구조적으로 강제됨** — `PRECISION_SERVO`/`TERMINAL`은 오직 `LOCK`의 `_consecutive_fine_locked >= lock_confirm_frames` 통과를 거쳐야만 도달 가능(코드상 다른 진입 경로 없음), 후보가 모호(`n_candidates > max_candidates_for_lock`)한 채 락을 시도하면 `HOLD`로 거절. **안전 폴백 두 갈래** — (a) `CENTER_DESCEND`/`PRECISION_SERVO`에서 검출 상실이 `loss_tolerance_frames`를 넘으면 `HOLD`(재포착 시 `CENTER_DESCEND`로 복귀 가능, 막다른 상태 아님), (b) **[2026-07-28 기조 전환] `TERMINAL`에서는 재상승하지 않는다** — 이탈추정이 `max_terminal_commit_drift_m`(기본 0.30 = 착륙점 기하의 δ) 안이면 블라인드 데드레코닝을 계속하고 `max_blind_duration_s` 초과 시 **최종 커밋**(`command="land"` = AUTO.LAND 인계), 예산 밖이면 `HOLD`로 거절한다. 옛 동작(`ABORT_ASCEND`)은 `allow_terminal_abort_ascend=True` 한 줄로 상태·명령·사유 전부 정확히 복원된다. 아래 "TERMINAL 밀어붙이기 기조 전환" 절 참조. `TERMINAL` 진입은 `PRECISION_SERVO`에서 `agl_m<=terminal_agl_m`일 때만(AGL이 항상 None이면 구조적으로 절대 진입 못 함 — 크래시 없이 안전하게 폐루프 서보에 계속 머무는 축퇴 동작). `modules/`가 아니다(`__call__(VisionState)->VisionState` 인터페이스 아님, `registry.py` 미등록, preset yaml 미사용) — 프레임 단위 관측을 시간축으로 누적하는 상위 레이어 | 낮음 |
 | `core/frames.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 1 — `docs/vision_fc_interface.md` §4.3 작업 V3)** — 좌표 프레임 체인 `카메라 광학(cam) → 기체 body FLU → 기체 body FRD`. `R_frd_cam(psi_m)`/`R_flu_cam(psi_m)` + `cam_to_frd`/`cam_to_flu`/`flu_to_frd`와 각각의 역변환 + 쿼터니언 성분순서 어댑터(`quat_xyzw_to_wxyz`/`quat_wxyz_to_xyzw`). **순수 numpy 회전 계산만**(파일 I/O·wall-clock·난수 없음 — `core/target.py`/`core/state_machine.py`와 동일 패턴). `R_flu_cam`은 `R_frd_cam`에서 `R_flu_frd`를 곱해 **유도**한다(두 행렬을 각각 손으로 적어두면 한쪽만 고쳤을 때 조용히 어긋나므로). 🔴 **마운트 요각 `psi_m`은 미측정(§7 U3)** — 저장소 어디에도 값이 없고 물리 측정이 필요해 `MOUNT_YAW_PSI_M_RAD_DEFAULT=0.0` + `MOUNT_YAW_PSI_M_MEASURED=False`로 **값을 지어내지 않고** 파라미터로 뺐다. 그 "미측정" 플래그는 와이어 레코드를 타고 소비자까지 전파된다. **ENU/NED 변환은 의도적으로 구현하지 않았다**(§4.4 — body 프레임 경로가 기체 자세 구독·시간 동기를 통째로 없애므로. 안 쓰는 경로를 만들면 누군가 쓴다). 나디르 하드마운트 가정과 고무마운트 잔차 리스크(§4.5, `지상오차=고도×tan(θ_잔차)`)는 파일 docstring에 정량 수치까지 기록 | 낮음 |
 | `core/wire.py` | **신설(2026-07-28, 같은 Phase 1 — 작업 V2 + §5 페일세이프 계약)** — vision→fc 인터페이스 **와이어 포맷(JSON Lines)** + 페일세이프 계약. `SCHEMA_VERSION`/`REQUIRED_TARGET_KEYS`/`REQUIRED_STATE_HINT_KEYS` 상수 + `FailsafeContract`(매직넘버 금지, §7.3) + `gate_confidence()`/`closed_loop_floor_agl_m()` + 레코드 조립 3종(`build_target_record`/`build_invalid_target_record`/`build_state_hint_record`) + `encode_line`/`decode_line` + 왕복 복원(`target_estimate_from_record`/`decision_from_record`) + `validate_record`. **transport-agnostic 순수 로직** — 소켓도 파일도 **클록도** 모른다(타임스탬프를 전부 인자로 받아 같은 입력이면 같은 바이트, §7.5. 실제 클록 샘플링은 어댑터 `utils/target_sink.py::sample_clocks()`). 레코드 타입 2종: `"target"`(TargetEstimate **전량 무손실** + 3프레임 위치 + provenance + 페일세이프 필드)과 `"state_hint"`(상태머신 `Decision`). 🔴 **`command`는 `command_hint` + `command_is_advisory:true` + 타입명 `state_hint` 세 겹으로 "명령 아님"을 형식에 박았다**(§6.3 거부권 권고). 🔴 **위치 필드는 프레임을 이름에 박는다**(`position_cam`/`position_flu`/`position_frd`) — 이 저장소는 `pos_ned`/`vel_ned`가 같은 접미사로 반대 부호 규약을 쓰는 사고 이력이 있다(§4.2). 시계는 **두 클록을 다 싣는다**(`stamp_monotonic_ns` stale판정용 / `stamp_wall_ns` 로그상관용 / `clock_offset_ns` 환산용 / `timestamp` 원본 무손실) — 근거·미검증 2건은 파일 docstring "시계(clock) 계약" 절 | 낮음 |
 | `core/prior_geometry.py` | **신설(2026-07-28, 사용자 제안 — 아래 "사전정보 기반 후보 스코어링" 절)** — "타겟이 지상 평면에 놓여 있고 실측 크기를 안다"는 확정 사실 + AGL + 기체 자세로 **"진짜 타겟이라면 화면에 어떤 크기·어떤 찌그러짐으로 보여야 하는가"**를 예측하고 관측 후보와의 일치도를 0~1 점수로 환산하는 **순수 기하**. `VehicleAttitude` + `attitude_from_telemetry()`/`quaternion_to_attitude()`(자세 텔레메트리 스키마 확정) + `up_vector_body_frd()`/`ground_normal_cam()`(마운트 회전은 `core/frames.py::R_frd_cam` **재사용**) + `predict_planar_target_geometry()`(핵심 — `PredictedGeometry` 반환) + `project_ground_square()`(예상 4각형 정확 투영) + 점수 3종(`area_consistency_score`/`shape_consistency_score`/`combine_scores`) + `residual_tolerance_widening()`(§4.2 미측정 자세 잔차를 **허용폭에만** 반영) + `score_candidate()` + `state.meta` 키 3종 단일 출처(`PRIOR_INPUTS_KEY`/`PRIOR_META_KEY`/`PRIOR_DETECTION_META_KEY` — main/replay가 modules를 import할 수 없어 `core/`가 유일한 공유 장소). 핵심 식 `예상면적 = (크기)²·fx·fy·|n̂·r|³/h²` 는 **나디르에서 기존 `distress_coarse.yaml` 도출값을 그대로 재현**한다(10m→90,158px², 그 헤더의 "~90,000") — 새 규약이 아니라 **일반화**다. **순수 계산만**(파일 I/O·wall-clock·난수 없음, `core/target.py`와 동일 패턴), 같은 core 안의 `frames`/`target`만 상대 import | 낮음 |
@@ -1727,7 +1727,7 @@ pytest vision/tests/ -q -k main # 특정만
 | core/runner `Pipeline` | from_config 로드·실행순서·`partial(N)`·unknown module→ValueError | ✅ test_pipeline |
 | core/target `solve_target_pose`/`TargetEstimate`(ArUco Phase 3) | **★합성 왕복(핵심, calib_analyze.py 패턴 재사용):** 알려진 실제 pose로 50cm 정사각 4코너를 합성투영(우선 임의 K, 이어서 실제 nominal.yaml intrinsics로도) → solvePnP 복원 pose가 원래 position/quaternion(부호 이중성 고려)과 허용오차 내 일치 · `rotation_matrix_to_quaternion` 다양한 회전에서 단위quaternion+독립 공식으로 재구성한 R과 일치 · provenance echo(calib_accuracy/not_for_closed_loop_30cm/calib_id)가 호출자 값 그대로 반영 · `uncertainty` 항상 None · 코너 순서 오배열 회귀(순환 오배열=position 보존·orientation 붕괴, 비순환 오배열=position 자체 붕괴 — 정사각형 90도 자기대칭 때문, 둘 다 실측 확인) | ✅ test_target |
 | core/target 초록구역 확장(2026-07-28) | 3.0m 상수가 ArUco 0.50과 구분됨 · `marker_object_points(3.0)` 재사용이 z=0 시계방향 4코너를 줌 · **알려진 크기만으로 알려진 거리 복원**(10/20/40m, AGL 없음) · 크기 상수를 0.5로 오용하면 정확히 6배 틀림(수치 고정) · `position_at_pixel=None`이 **solvePnP 자신의 tvec과 비트 동일**(ArUco 회귀) · 타겟 중심 픽셀 역투영이 tvec 재현(자기검증 불변식) · 착륙점 픽셀이 실제로 오프셋 좌표를 줌 · **90° 회전 4중 라벨링 전부에서 착륙점 동일**(모호성이 유도로 안 샘) · 감김 뒤집으면 자세가 실제로 깨짐 · 평면과 평행한 시선 거절. **파괴검증 D1/D1b/D2/D5b로 red 확인** | ✅ test_target |
-| core/state_machine `LandingStateMachine`(§9 6번) | 정상 시퀀스 전이 ACQUIRE→CENTER_DESCEND→LOCK→PRECISION_SERVO→TERMINAL(순서 단조증가까지 확인) · **안전 폴백 핵심**: 검출 상실이 `loss_tolerance_frames` 초과 시 HOLD(허용치 이내는 유지) + HOLD가 재포착 시 CENTER_DESCEND로 복귀(막다른 상태 아님) · **TERMINAL 블라인드 지속시간 초과 → ABORT_ASCEND**(§5.1 "핵심") + 재포착 시 블라인드 타이머 리셋 회귀 + 근사 이탈추정(중심오차×AGL) 초과도 별도로 ABORT_ASCEND 트리거 · **커밋 게이트**: 후보 모호(fine_locked 시도 중 n_candidates>max_candidates_for_lock) → HOLD로 거절, LOCK 확정 카운트 도중 모호해져도 거절 · **불변식**: fine_locked=False가 지속되면 agl_m이 아무리 낮아도 LOCK/PRECISION_SERVO/TERMINAL 절대 도달 불가(구조적 게이팅, 우회 경로 없음) · agl_m 전부 None이어도 크래시 없이 동작 + TERMINAL 미도달(폐루프 서보 유지, 안전한 축퇴) · 결정론(같은 관측열 → 같은 상태/명령/사유열) · config 필드(`LandingSMConfig`)로 임계값 override 가능 · `scale_source`가 Decision에 그대로 에코. **[2026-07-28] `drift_estimate`의 `tan(HFOV/2)` 항**(위 절) — 옛 식이면 발동하고 새 식이면 발동 안 하는 임계로 tan 항 존재 확인·`half_hfov_tan`이 하드코딩 아닌 config에서 읽힘(계수만 바꿔 결과 반전)·`(width/2)/fx` 유도 + fx<=0 거절·모듈 상수가 **실제 배포된 nominal.yaml**과 일치(둘이 조용히 갈라지는 것 방지)·**게이트가 옛 동작점보다 헐거워지지 않았는지**(`max_drift_estimate_m/half_hfov_tan <= 1.0`). **파괴검증 D6/D7/D8/D9로 red 확인** | ✅ test_state_machine |
+| core/state_machine `LandingStateMachine`(§9 6번) | 정상 시퀀스 전이 ACQUIRE→CENTER_DESCEND→LOCK→PRECISION_SERVO→TERMINAL(순서 단조증가까지 확인) · **안전 폴백 핵심**: 검출 상실이 `loss_tolerance_frames` 초과 시 HOLD(허용치 이내는 유지) + HOLD가 재포착 시 CENTER_DESCEND로 복귀(막다른 상태 아님) · **TERMINAL 블라인드 지속시간 초과 → ABORT_ASCEND**(§5.1 "핵심") + 재포착 시 블라인드 타이머 리셋 회귀 + 근사 이탈추정(중심오차×AGL) 초과도 별도로 ABORT_ASCEND 트리거 · **커밋 게이트**: 후보 모호(fine_locked 시도 중 n_candidates>max_candidates_for_lock) → HOLD로 거절, LOCK 확정 카운트 도중 모호해져도 거절 · **불변식**: fine_locked=False가 지속되면 agl_m이 아무리 낮아도 LOCK/PRECISION_SERVO/TERMINAL 절대 도달 불가(구조적 게이팅, 우회 경로 없음) · agl_m 전부 None이어도 크래시 없이 동작 + TERMINAL 미도달(폐루프 서보 유지, 안전한 축퇴) · 결정론(같은 관측열 → 같은 상태/명령/사유열) · config 필드(`LandingSMConfig`)로 임계값 override 가능 · `scale_source`가 Decision에 그대로 에코. **[2026-07-28] `drift_estimate`의 `tan(HFOV/2)` 항**(위 절) — 옛 식이면 발동하고 새 식이면 발동 안 하는 임계로 tan 항 존재 확인·`half_hfov_tan`이 하드코딩 아닌 config에서 읽힘(계수만 바꿔 결과 반전)·`(width/2)/fx` 유도 + fx<=0 거절·모듈 상수가 **실제 배포된 nominal.yaml**과 일치(둘이 조용히 갈라지는 것 방지)·**게이트가 옛 동작점보다 헐거워지지 않았는지**(`max_drift_estimate_m/half_hfov_tan <= 1.0`). **파괴검증 D6/D7/D8/D9로 red 확인**. **[2026-07-28] TERMINAL 밀어붙이기 기조 전환**(아래 절) — 🔴 **테스트가 `LandingSMConfig()` 기본값을 실제로 밟는다**(`_terminal_default_sm` 헬퍼가 config 인자를 **안 받는 것**이 요점: 전부 명시로 넘기면 기본값을 뒤집어도 전건 통과한 사고가 이 저장소에 두 번 있었다) · 기본값에서 블라인드 타임아웃이 `ABORT_ASCEND`가 아니라 `TERMINAL`+`command="land"`(커밋) · 이탈이 δ를 넘으면 `HOLD`(재상승 아님) + 재포착 시 `CENTER_DESCEND` 복귀 · **기하 게이트가 타이머를 이기는 분기 순서** · 임계가 `max_drift_estimate_m`과 **실제로 분리**됐는지(두 값 사이 0.5371m로 가름) · 임계 비교 무력화 시 무제한 밀어붙이기 차단(이탈 2.3m) · 임계가 `modules/distress_box.py`의 `LANDING_DRIFT_ALLOWANCE_M_DEFAULT`와 같은 값이고 `compute_landing_window`의 `mat_edge_margin_m ≥ δ`가 실제로 성립 · `TERMINAL_COMMIT_DRIFT_MEASURED is False` + `Decision.commit_drift_measured` 전파 · 새 게이트도 `half_hfov_tan`을 실제로 소비 · **옛 동작 등가성**(골든을 변경 이전 커밋 코드를 **실제 실행**해 뽑았고, 상태·명령·사유 3열 전부 대조 + 기본값 대조군이 실제로 달라지는지까지) · `ABORT_ASCEND` enum 멤버 생존 · 결정론. **파괴검증 11종(D1~D11)으로 red 확인 — 필수 3종(임계 되돌리기/비교 무력화/기본값 뒤집기) 포함** | ✅ test_state_machine |
 | ArUco Phase 4 파이프라인 배선(위 "ArUco Phase 4 파이프라인 배선" 절) | main.py/replay.py 각각: 합성 ID=23 마커 이미지/녹화폴더 실행 → JSONL `chosen.target_estimate`에 position/orientation/calib_accuracy/not_for_closed_loop_30cm/calib_id 실제 기록 · 마커 없는 프레임은 크래시 없이 `chosen=None` · calib 파일 없음(`--calib`/`calib_path` 오지정)도 크래시 없이 target_estimate만 생략+경고 로그 | ✅ test_main(아루코 3개)·test_replay(아루코 3개) |
 | utils/calibration_loader `load_camera_calibration`(ArUco Phase 3) | 실제 커밋된 `nominal.yaml` 로드(camera_matrix/dist_coeffs/image_size/accuracy/not_for_closed_loop_30cm/calib_id) · 합성 yaml round-trip(값이 실측/미검증 어느 쪽이든 하드코딩 없이 그대로 반영) · 파일 없음→`FileNotFoundError` | ✅ test_calibration_loader |
 | core/frames `R_frd_cam`/`cam_to_flu` 등(인터페이스 Phase 1) | **★§4.3의 RT-1~RT-6를 그대로 구현**(RT-7 ENU 경로는 §4.4가 "vision은 NED 변환 안 함"으로 확정해 구현 자체가 없어 테스트도 없음). RT-1 모든 ψ에서 `RᵀR=I`·`det=+1` · RT-2 cam→frd→cam 및 cam→flu→frd→flu→cam 전체 체인 왕복(1e-9) · **RT-3~5 알려진 방향쌍**(정하방/이미지우측→기체우측/이미지위쪽→기체전방) — **부호 실수를 잡는 유일한 그물**(축 이름만 맞고 부호가 뒤집힌 회전행렬도 RT-1·RT-2는 통과한다, 파괴검증 D1이 Rz(+90)→Rz(-90)으로 실증) · 문서 리터럴 2개와 직접 대조(유도한 `R_flu_cam`이 문서값과 같은지) · ψ_m=90°가 전방 타겟을 실제로 우측으로 돌림(하드코딩 아님) · ψ 합성이 `Rz(ψ)·R(0)` · `MOUNT_YAW_PSI_M_MEASURED is False` 계약 회귀(실측 없이 뒤집으면 red) · FLU↔FRD involution · RT-6 쿼터니언 순서 왕복+항등구현 거부 · 비3차원 입력 `ValueError` · 결정론. **파괴검증 5종(D1~D5)으로 red 확인** | ✅ test_frames |
@@ -1777,3 +1777,72 @@ pytest vision/tests/ -q -k main # 특정만
 4. **결정론(plan §7.5)** — 같은 입력·같은 config → 같은 출력. **골든셋 회귀 스캐폴드는 2026-07-21c에 합성 데이터로 시작됨**(`tests/golden/README.md`) — 실기체 데이터는 카메라 브링업 이후 교체 예정.
 
 **새 모듈 추가 시:** 위 4개 공통 규칙을 담은 `tests/test_<모듈>.py` 를 **같은 커밋에** 추가한다.
+
+---
+
+## TERMINAL 밀어붙이기 기조 전환 (2026-07-28, `core/state_machine.py`)
+
+사용자 확정 기조: *"'최종적으로 실패하더라도 그냥 마지막 값을 기반으로 밀어붙이기'"*. 대회 성공
+판정이 정성("매끄럽게 보이면")이라 `ABORT_ASCEND`(재상승)는 그 자체로 실패 신호다.
+**설계 근거·기각한 대안·남은 위험 전문은 `docs/vision_plan.md` §5.1a / §8**에 있다 — 여기는
+코드에서 무엇이 바뀌었는지만 적는다.
+
+### 무엇이 바뀌었나 — TERMINAL 블라인드 3분기
+
+| 조건 | state | command | reason |
+|---|---|---|---|
+| 이탈 ≤ `max_terminal_commit_drift_m`, 블라인드 ≤ `max_blind_duration_s` | `TERMINAL` | `descend` | `terminal_blind_deadreckoning` (무변경) |
+| 이탈 ≤ 임계, 블라인드 > `max_blind_duration_s` | `TERMINAL` | **`land`** | `terminal_commit_handoff_blind_timeout` |
+| 이탈 > 임계 (**시간과 무관 — 기하 게이트가 타이머보다 먼저 평가된다**) | **`HOLD`** | `hold` | `terminal_hold_drift_exceeds_commit` |
+
+- `ABORT_ASCEND`는 **enum에서 삭제하지 않았다.** `allow_terminal_abort_ascend=True`면 옛 동작이
+  **상태·명령·사유 3열 전부** 정확히 복원된다(전이 프레임의 `command`가 `"ascend"`가 아니라
+  초기값 `"hold"`로 남는 세부까지 — 골든이 그걸 고정한다).
+- 🔴 **분기 순서를 바꾸지 마라.** 타이머를 먼저 보면 "예산을 넘었는데 시간이 다 됐으니 커밋"이
+  되어 정확히 매트 이탈 사고 경로로 간다(파괴검증 D6).
+- `command`에 **`"land"`가 추가됐다** — `"descend"`(마지막 추정으로 횡방향을 계속 물고 늘어지며
+  하강)와 다르다. `core/wire.py`/`ros/shim_core.py`는 `command`를 화이트리스트로 검증하지
+  않으므로 와이어·shim 변경 없이 그대로 `command_hint`로 나간다.
+
+### 임계값 — 지어내지 않았다
+
+`max_terminal_commit_drift_m = 0.30`은 `modules/distress_box.py::LANDING_DRIFT_ALLOWANCE_M_DEFAULT`
+와 **같은 값**이다. `compute_landing_window()`가 `d ≤ M − R − δ`로 착륙점을 묶으므로
+`매트 가장자리 여유 = M − d − R ≥ δ`가 구조적으로 보장된다 — **δ 이내로 빗나가 착지하면 기체
+최외곽이 매트 안에 남는다는 것이 애초에 착륙점을 그 자리에 고른 이유**다(R=0.60 공칭에서 실제
+여유 0.3379m이므로 0.30은 보수적 하한). `core/`는 `modules/`를 import할 수 없어(import 규칙) 값을
+복제했고, **두 값이 갈라지면 `test_state_machine.py`가 red**가 된다.
+
+🔴 **`max_drift_estimate_m`(0.75)과 합치지 마라.** 그쪽은 "데드레코닝을 믿을 수 있는가"(안전 폴백
+게이트), 이쪽은 "빗나간 채 내려앉아도 매트 위인가"(기하 게이트)다. 합치면 0.75m 이탈로 커밋해
+매트 밖(여유 0.3379m)에 내려앉는다. `max_drift_estimate_m`은 이제 **레거시 경로 전용**이지만
+죽은 값이 아니다 — 지우면 되돌리기 스위치가 옛 동작을 재현하지 못한다.
+
+### 🔴 실측 근거 없음 — `core/frames.py` ψ_m 패턴
+
+`TERMINAL_COMMIT_DRIFT_MEASURED = False`. 위 보장은 `compute_landing_window`에 넘긴 `R`(기체
+최외곽 반경)이 참값 이상일 때만 성립하는데 **R이 미측정**이다(아는 것은 "0.5m 초과"뿐). 플래그가
+`LandingSMConfig.terminal_commit_drift_measured` → `Decision.commit_drift_measured`로 전파된다.
+
+**R 실측이 들어오면 고칠 곳은 두 줄뿐이다:** ① `modules/distress_box.py`의
+`AIRCRAFT_RADIUS_M_DEFAULT` ② `core/state_machine.py`의 `TERMINAL_COMMIT_DRIFT_MEASURED`.
+δ=0.30 자체는 그대로 둔다(`compute_landing_window`가 그 δ를 다시 예산으로 잡아 여유를
+재확립한다). ⚠️ R > 0.6444m면 안전창 자체가 비어 착륙점이 안 나온다 — 그건 이 임계가 아니라
+"박스 옆" 규약의 문제다.
+
+### 종단간 실증 (2026-07-28, 로컬 `python -m vision.replay`)
+
+합성 초록매트+흰박스 녹화(`telemetry.jsonl`에 `alt`) + `distress_fine.yaml`.
+**`replay.py`가 AGL을 받는 유일한 경로**라 TERMINAL에 도달하는 유일한 경로이기도 하다.
+
+| 산출물 | 입력 | JSONL 결말 |
+|---|---|---|
+| `results/terminal_pushthrough_demo/` | 착륙점이 화면 중앙으로 **수렴**(유도가 맞은 경우, 이탈 예산 안) | `TERMINAL descend`(블라인드 3프레임) → **`TERMINAL land`**(누적 3.0s > 2.0s) |
+| `results/distress_fine_demo_pushthrough/` | **옛 `distress_fine_demo`와 같은 입력**(매트 정중앙 = 착륙점이 화면 중앙에서 밀려 이탈 0.767m) | **`HOLD`** ×3 |
+| `results/distress_fine_demo/` (**보존**) | 위와 같은 입력, **변경 전** 코드 | `ABORT_ASCEND` ×3 |
+
+⚠️ 옛 `distress_fine_demo/`의 `ABORT_ASCEND` 결말은 **합성 데모 아티팩트**다(합성 프레임이 기체
+움직임을 시뮬레이션하지 않아 착륙점이 계속 화면 중앙을 벗어난다) — 상태머신의 구조적 한계가
+아니다. 그래서 폐기하지 않고 "안전망이 실제로 돌던 증거"로 **보존**했다(abort 데모 보존 전례).
+합성 소스 프레임은 커밋하지 않는다(`state_machine_demo`/`distress_fine_demo` 전례) — 결과물
+(`demo.jsonl`/`demo_state.png`)만 남긴다.
