@@ -97,7 +97,21 @@ STATE_ENTRY_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("FOLLOWING",      re.compile(r"^(OFFBOARD 확인 → FOLLOWING|ENTRY 완료 -> FOLLOWING)")),
     ("TRANSITION_MC",  re.compile(r"경로 추종 완료 -> transition_mc")),
     ("HOLD",           re.compile(r"MC 전환 완료 -> HOLD")),
-    ("LANDING",        re.compile(r"(WP1 도달·안정 → LANDING|→ 강제 LANDING)")),
+    # ── 비전 정밀착륙 F2 2종 (2026-07-29 신설) ────────────────────────────
+    # 🔴 LANDING **앞에** 둔다 — 첫 매치에서 break 하므로 순서가 곧 우선순위다.
+    ("VISION_SEARCH",  re.compile(r"→ VISION_SEARCH")),
+    ("PRECISION_LAND", re.compile(r"→ PRECISION_LAND")),
+    # 🔴 LANDING 은 **구·신 문구를 모두** 받는다 (2026-07-29).
+    #   종전 : "WP1 도달·안정 → LANDING (...)" / "... → 강제 LANDING"
+    #   현재 : "WP1 도달·안정 (...) → LANDING" / "홀드 타임아웃 → LANDING"
+    #   F2   : "... → LANDING (AUTO.LAND)" / "... → GPS 착륙 폴백" /
+    #          "vision 생산자 사망(link ERROR) → 탐색 중단, GPS 착륙"
+    # 문구가 바뀐 것은 `_exit_hold()` 단일 분기 도입(HOLD 종료 경로 2개를 한
+    # 함수로 합침) 때문이고, 그건 "한쪽만 고치는 사고"를 막는 구조라 되돌리지
+    # 않는다. 대신 여기서 합집합으로 받는다 — 하니스는 **아카이브 런도 다시
+    # 분석**해야 하므로 어차피 구문구 지원이 필요하다. 종전 정규식으로는
+    # 2026-07-29 R1_base 에서 LANDING 이 통째로 누락됐다(HOLD 72.50 → DONE 127.98).
+    ("LANDING",        re.compile(r"(→ 강제 LANDING|→ LANDING|GPS 착륙)")),
     ("OVERRIDE",       re.compile(r"긴급 수동 전환 실행 →")),
     ("PILOT_TAKEOVER", re.compile(r"조종사 인계 감지")),
     ("DONE",           re.compile(r"(착륙 완료 \(disarmed\) -> DONE|수동/안전 모드 진입 확인.*-> DONE)")),

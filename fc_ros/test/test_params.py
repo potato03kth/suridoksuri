@@ -266,3 +266,176 @@ def test_r5_fw_setpoint_sites_all_use_the_ramp():
         and "raw_target" not in line
     ]
     assert not offenders, f"램프를 안 타는 setpoint 고도가 남아 있습니다: {offenders}"
+
+
+# ── F2 비전 정밀착륙 파라미터 노출 (2026-07-29) ─────────────────────────────
+#
+# 🔴 2026-07-29 이전에는 이 18개 중 **하나도** YAML/launch 에 없었다. launch 인자
+# 위생검사가 미선언 인자에 RuntimeError 를 던지므로
+# `phase2.launch.py vision_landing:=true` 는 launch 단계에서 실패했다 —
+# 즉 실기체에서 F2 를 켤 방법 자체가 존재하지 않았다.
+# 값의 근거는 `docs/fc_precision_land_handoff.md` §8.
+
+_VISION_PARAMS = {
+    "vision_landing":          False,   # 🔴 기본 비활성이 계약이다
+    "vision_search_alt":        25.0,
+    "vision_search_radius":     30.0,
+    "vision_search_spacing":     0.0,
+    "vision_search_speed":       0.0,
+    "vision_search_dwell":       3.0,
+    "vision_search_timeout":   120.0,
+    "vision_retry_alt":         15.0,
+    "vision_retry_radius":      18.0,
+    "vision_latch_frames":         3,
+    "vision_latch_spread_m":     3.0,
+    "vision_stale_timeout":      1.0,
+    "vision_link_timeout":       3.0,
+    "vision_veto_timeout":      10.0,
+    "vision_align_tol":          1.0,
+    "vision_descend_speed":      0.8,
+    "vision_land_handoff_agl":   3.0,
+    "precision_land_timeout":   60.0,
+}
+
+#: vision 실측 발행 주파수 (Hz). 🔴 10Hz 가 아니다 — 인수인계 §7.
+_VISION_PUBLISH_HZ = 4.4
+#: 탐색 1회차 실측 소요 (정렬 ~5s + dwell 3s + 나선 89s).
+_SEARCH_PASS1_MEASURED_S = 97.0
+
+
+@pytest.mark.parametrize("key,expected", sorted(_VISION_PARAMS.items(), key=str))
+def test_f2_vision_param_present_in_yaml(key, expected):
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    assert key in params, f"YAML에 '{key}' 파라미터가 없습니다"
+    if isinstance(expected, bool):
+        assert params[key] is expected
+    elif isinstance(expected, int):
+        assert params[key] == expected and isinstance(params[key], int)
+    else:
+        assert params[key] == pytest.approx(expected)
+
+
+def test_f2_vision_landing_defaults_to_false():
+    """🔴 계약: 종전 경로(HOLD→LANDING)가 기본이다. true 로 배포하면
+    `sitl_vtol_remediation_plan.md` §4-1 4번("첫 실비행에 미검증 변수 둘 금지")을
+    깨뜨린다 — 실기체 FW+OFFBOARD 실적이 아직 0건이다."""
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    assert params["vision_landing"] is False
+
+
+@pytest.mark.parametrize("key,expected", sorted(_VISION_PARAMS.items(), key=str))
+def test_f2_node_declare_default_matches_yaml(key, expected):
+    """노드 기본값과 YAML 이 어긋나면 launch 경유와 직접 기동이 다르게 돈다."""
+    import re
+    src = (Path(__file__).parent.parent / "fc_ros" / "nodes"
+           / "offboard_node.py").read_text(encoding="utf-8")
+    m = re.search(
+        r'declare_parameter\(\s*"%s"\s*,\s*(True|False|[0-9.]+)\s*\)'
+        % re.escape(key), src)
+    assert m, f"offboard_node.py 에 '{key}' declare_parameter 가 없습니다"
+    raw = m.group(1)
+    got = {"True": True, "False": False}.get(raw)
+    if got is None:
+        got = float(raw)
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    if isinstance(expected, bool):
+        assert got is expected and params[key] is expected
+    else:
+        assert got == pytest.approx(float(expected))
+        assert got == pytest.approx(float(params[key]))
+
+
+@pytest.mark.parametrize("key", sorted(_VISION_PARAMS))
+def test_f2_vision_param_declared_as_launch_arg(key):
+    """현장 조정은 YAML 수정이 아니라 launch 인자로 한다(프로젝트 규율).
+    🔴 게다가 위생검사가 **미선언 인자를 거부**하므로, 선언이 없으면 인자를 준
+    순간 launch 자체가 실패한다."""
+    launch_src = (Path(__file__).parent.parent / "launch"
+                  / "phase2.launch.py").read_text(encoding="utf-8")
+    assert f'"{key}", default_value=""' in launch_src, \
+        f"phase2.launch.py 에 '{key}' DeclareLaunchArgument 가 없습니다"
+
+
+def _launch_forward_lists():
+    """`phase2.launch.py` 의 `_VISION_*_ARGS` 세 목록을 이름별로 돌려준다."""
+    import ast
+    tree = ast.parse((Path(__file__).parent.parent / "launch"
+                      / "phase2.launch.py").read_text(encoding="utf-8"))
+    out = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for t in node.targets:
+            name = getattr(t, "id", "")
+            if not (name.startswith("_VISION_") and name.endswith("_ARGS")):
+                continue
+            if isinstance(node.value, (ast.Tuple, ast.List)):
+                out[name] = [e.value for e in node.value.elts
+                             if isinstance(e, ast.Constant)]
+    return out
+
+
+@pytest.mark.parametrize("key", sorted(_VISION_PARAMS))
+def test_f2_vision_param_is_actually_forwarded(key):
+    """선언만 하고 `_make_nodes` 의 overrides 에 안 넣으면 **인자를 줘도 무시**된다
+    — launch 는 성공하고 값만 조용히 사라지는, 2026-07-28 flight02 형태의 사고다."""
+    lists = _launch_forward_lists()
+    assert lists, "phase2.launch.py 에서 _VISION_*_ARGS 목록을 찾지 못했습니다"
+    forwarded = {k: n for n, keys in lists.items() for k in keys}
+    assert key in forwarded, \
+        f"'{key}' 가 overrides 로 전달되지 않습니다 (launch 인자가 조용히 무시됩니다)"
+
+
+@pytest.mark.parametrize("key,expected", sorted(_VISION_PARAMS.items(), key=str))
+def test_f2_vision_param_forwarded_with_matching_type(key, expected):
+    """🔴 ROS2 파라미터는 타입이 엄격하다 — int 로 선언된 값에 float 을 덮어쓰면
+    노드가 `ParameterTypeException` 으로 죽고, bool 을 `float()` 에 넣으면
+    launch 가 죽는다. 목록 분류가 YAML 타입과 일치해야 한다."""
+    lists = _launch_forward_lists()
+    want = ("_VISION_BOOL_ARGS" if isinstance(expected, bool)
+            else "_VISION_INT_ARGS" if isinstance(expected, int)
+            else "_VISION_FLOAT_ARGS")
+    assert key in lists.get(want, []), (
+        f"'{key}' 는 {want} 에 있어야 합니다 (현재 분류: "
+        f"{[n for n, keys in lists.items() if key in keys]})")
+
+
+def test_f2_search_timeout_covers_measured_first_pass():
+    """🔴 실측 역산값. 90s 로 잡으면 1회차를 **완주 직전에** 자른다(실측 97s)."""
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    assert params["vision_search_timeout"] > _SEARCH_PASS1_MEASURED_S
+
+
+def test_f2_latch_window_is_meaningful_at_measured_publish_rate():
+    """래치 단위는 **프레임**이다. 실측 4.4Hz 에서 창이 0.5s 미만이면 단발
+    오탐 차단이라는 목적(§6-1 #5)을 못 하고, dwell(제자리 확인)보다 길면
+    제자리에서 잡히는 싼 경로가 무의미해진다."""
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    window_s = params["vision_latch_frames"] / _VISION_PUBLISH_HZ
+    assert params["vision_latch_frames"] >= 2, \
+        "프레임 1건이면 단발 오탐 하나로 나선을 버린다"
+    assert 0.5 <= window_s <= params["vision_search_dwell"], \
+        f"래치 창 {window_s:.2f}s 가 범위를 벗어납니다"
+
+
+def test_f2_stale_timeout_has_margin_over_measured_jitter():
+    """실측 프레임 간격 p95 = 0.310s. 0.5s 근처로 잡으면 여유가 1.6배뿐이라
+    헛경보가 난다(인수인계 §7)."""
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    assert params["vision_stale_timeout"] >= 3.0 * 0.310
+
+
+def test_f2_handoff_agl_matches_vision_terminal_contract():
+    """🔴 vision 의 `terminal_agl_m`(=`closed_loop_floor_agl_m`)과 같은 숫자여야
+    한다 — 계약상 "3m 부터 AUTO.LAND 인계"다."""
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    assert params["vision_land_handoff_agl"] == pytest.approx(3.0)
+
+
+def test_f2_latch_window_shorter_than_stale_timeout_is_not_required_but_recorded():
+    """래치 창(프레임 기준)과 stale 창(시간 기준)은 서로 다른 축이다.
+    다만 stale 창보다 래치 창이 훨씬 길면 유도가 끊기는 동안 래치가 영영 안
+    서므로, 두 값이 같은 자릿수인지만 확인한다."""
+    params = _load_yaml()["offboard_node"]["ros__parameters"]
+    window_s = params["vision_latch_frames"] / _VISION_PUBLISH_HZ
+    assert window_s <= 3.0 * params["vision_stale_timeout"]

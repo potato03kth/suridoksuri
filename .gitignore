@@ -22,6 +22,9 @@ logs/2026-07-27_sitl_vtol_campaign/**/*.ulg
 # FOLLOWING 을 못 벗어나 540s 를 채우는 바람에 런 1건이 **161MB** 다.
 # 원본은 WSL Ubuntu-22.04 /root/ws_r5b/src/suridoksuri/logs/2026-07-29_r5_f9/<id>/.
 logs/2026-07-29_r5_f9/**/*.ulg
+# 같은 이유로 F2 정밀착륙 수정 검증 런(2026-07-29)의 ulog 도 제외 (런당 38~45MB).
+# 원본은 WSL Ubuntu-22.04 /root/ws_f2/src/suridoksuri/logs/2026-07-29_f2_fix/<id>/.
+logs/2026-07-29_f2_fix/**/*.ulg
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

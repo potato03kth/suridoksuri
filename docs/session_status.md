@@ -32,6 +32,33 @@ last_updated: 2026-07-29
 > 계약·붙는 자리·함정·**구현된 것과 안 된 것**·재개 순서가 전부 거기 있고, **vision 도메인
 > 문서를 읽지 않아도 완주하도록** 썼다(도메인 컨텍스트 격리 유지).
 
+- **🔴 2026-07-29 — 블로커 2건 + 노출·관측 2건 수정. `vision_landing:=true` 는 그 전까지 통째로 죽어 있었다.**
+  ① **`_enter_vision_search()` 가 `self._sm` 을 세팅하지 않았다**(`8cb0861` 원본부터. 대조군
+  `_enter_precision_land` 에는 있었다). `_exit_hold` → 진입해도 상태가 `HOLD` 로 남아 다음 틱에
+  `_step_hold` 가 다시 안정조건을 만족 → **`_exit_hold` 10Hz 무한 루프**(SITL 실측 진입 1687회,
+  `stable=2205/10`, 450.8s 타임아웃). **실기체였다면 WP1 상공에서 영원히 호버**했다.
+  ② **래치가 vision 프레임이 아니라 제어틱을 셌다** — `vt.valid` 가 `vision_stale_timeout`(1.0s)
+  동안 True 라 **같은 메시지 하나가 최대 10번 계수**됐고, setpoint 1건만 오고 침묵해도 0.2s 만에
+  래치가 서면서 버퍼가 같은 좌표의 사본이라 **산포 필터까지 무력화**됐다(핸드오프 §6-1 #5·코드
+  자신의 docstring과 정면 배치). → `VisionTargetBridge.setpoints_rx` 증가분 게이트로 수정,
+  파라미터도 `vision_latch_ticks` → **`vision_latch_frames`** 개명(이름이 단위를 거짓말하면 같은
+  버그가 다시 난다).
+  ③ **launch/yaml 노출이 0개**여서 위생검사가 미선언 인자를 거부 → `vision_landing:=true` 는
+  **launch 단계에서 실패**했다(= 실기체에서 F2 를 켤 방법이 아예 없었다). 18종 전부 노출,
+  **기본 `vision_landing: false` 유지**.
+  ④ **하니스가 LANDING 을 못 보고 있었다** — `_exit_hold` 단일 분기 도입으로 로그 문구가
+  바뀌었는데 정규식이 그대로라 `state_timeline` 에서 LANDING 이 통째로 누락(실측 `R1_base`).
+  → 문구는 안 되돌리고(단일 분기는 "한쪽만 고치는 사고"를 막는 구조다) **구·신 합집합**으로
+  받고, `VISION_SEARCH`/`PRECISION_LAND` 2종 + GPS 착륙 폴백 3종을 추가.
+  **🔴 왜 440건 전건 green 이면서 살아남았나:** `fc_ros/test/` 에 F2 노드측 상태기계 테스트가
+  **0건**이었다(순수 함수 테스트는 "`_sm` 을 세팅했는가"를 원리적으로 못 본다).
+  → **`fc_ros/test/test_offboard_f2_state.py` 신설** — rclpy 스텁 + `__new__` 껍데기로 **노드
+  메서드를 실제로 실행**해 전이·연속틱 거동을 단언한다. 파라미터 3중 일치(YAML↔declare↔launch)
+  테스트와 합쳐 **565건**(+125). 파괴검증 4종 전부 red→green 확인.
+  **SITL 재검증**(격리 클론 `/root/ws_f2`, `PX4_DIR=/root/PX4-vehicle`, 바이너리 재빌드 확인):
+  `false` 회귀 `G1_base` exit=done 152.9s(HOLD 67.89 → **LANDING 78.30** → DONE 121.76,
+  비전 로그 0건) / `true` 해피패스 `G2_vision`(아래 로그 폴더). 산출물 `logs/2026-07-29_f2_fix/`.
+  SITL 합성 vision 발행기를 저장소로 들여왔다 → **`tools/sitl/fake_vision.py`**(§6-1 장애주입 6종 지원).
 - **✅ 보류 해제 (2026-07-29):** 보류 사유였던 **"선행: 🛩 sitl-vtol 실기체 플래시"가 해소됐다.**
   2026-07-28~29 F-17/F-4 패치본이 실기체에 올라갔고(CRSF RC 두절 사고 1건 발생·해소),
   ulog 로 패치 정상작동까지 확인됐다 — 상세는 🛩 sitl-vtol 트랙 최신 블록 ·

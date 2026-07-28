@@ -291,9 +291,22 @@ class OffboardNode(Node):
         # 재탐색(2회차) — 고도를 낮춰 GSD를 벌고 반경을 줄여 시간을 아낀다.
         self.declare_parameter("vision_retry_alt",       15.0)
         self.declare_parameter("vision_retry_radius",    18.0)
-        # 래치: 유효 setpoint가 이만큼 연속 + 좌표 산포가 임계 이내여야 탐색을
-        # 멈춘다. 단발 오탐 하나로 엉뚱한 곳으로 날아가는 것을 막는다.
-        self.declare_parameter("vision_latch_ticks",        3)
+        # 래치: **서로 다른 vision 프레임**이 이만큼 연속으로 유효 + 좌표 산포가
+        # 임계 이내여야 탐색을 멈춘다. 단발 오탐 하나로 엉뚱한 곳으로 날아가는
+        # 것을 막는다.
+        #
+        # 🔴 단위가 **제어틱이 아니라 프레임**이다(2026-07-29 수정). 종전 이름은
+        # `vision_latch_ticks`였고 실제로 제어틱(10Hz)을 셌는데, `vt.valid`는
+        # `vision_stale_timeout`(1.0s) 동안 True로 유지되므로 **같은 메시지 하나가
+        # 최대 10번 계수**됐다 — setpoint가 1건만 도착하고 침묵해도 0.2s 만에
+        # 래치가 서고, 버퍼가 같은 좌표 3개라 산포 필터도 함께 무력화됐다
+        # (검증 세션 실측). 그건 인수인계 §6-1 #5("단발 오탐 1프레임에 탐색이
+        # 중단되지 않는다")와 정면으로 배치된다. 지금은
+        # `VisionTargetBridge.setpoints_rx`의 **증가분**으로만 버퍼에 넣는다.
+        #
+        # 기본 3 = 실측 4.4Hz에서 약 0.68s. 종전 "3틱"(0.3s, 프레임 1~2개)보다
+        # 증거가 늘었고 래치 지연은 0.4s 미만 증가한다.
+        self.declare_parameter("vision_latch_frames",       3)
         self.declare_parameter("vision_latch_spread_m",   3.0)
         # 🔴 stale 판정 1.0s — 실측 발행 주파수가 **4.4Hz**(median 0.221s /
         # p95 0.310s)다. 10Hz를 가정해 0.5s로 잡으면 정상 지터와 여유가
@@ -385,8 +398,8 @@ class OffboardNode(Node):
             self.get_parameter("vision_retry_alt").value)
         self._vs_retry_radius = float(
             self.get_parameter("vision_retry_radius").value)
-        self._vs_latch_ticks = int(
-            self.get_parameter("vision_latch_ticks").value)
+        self._vs_latch_frames = int(
+            self.get_parameter("vision_latch_frames").value)
         self._vs_latch_spread = float(
             self.get_parameter("vision_latch_spread_m").value)
         self._vs_stale_timeout = float(
@@ -556,6 +569,10 @@ class OffboardNode(Node):
         self._vs_speed = 0.0           # 실효 선회속도
         # 래치 — 유효 setpoint를 연속으로 모아 산포를 본다.
         self._vs_latch_buf: list = []
+        # 🔴 마지막으로 버퍼에 넣은 프레임의 `setpoints_rx` 값. 같은 메시지를
+        # 여러 제어틱에 걸쳐 다시 세지 않기 위한 유일한 수단이다(아래
+        # `_vision_latch_update` 참조). None = 아직 아무것도 안 넣음.
+        self._vs_latch_rx = None
         self._vs_latched = None        # 래치된 착륙점 (NED [N, E, h_up])
         # PRECISION_LAND 플래그
         self._pl_ramp = None
@@ -1551,12 +1568,23 @@ class OffboardNode(Node):
         self.get_logger().info(f"{why} → VISION_SEARCH (비전 착륙 활성)")
 
     def _enter_vision_search(self, state: VehicleState, pass_idx: int) -> None:
-        """탐색 1회차/재탐색 공통 진입 — 회차별 고도·반경을 잡고 나선을 초기화한다."""
+        """탐색 1회차/재탐색 공통 진입 — 회차별 고도·반경을 잡고 나선을 초기화한다.
+
+        🔴 **첫 줄의 상태 전이를 지우지 마라.** 2026-07-28~29 원본에는 이 한 줄이
+        없었고(`_enter_precision_land`에는 있었다) 그 결과 `vision_landing:=true`가
+        통째로 죽어 있었다: `_exit_hold`가 여기를 불러도 `_sm`이 `HOLD`로 남아
+        다음 틱에 `_step_hold`가 다시 안정조건을 만족 → `_exit_hold` 재호출의
+        **10Hz 무한 루프**가 된다(SITL 실측 진입 로그 1687회, `stable=2205/10`).
+        실기체였다면 WP1 상공에서 영원히 호버했다. 회귀 그물은
+        `fc_ros/test/test_offboard_f2_state.py`.
+        """
+        self._sm = _State.VISION_SEARCH
         self._vs_pass = pass_idx
         self._vs_phase = "align"
         self._vs_elapsed = 0.0
         self._vs_dwell_elapsed = 0.0
         self._vs_latch_buf = []
+        self._vs_latch_rx = None
         # 램프 시작점은 **기체 현재 위치**다 — `_step_hold`와 같은 규약
         # ("OFFBOARD가 이어받는 setpoint는 항상 실제 위치와 일치시킨다",
         #  2026-07-20 제어상실 사고 대응).
@@ -1607,26 +1635,42 @@ class OffboardNode(Node):
     # ── VISION_SEARCH (WP1 중심 나선 탐색) ─────────────────────
 
     def _vision_latch_update(self, vt) -> bool:
-        """유효 setpoint를 연속으로 모아 산포를 본다. 래치가 서면 True.
+        """**서로 다른 vision 프레임**을 연속으로 모아 산포를 본다. 래치가 서면 True.
 
         🔴 **단발 검출로 탐색을 멈추지 않는다.** 탐색 중에는 기체가 계속 움직여
         타겟이 화각을 스쳐 지나가므로, 한 프레임짜리 오탐 하나로 나선을 버리고
-        엉뚱한 곳으로 날아가면 회복할 방법이 없다. `vision_latch_ticks` 틱
+        엉뚱한 곳으로 날아가면 회복할 방법이 없다. `vision_latch_frames` 프레임
         연속 + 그 좌표들의 수평 산포가 `vision_latch_spread_m` 이내일 때만
         "같은 것을 계속 보고 있다"로 인정한다.
 
-        연속성이 깨지면 버퍼를 **비운다** — 띄엄띄엄 본 것을 모아 평균 내면
-        서로 다른 물체의 중점이라는 실재하지 않는 좌표가 나온다.
+        🔴 **세는 단위는 제어틱이 아니라 프레임이다.** `vt.valid`는
+        `vision_stale_timeout`(1.0s) 동안 True로 유지되므로, 제어틱(10Hz)마다
+        무조건 push하면 **메시지 하나가 최대 10번 계수**된다 — setpoint가 1건만
+        오고 발행이 끊겨도 0.2s 만에 래치가 서고, 버퍼가 같은 좌표의 사본이라
+        산포 필터까지 통과한다(2026-07-29 검증 세션 실측). 그래서 어댑터의
+        `setpoints_rx`(수신 카운터)가 **증가한 틱에만** 버퍼에 넣는다.
+        같은 프레임을 다시 보고 있는 틱은 아무 일도 하지 않는다(버퍼를 비우지도
+        않는다 — 그건 유도 상실이 아니라 그냥 다음 프레임 대기다).
+
+        연속성이 깨지면(무효/veto) 버퍼를 **비운다** — 띄엄띄엄 본 것을 모아
+        평균 내면 서로 다른 물체의 중점이라는 실재하지 않는 좌표가 나온다.
         """
+        rx = int(getattr(self._vision, "setpoints_rx", 0))
         if not (vt.valid and vt.pos_ned is not None and not vt.veto):
             self._vs_latch_buf = []
+            self._vs_latch_rx = rx
             return False
+
+        # 새 프레임이 아직 안 왔다 — 같은 메시지를 다시 세지 않는다.
+        if self._vs_latch_rx is not None and rx <= self._vs_latch_rx:
+            return False
+        self._vs_latch_rx = rx
 
         self._vs_latch_buf.append(np.array(vt.pos_ned, dtype=float))
         # 창을 최신 N개로 유지 — 아직 흔들리면 계속 지켜본다.
-        self._vs_latch_buf = self._vs_latch_buf[-self._vs_latch_ticks:]
+        self._vs_latch_buf = self._vs_latch_buf[-self._vs_latch_frames:]
         latched = latch_candidate(
-            self._vs_latch_buf, self._vs_latch_ticks, self._vs_latch_spread)
+            self._vs_latch_buf, self._vs_latch_frames, self._vs_latch_spread)
         if latched is None:
             return False
         self._vs_latched = latched
@@ -1650,7 +1694,7 @@ class OffboardNode(Node):
         # ① 래치 — 어느 단계에 있든 본다(고도 정렬 중에 보여도 잡는다).
         if self._vision_latch_update(vt):
             self.get_logger().info(
-                f"타겟 래치 (연속 {self._vs_latch_ticks}틱, "
+                f"타겟 래치 (연속 {self._vs_latch_frames}프레임, "
                 f"N={self._vs_latched[0]:.1f} E={self._vs_latched[1]:.1f}) "
                 f"→ PRECISION_LAND")
             self._enter_precision_land(state)

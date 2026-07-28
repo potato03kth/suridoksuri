@@ -435,7 +435,7 @@ vision 프로세스 **SIGKILL** / 소켓 끊김 / attitude stale / `valid=false`
 | `vision_search_dwell` | 3.0 | 탐색고도 도달 후 제자리 확인(s) |
 | `vision_search_timeout` | **120.0** | 1회 탐색 상한. 🔴 실측 역산값 — 1회차가 97s다. **반경·간격·속도를 바꾸면 같이 재라** |
 | `vision_retry_alt` / `_radius` | 15.0 / 18.0 | 재탐색 회차 |
-| `vision_latch_ticks` / `_spread_m` | 3 / 3.0 | 래치 조건(연속 틱 + 수평 산포). 단발 오탐 차단 |
+| `vision_latch_frames` / `_spread_m` | 3 / 3.0 | 래치 조건(연속 **vision 프레임** + 수평 산포). 단발 오탐 차단. 🔴 **단위는 제어틱이 아니다** — 2026-07-29 개명, 아래 §8-1 |
 | `vision_stale_timeout` | 1.0 | 🔴 실측 발행 4.4Hz 기준. **0.5s로 잡으면 헛경보** |
 | `vision_link_timeout` | 3.0 | `link_dead` 유효기간(하트비트 1Hz × 3). 일회성 ERROR가 영구 래치되는 것을 막는다 |
 | `vision_veto_timeout` | 10.0 | **D-a.** veto 지속 시 GPS 착륙 폴백까지의 시한 |
@@ -444,9 +444,33 @@ vision 프로세스 **SIGKILL** / 소켓 끊김 / attitude stale / `valid=false`
 | `vision_land_handoff_agl` | 3.0 | AUTO.LAND 인계 고도. 🔴 vision의 `terminal_agl_m`과 **같은 숫자여야 한다** |
 | `precision_land_timeout` | 60.0 | 정렬이 영영 안 설 때의 상한 |
 
-> ⚠️ **`fc_ros_params.yaml`에는 아직 안 넣었다** — 지금은 노드 기본값만 있다. yaml에 넣고
-> launch 인자로도 노출하려면 `phase2.launch.py`의 `DeclareLaunchArgument` + `overrides`
-> 두 곳을 같이 고쳐야 한다(`docs/rpi_deploy.md` §6).
+> ✅ **2026-07-29 노출 완료.** 위 18개 전부가 `fc_ros_params.yaml` + `phase2.launch.py`
+> (`DeclareLaunchArgument` + `_make_nodes` overrides)에 들어갔다. 3중 일치는
+> `fc_ros/test/test_params.py`의 `test_f2_*`가 고정한다.
+> **기본값은 `vision_landing: false`** — 종전 경로가 기본이라는 계약 그대로다.
+>
+> 🔴 **그 전까지는 실기체에서 F2를 켤 방법이 아예 없었다.** launch 인자 위생검사가
+> 미선언 인자에 `RuntimeError`를 던지므로 `phase2.launch.py vision_landing:=true`는
+> **launch 단계에서 실패**했다(값이 무시되는 게 아니라 기동 자체가 안 됐다).
+
+### 8-1. 🔴 2026-07-29 수정 3건 — 재개 전에 반드시 읽어라
+
+`8cb0861`(구현)과 `6e3ea0c`(검증) 사이에서 드러난 것들이다.
+
+| # | 무엇이 틀렸나 | 지금 |
+|---|---|---|
+| 1 | **`_enter_vision_search()`가 `self._sm`을 세팅하지 않았다.** `_exit_hold`가 불러도 상태가 `HOLD`로 남아 다음 틱에 `_step_hold`가 다시 안정조건을 만족 → `_exit_hold` 재호출의 **10Hz 무한 루프**. SITL 실측 진입 로그 1687회, `stable=2205/10`, 450.8s 타임아웃. **실기체였다면 WP1 상공에서 영원히 호버**했다. `8cb0861` 원본부터 없었다(후속 회귀 아님) | 첫 줄에 `self._sm = _State.VISION_SEARCH`. 회귀 그물 `fc_ros/test/test_offboard_f2_state.py` |
+| 2 | **래치가 vision 프레임이 아니라 제어틱을 셌다.** `vt.valid`는 `vision_stale_timeout`(1.0s) 동안 True라 **같은 메시지 하나가 최대 10번 계수**됐다 — setpoint 1건만 오고 침묵해도 0.2s 만에 래치가 서고, 버퍼가 같은 좌표의 사본이라 산포 필터까지 통과했다. §6-1 #5·코드 자신의 docstring과 정면 배치 | `VisionTargetBridge.setpoints_rx`의 **증가분**으로만 버퍼에 넣는다. 파라미터도 `vision_latch_ticks` → **`vision_latch_frames`**로 개명(이름이 단위를 거짓말하면 같은 버그가 다시 난다) |
+| 3 | **하니스가 LANDING을 못 봤다.** `_exit_hold` 단일 분기 도입으로 HOLD 종료 문구가 바뀌었는데(`WP1 도달·안정 → LANDING (…)` → `WP1 도달·안정 (…) → LANDING`, `→ 강제 LANDING` 소멸) `run_scenario.py`·`analyze_run.py`의 정규식이 그대로라 `state_timeline`에서 **LANDING이 통째로 누락**됐다(R1_base: HOLD 72.50 → DONE 127.98) | **정규식을 고쳤다**(문구는 안 되돌린다 — 단일 분기는 "두 경로 중 한쪽만 고치는 사고"를 막는 구조다). 구·신 문구를 **합집합**으로 받는다(아카이브 런 재분석이 깨지면 안 된다). `VISION_SEARCH`/`PRECISION_LAND` 2종과 GPS 착륙 폴백 3종도 같이 추가 |
+
+> ⚠️ **왜 440건 테스트가 전부 통과하면서 1·2번이 살아남았나:** `fc_ros/test/` 어디에도
+> `_exit_hold`·`_enter_vision_search`·`_step_vision_search`·`VISION_SEARCH` 참조가 **0건**이었다.
+> 순수 함수 테스트는 "`_sm`을 세팅했는가" 같은 **전이 자체**를 원리적으로 볼 수 없다.
+> `test_offboard_f2_state.py`가 그 층을 새로 만든다 — rclpy 스텁 + `__new__` 껍데기로
+> **노드 메서드를 실제로 실행**한다.
+
+**SITL 합성 vision 발행기는 이제 저장소에 있다: `tools/sitl/fake_vision.py`**
+(§6-1 장애주입 6종을 인자로 낼 수 있다). 종전엔 폐기 클론에만 있었다.
 
 ---
 

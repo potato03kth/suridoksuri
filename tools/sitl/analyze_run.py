@@ -35,8 +35,11 @@ PARAMS_YAML = REPO_ROOT / "fc_ros" / "fc_ros" / "params" / "fc_ros_params.yaml"
 G = 9.80665
 
 # 정상 상태 순서 (VTOL). 실제 시퀀스가 이것의 부분수열인지 본다.
+# VISION_SEARCH / PRECISION_LAND 는 `vision_landing:=true` 일 때만 나타나며
+# HOLD 와 LANDING 사이에 낀다(false 면 그냥 건너뛴다 = 부분수열이 그대로 성립).
 CANONICAL_ORDER = ["ARM_TAKEOFF", "CLIMBING", "TRANSITION_FW", "STREAMING",
                    "ENTRY", "FOLLOWING", "TRANSITION_MC", "HOLD",
+                   "VISION_SEARCH", "PRECISION_LAND",
                    "LANDING", "DONE"]
 
 VTOL_STATE_NAME = {0: "UNDEFINED", 1: "TRANS_TO_FW", 2: "TRANS_TO_MC",
@@ -58,7 +61,13 @@ STATE_ENTRY_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("FOLLOWING",      re.compile(r"^(OFFBOARD 확인 → FOLLOWING|ENTRY 완료 -> FOLLOWING)")),
     ("TRANSITION_MC",  re.compile(r"경로 추종 완료 -> transition_mc")),
     ("HOLD",           re.compile(r"MC 전환 완료 -> HOLD")),
-    ("LANDING",        re.compile(r"(WP1 도달·안정 → LANDING|→ 강제 LANDING)")),
+    # ── 비전 정밀착륙 F2 2종 (2026-07-29 신설) ────────────────────────────
+    # 🔴 LANDING **앞에** 둔다 — 첫 매치에서 break 하므로 순서가 곧 우선순위다.
+    ("VISION_SEARCH",  re.compile(r"→ VISION_SEARCH")),
+    ("PRECISION_LAND", re.compile(r"→ PRECISION_LAND")),
+    # 🔴 LANDING 은 **구·신 문구를 모두** 받는다 (2026-07-29). 근거·경위는
+    # run_scenario.py 의 같은 자리 주석(둘은 항상 같이 고친다).
+    ("LANDING",        re.compile(r"(→ 강제 LANDING|→ LANDING|GPS 착륙)")),
     ("OVERRIDE",       re.compile(r"긴급 수동 전환 실행 →")),
     ("PILOT_TAKEOVER", re.compile(r"조종사 인계 감지")),
     ("DONE",           re.compile(r"(착륙 완료 \(disarmed\) -> DONE|수동/안전 모드 진입 확인.*-> DONE)")),

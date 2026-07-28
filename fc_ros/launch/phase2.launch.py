@@ -13,6 +13,8 @@ Phase 2 launch: TelemetryNode + OffboardNode — Offboard 경로 추종.
   ros2 launch fc_ros phase2.launch.py d_end_thresh:=30.0        # 역천이 진입 거리 스윕 (SITL-7 C5)
   ros2 launch fc_ros phase2.launch.py entry_mode:=mid_flight    # ENTRY 상태 경로 (SITL-7 C10)
   ros2 launch fc_ros phase2.launch.py planner:=straight l1_dist:=30.0
+  ros2 launch fc_ros phase2.launch.py vision_landing:=true                  # F2 비전 정밀착륙 (기본 false)
+  ros2 launch fc_ros phase2.launch.py vision_landing:=true vision_search_alt:=20.0
 
 TelemetryNode: 진단·모니터링 용도 (VehicleState 로깅).
 OffboardNode:  실제 제어 루프 (MAVROS 토픽 직접 구독, 자체 VehicleState 유지).
@@ -40,6 +42,45 @@ def _arg(name, context):
     return check_value(name, LaunchConfiguration(name).perform(context))
 
 
+# 🔴 bool 파라미터는 **모르는 값을 조용히 False 로 떨어뜨리지 않는다.**
+# `bool("false") == True` 같은 파이썬 함정도, "오타면 그냥 꺼진다" 도 둘 다
+# 2026-07-28 flight02 형태의 사고(파라미터가 조용히 유실된 채 기동)를 재현한다.
+_TRUE = {"1", "true", "yes", "on"}
+_FALSE = {"0", "false", "no", "off"}
+
+
+def _as_bool(name, raw):
+    v = str(raw).strip().lower()
+    if v in _TRUE:
+        return True
+    if v in _FALSE:
+        return False
+    raise RuntimeError(
+        f"launch 인자 {name}:={raw!r} 를 bool 로 읽을 수 없습니다 — "
+        f"허용값: {sorted(_TRUE)} / {sorted(_FALSE)} (빈 값이면 YAML 사용)")
+
+
+# 비전 정밀착륙(F2) 파라미터 — 전부 launch 로 노출한다.
+# 🔴 2026-07-29 이전에는 여기에 하나도 없었고, launch 인자 위생 검사가 미선언
+# 인자에 RuntimeError 를 던지므로 `vision_landing:=true` 는 **launch 자체가
+# 실패**했다 = 실기체에서 F2 를 켤 방법이 존재하지 않았다.
+# 값의 의미·근거는 `fc_ros_params.yaml` 의 같은 이름 주석과
+# `docs/fc_precision_land_handoff.md` §8.
+_VISION_FLOAT_ARGS = (
+    "vision_search_alt", "vision_search_radius", "vision_search_spacing",
+    "vision_search_speed", "vision_search_dwell", "vision_search_timeout",
+    "vision_retry_alt", "vision_retry_radius", "vision_latch_spread_m",
+    "vision_stale_timeout", "vision_link_timeout", "vision_veto_timeout",
+    "vision_align_tol", "vision_descend_speed", "vision_land_handoff_agl",
+    "precision_land_timeout",
+)
+#: 🔴 ROS2 파라미터는 타입이 엄격하다 — YAML 이 int 로 선언한 값에 float 을
+#: 덮어쓰면 노드가 ParameterTypeException 으로 죽는다. 그래서 따로 분류한다.
+_VISION_INT_ARGS = ("vision_latch_frames",)
+#: 🔴 마스터 스위치. 기본은 **빈 값 = YAML(false)** 이다.
+_VISION_BOOL_ARGS = ("vision_landing",)
+
+
 def _make_nodes(context):
     pkg    = get_package_share_directory("fc_ros")
     params = os.path.join(pkg, "params", "fc_ros_params.yaml")
@@ -61,6 +102,21 @@ def _make_nodes(context):
         val = _arg(name, context)
         if val:
             overrides[name] = float(val)
+
+    for name in _VISION_FLOAT_ARGS:
+        val = _arg(name, context)
+        if val:
+            overrides[name] = float(val)
+
+    for name in _VISION_INT_ARGS:
+        val = _arg(name, context)
+        if val:
+            overrides[name] = int(val)
+
+    for name in _VISION_BOOL_ARGS:
+        val = _arg(name, context)
+        if val:
+            overrides[name] = _as_bool(name, val)
 
     for name in ("entry_mode", "planner"):
         val = _arg(name, context)
@@ -179,6 +235,76 @@ def generate_launch_description():
             "alt_slew_rate", default_value="",
             description="FW 위치 setpoint 고도 램프 (m/s). 0 이하면 비활성(= 종전 계단). "
                         "빈 값(기본)이면 YAML(3.0). F-9 — transition_alt != wp[-1].z 일 때의 천이 고도 계단"),
+    ]
+
+    # ── 비전 정밀착륙 F2 (2026-07-29) ──────────────────────────────────
+    # 전부 빈 문자열 기본값 = YAML 값 사용. 🔴 `vision_landing` 의 YAML 기본은
+    # **false** 이므로, 아무 인자도 주지 않으면 종전 경로(HOLD→LANDING)가 그대로다.
+    args += [
+        DeclareLaunchArgument(
+            "vision_landing", default_value="",
+            description='비전 정밀착륙 마스터 스위치: "true"|"false". 빈 값(기본)이면 '
+                        'YAML(false) = 종전 HOLD→LANDING 경로. true 면 '
+                        'HOLD→VISION_SEARCH→PRECISION_LAND→LANDING'),
+        DeclareLaunchArgument(
+            "vision_search_alt", default_value="",
+            description="탐색고도 (AGL, m). 빈 값(기본)이면 YAML(25.0). "
+                        "검출률이 나쁘면 20m 로 내리는 것이 첫 카드"),
+        DeclareLaunchArgument(
+            "vision_search_radius", default_value="",
+            description="최대 탐색반경 (m). 빈 값(기본)이면 YAML(30.0)"),
+        DeclareLaunchArgument(
+            "vision_search_spacing", default_value="",
+            description="나선 링 간격 (m). 0 이하면 풋프린트에서 자동 산출. "
+                        "빈 값(기본)이면 YAML(0.0)"),
+        DeclareLaunchArgument(
+            "vision_search_speed", default_value="",
+            description="나선 선회속도 상한 (m/s). 0 이하면 v_approach. "
+                        "빈 값(기본)이면 YAML(0.0)"),
+        DeclareLaunchArgument(
+            "vision_search_dwell", default_value="",
+            description="탐색고도 도달 후 제자리 확인 (s). 빈 값(기본)이면 YAML(3.0)"),
+        DeclareLaunchArgument(
+            "vision_search_timeout", default_value="",
+            description="1회 탐색 상한 (s). 빈 값(기본)이면 YAML(120.0). "
+                        "⚠️ 반경·간격·속도를 바꾸면 이 값도 같이 재라"),
+        DeclareLaunchArgument(
+            "vision_retry_alt", default_value="",
+            description="재탐색 회차 고도 (AGL, m). 빈 값(기본)이면 YAML(15.0)"),
+        DeclareLaunchArgument(
+            "vision_retry_radius", default_value="",
+            description="재탐색 회차 최대 반경 (m). 빈 값(기본)이면 YAML(18.0)"),
+        DeclareLaunchArgument(
+            "vision_latch_frames", default_value="",
+            description="래치에 필요한 연속 **vision 프레임** 수 (정수, 틱 아님). "
+                        "빈 값(기본)이면 YAML(3)"),
+        DeclareLaunchArgument(
+            "vision_latch_spread_m", default_value="",
+            description="래치 좌표 수평 산포 상한 (m). 빈 값(기본)이면 YAML(3.0)"),
+        DeclareLaunchArgument(
+            "vision_stale_timeout", default_value="",
+            description="setpoint stale 판정 (s). 빈 값(기본)이면 YAML(1.0). "
+                        "⚠️ 실측 발행 4.4Hz — 0.5s 로 잡으면 헛경보"),
+        DeclareLaunchArgument(
+            "vision_link_timeout", default_value="",
+            description="vision/link ERROR 유효기간 (s). 빈 값(기본)이면 YAML(3.0)"),
+        DeclareLaunchArgument(
+            "vision_veto_timeout", default_value="",
+            description="vision 거부권 지속 시 GPS 착륙 폴백까지 (s). "
+                        "빈 값(기본)이면 YAML(10.0)"),
+        DeclareLaunchArgument(
+            "vision_align_tol", default_value="",
+            description="하강 허가 수평 정렬 허용오차 (m). 빈 값(기본)이면 YAML(1.0)"),
+        DeclareLaunchArgument(
+            "vision_descend_speed", default_value="",
+            description="정렬 후 하강률 (m/s). 빈 값(기본)이면 YAML(0.8)"),
+        DeclareLaunchArgument(
+            "vision_land_handoff_agl", default_value="",
+            description="AUTO.LAND 인계 고도 (AGL, m). 빈 값(기본)이면 YAML(3.0). "
+                        "🔴 vision 의 terminal_agl_m 과 같은 숫자여야 한다"),
+        DeclareLaunchArgument(
+            "precision_land_timeout", default_value="",
+            description="PRECISION_LAND 체류 상한 (s). 빈 값(기본)이면 YAML(60.0)"),
     ]
 
     # 선언 목록이 곧 검사 기준이다 — 인자를 추가해도 여기 손댈 필요가 없다.
