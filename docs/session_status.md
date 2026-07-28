@@ -129,7 +129,34 @@ last_updated: 2026-07-29
 - **주의:** 최신 코드(작업 H 포함, `000f478`까지 커밋·푸시 완료)가 RPi에 **미전파** — RPi에서 `git pull` 필요(RPi 정본=호스트 `~/drone_ws/src/suridoksuri`, potato03kth). WSL(`~/suridoksuri-1`)은 이미 pull·재빌드 완료. `waypoints` 300 m·`v_cruise 20.0` 유지 결정(2026-06-30). V2/V5는 MAVROS 중지 필요(단독 링크). **작업 H가 실기체로 검증되기 전까지** 🚁 트랙의 "transition_alt를 낮게" 임시조치를 유지할 것 — SITL은 PASS했으나 실기체 미확인. **작업 H-2(AMSL 이륙고도 수정, `9451861`)는 단위테스트만 통과 — SITL 재검증 전이라 실비행 반영 금지.** geoid 리스크(MAVROS `geo.altitude`가 ellipsoid면 이륙 과상승) SITL 로그로 판별.
 - **참조:** `fc_ros/fc_ros/nodes/offboard_node.py`(`_step_arm_takeoff`) · `fc_bridge/execution/state_logic.py`(`takeoff_request_fields`) · `fc_bridge/planning/planner_runner.py`(resolve_planner_name) · `vtol_sim/…/straight_line_planner.py`·`eta3clothoid_v3_1_planner.py`(v3.3) · `tools/flight_logs/VERIFY.md`(V1~V5) · `flight_plan.md`·`sitl_verification_log.md`(작업 H) · `docs/flight_plan.md`(작업 G)
 
-### 🛩 sitl-vtol — ▶ 활성 (**2026-07-29: F-17/F-4 패치 실기체 플래시 ✅완료·해소 확인. 다음은 R5**)
+### 🛩 sitl-vtol — ▶ 활성 (**2026-07-29: R5 F-9 ✅완료·SITL 검증. 남은 R5 항목은 F-8·F-10·F-11·F-6**)
+
+- **✅ R5 F-9 (천이 고도 계단) 완료 — 코드·단위테스트·SITL A/B 전부 (2026-07-29, `94989b6`+`f6f8789`).**
+  전문은 `docs/sitl_vtol_remediation_plan.md` R5 2항 · 런 산출물 `logs/2026-07-29_r5_f9/`(notes.md).
+  - **원인:** `_step_transition_fw` Phase 1·2 는 속도 setpoint(hover)라 위치 setpoint 의 고도
+    성분이 **아예 없다가**, 헤딩 정렬이 끝난 **Phase 3 첫 틱**에 `_cruise_alt`(=`wp[-1].z`+경로원점)
+    **절대값**이 그대로 나간다. 계단 = `wp[-1].z − transition_alt`.
+  - **수정:** `fw_setpoint_alt()` 순수함수(R2 의 `slew_setpoint` 재사용) + `_fw_alt()`.
+    **FW 위치 setpoint 4곳 전부**가 이 하나를 쓴다(한 곳만 램프하면 계단이 다음 경계로 옮겨갈 뿐).
+    파라미터 `alt_slew_rate` 기본 **3.0 m/s**, 0 이하 = 비활성(R1 타임아웃과 같은 규약).
+    수평 성분은 안 건드린다(F-6 소관). 계단 5m 초과 시 WARN — flight02 의 `transition_alt`
+    유실(U+00A0)을 잡는 두 번째 그물이다.
+  - **SITL A/B (같은 빌드에서 `alt_slew_rate` 만 0.0↔3.0):** 첫 틱 고도계단
+    C1a **+29.331→+7.628m(−74%)** / C1b **−70.631→−8.291m(−88%)**.
+    **고도 수렴은 안 늦어졌다**(C1a +1.31s / C1b +0.19s) — 3.0 을 기체 실측 수직속도
+    (1.4~1.8 m/s)보다 빠르게 잡은 근거가 실측으로 확인된 것. **회귀 0건.**
+    잔여 7.6~8.3m 는 램프 결함이 아니라 `3.0 × (PX4 가 유한 position 을 싣기까지의 2.5~2.8s)` 다.
+  - 🔴 **이 A/B 에서 드러난 별개 회귀 — R5 F-10 으로 이관:** C1b 가 **램프 on/off 양쪽 모두**
+    FOLLOWING 을 469초 내내 못 벗어나고 cte 136~141m·`min_agl` −2.7~−3.5m(접지)로 끝난다.
+    캠페인 `C1b_pxvehicle` 는 2바퀴 돌고 **완주**했었다(FOLLOWING 43.5s). **수정 전에서도 같으므로
+    F-9 탓이 아니고**, 캠페인 이후 R1/R2/`v_cruise` 18 구간에서 생긴 회귀로 보인다.
+  - **하니스:** `tools/sitl/f9_alt_probe.py` 신설(`setpoint_jump` 3D 노름은 F-6 에 가려 F-9 를
+    못 본다). ⚠️ **시나리오 사이 `wsl --terminate Ubuntu-22.04` 는 권고가 아니라 필수** —
+    건너뛰면 `set_preflight_bypass` 가 `readback=None` 으로 실패하고 offboard_node 가
+    `/mavros/cmd/arming 서비스 없음` 을 10Hz 로 무한 반복해 ARM 조차 못 한다(이번에 실측).
+  - **실기체 배포는 아직 안 했다** — 사용자가 기체 물리 점검 중(자기계 재캘리·pusher)이라
+    `/dev/ttyACM0` 을 안 건드리는 조건이었고, 배포 자체는 시리얼과 무관하므로
+    **점검이 끝나면 `docs/rpi_deploy.md` 절차로 바로 반영할 것**(`colcon build --packages-select fc_ros`).
 
 - **✅ 실기체 플래시 완료 (2026-07-28~29 — 사고 1건 발생·해소, 전문 `docs/px4_v6c_patch_build.md` §11):**
   - **1차 플래시(사고):** 패치본 `…f17f4patch_20260728.px4` 는 교체 성공했으나 **ELRS 조종기가 완전히 두절**됐다.
@@ -179,7 +206,7 @@ last_updated: 2026-07-29
   - 유일 근거였던 "횡오차 0.2m"는 PX4 내부 `track_err`(자기 지령 대비 자기 오차)라 우리 cte와 **범주가 다르다.**
   - R-f(업그레이드 취약성)만 **반증**됐다(12개월간 `control_auto_path()` 변경 0건). 그러나 R-a·R-c·R-e 봉쇄 불가로 §4-1 1항 불충족.
   - **기각 시 조치(확정):** 현행 위치-only 유지 + PX4 `c890d9db0a` 핀 + 업그레이드 필요 시 상류 한 줄(`course = NAN`). **F-17 패치에 `course = NAN`이 포함돼 있어, 그 패치를 플래시하면 이 잔비용도 사라진다.**
-- **다음(요약) — 2026-07-28 현재:** ①**R5(경로·고도)**: `_cruise_alt` 스칼라화(F-8)·천이 고도계단(F-9)·짧은경로 `_FW_LOOKAHEAD`(F-11)·`d_end_thresh` 기본값(F-10). **⚠ `d_end_thresh`를 ≈57로 키우면 폐회로가 깨진다** — `R2_closed` FOLLOWING 진입 시 종점까지 12.18m뿐이고 **런간 변동 포함 실제 최악 여유 0.6m**(관측대역 10.60~15.32m). 폐회로에서 반드시 함께 검증할 것. **미규명: MC HOLD 수직가속 상승**(A1 5.98→10.34, C2 6.71→11.73 m/s², B8 불변) ②**R6(선회 품질·정리)**: F-5(선회 중 고도침하 — **A안으로는 안 고쳐진다, 종방향 TECS 문제**)·F-7 헤딩정렬 마진·F-13 미사용 속도프로파일·**F-12 플래너 비동기화**(아래 참조) ③~~**F-17 실기체 플래시**(사용자 승인 대기, 준비 완료)~~ **→ ✅ 완료(2026-07-29, 위 최신 블록 참조)** ④미실측: `param_set` 주입·C9.
+- **다음(요약) — 2026-07-29 갱신:** ①**R5(경로·고도)**: ~~천이 고도계단(F-9)~~ **→ ✅ 완료·SITL 검증(위 최신 블록)**. 남은 것은 `_cruise_alt` 스칼라화(F-8)·짧은경로 `_FW_LOOKAHEAD`(F-11)·`d_end_thresh` 기본값(F-10, **C1b 회귀가 여기 물렸다 — 위 블록 참조**). **⚠ `d_end_thresh`를 ≈57로 키우면 폐회로가 깨진다** — `R2_closed` FOLLOWING 진입 시 종점까지 12.18m뿐이고 **런간 변동 포함 실제 최악 여유 0.6m**(관측대역 10.60~15.32m). 폐회로에서 반드시 함께 검증할 것. **미규명: MC HOLD 수직가속 상승**(A1 5.98→10.34, C2 6.71→11.73 m/s², B8 불변) ②**R6(선회 품질·정리)**: F-5(선회 중 고도침하 — **A안으로는 안 고쳐진다, 종방향 TECS 문제**)·F-7 헤딩정렬 마진·F-13 미사용 속도프로파일·**F-12 플래너 비동기화**(아래 참조) ③~~**F-17 실기체 플래시**(사용자 승인 대기, 준비 완료)~~ **→ ✅ 완료(2026-07-29, 위 최신 블록 참조)** ④미실측: `param_set` 주입·C9.
   - **완료·배포됨(재작업 금지):** 타임아웃 4종+거리상한 300m+F-15+F-16(R1, `ca8809d`) · `_find_segment` 창탐색+`_step_hold` 슬루+F-14+플래너 진행로그(R2, `2f024a7`) · `v_cruise` 정식값 **18.0**(`28a8701`). 전부 RPi5 반영·md5 대조 완료(`893a5eb`).
   - **`v_cruise`로 F-12를 못 고친다(실측 확정):** 18은 20의 **96~97%**다. "160배 민감"은 곡선이 아니라 **16↔17 계단**이고, ≤16이 싼 이유는 NR이 일찍 포기해 **경로가 변형**되기 때문이다(전장 L자 405.58m/폐회로 809.42m vs 이론 400/800). **F-12의 해법은 비동기화(R6)뿐.**
   - **회귀 시나리오 필수요건에 「비-정북 *천이*」 추가** — 캠페인 24런 중 비-정북 천이는 C2·B8 2건뿐이었다(A3/B4/B5는 코너가 있어도 첫 레그가 정북). §7-1의 "비-정북 *레그*"만으로는 F-17을 못 잡았다.
