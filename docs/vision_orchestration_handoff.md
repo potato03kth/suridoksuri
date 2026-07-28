@@ -677,7 +677,12 @@ CPU 부하 의존이라 **서브에이전트 3개가 돌 때 3/5 실패, 유휴 
 
 ### 8-1. 통합 완주까지 남은 것
 
-1. **FC 쪽 소비 — `offboard_node` 정밀착륙 서브상태** ← **FC 도메인 세션이 해야 한다.**
+1. ✅ **인수인계 완료(2026-07-28) → `docs/fc_precision_land_handoff.md`.** FC 트랙 보드
+   (`docs/session_status.md`)에 **🎯 fc-정밀착륙(F2)** 트랙을 신설하고 그 문서를 진입점으로
+   걸었다. 루트 `CLAUDE.md` 다이어그램도 갱신됨. **vision 세션은 여기서 손을 뗀다** — 이후
+   F2 진행 상황은 FC 트랙 보드에서 관리된다.
+
+   **FC 쪽 소비 — `offboard_node` 정밀착륙 서브상태** ← **FC 도메인 세션이 해야 한다.**
    붙는 자리는 `HOLD`(`offboard_node.py:1230`) → `LANDING`(`:1298`) 사이. 진입점은
    `_publish_pos_setpoint(pos_ned, yaw)`(`:1007`). 새 상태를 `_RANGE_GUARDED_STATES`(`:132`)에 넣을지 결정 필요.
    **기본 off 파라미터로 넣어 배포할 것** — 실기체 FW+OFFBOARD 실적이 **0건**이라

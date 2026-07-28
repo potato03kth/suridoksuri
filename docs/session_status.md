@@ -26,6 +26,29 @@ last_updated: 2026-07-28
 
 ## 트랙 보드
 
+### 🎯 fc-정밀착륙 (F2) — ▶ 착수 대기 (**2026-07-28 vision 트랙에서 인수인계됨**)
+
+> # 이 트랙을 재개한다면 → **`docs/fc_precision_land_handoff.md` 하나만 읽으면 된다.**
+> 계약(토픽·프레임·QoS·거부권)·붙는 자리·함정·검증·잠정값이 전부 거기 있고, **vision 도메인
+> 문서를 읽지 않아도 완주하도록** 썼다(도메인 컨텍스트 격리 유지).
+
+- **내용:** `OffboardNode`에 정밀착륙 서브상태 신설 — `_step_hold`(`:1230`)와 `_step_landing`(`:1300`)
+  사이. 비전이 주는 절대 목표점으로 정렬한 뒤 AUTO.LAND에 인계한다. **폐루프를 닫는 마지막 칸이다.**
+- **전제(vision 쪽, 전부 완료·실기체 검증됨):** `/vision/landing_setpoint`(PoseStamped, **ENU**,
+  목표 절대위치) · `/vision/target_status`(DiagnosticArray, **`vision/state`가 거부권**) ·
+  `/vision/target_pose`(body FLU 상대, 선택). **QoS는 BEST_EFFORT** — RELIABLE로 구독하면 조용히
+  아무것도 안 받는다. `fc_ros`/`fc_bridge`는 **여태 한 줄도 수정되지 않았다**(md5 대조 확인).
+- **🔴 같이 넣어야 하는 것:** `hold_before_reascend_s`(HOLD 종결 시한). vision이 *일부러* 안 만들었고
+  (계약상 FC 몫), **없으면 vision이 `HOLD`로 빠졌을 때 무한 호버링**이다.
+- **🔴 배포 규율:** **기본 off 파라미터로** 넣을 것 — 실기체 FW+OFFBOARD 실적 0건이라
+  `sitl_vtol_remediation_plan.md` §4-1 4번이 "첫 실비행에 미검증 변수 둘 금지"를 명문화하고 있다.
+- **결정 필요:** `_RANGE_GUARDED_STATES` 포함 여부 · `listen_lt: true`(네이티브 피벗) 여부 ·
+  **AGL 소스 확정**(vision이 가정하는 "라이다 AGL"이 `fc_ros`에 배선돼 있지 않다 — 지금 고도 소스는
+  `/mavros/altitude`뿐).
+- **잠정값 주의:** 기체 최외곽 반경 `R` **미측정**(2026-07-29 실측 예정)이라 vision이 내는 **착륙점
+  좌표 자체가 잠정값**이다. 카메라 마운트 요각 ψ_m도 미측정 — **틀리면 착륙 오프셋의 *방향 자체*가
+  틀린다**(수정할수록 멀어지는 증상이면 이걸 먼저 의심).
+
 ### 🚁 mc-실기체 — ▶ 활성 (신규 기체로 부활, 2026-07-18 확인. **2026-07-27: WP 정착 도입 — SITL 완주 + RPi5 배포·검증 완료**)
 
 - **내용:** RPi5(Ubuntu 24.04) + Pixhawk 6C 순수 MC 테스트기체 브링업 (SITL-5 변형, `vehicle_type:=mc`). 2026-07-09 물리적 해체됐던 것과 별개로(또는 그것을 재조립한 것인지 미확인) **2026-07-18 "부활한 MC 테스트기체"로 실비행 진행 중임을 로그로 확인.**

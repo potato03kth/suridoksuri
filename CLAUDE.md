@@ -35,13 +35,26 @@ Lines**로만 만난다 — 코드 수준 교차 import도, `colcon`/`pip` 빌�
 [호스트 picam-venv Py3.12, ROS 없음]           [fc 컨테이너 ros:humble Py3.10]
  vision/main.py --target-sink                   vision/ros/shim_node.py
    └ utils/target_sink.py (TCP 서버) ──────────▶  (TCP 클라이언트, 재접속 담당)
-       127.0.0.1:8091  JSON Lines                    │
+       127.0.0.1:8091  JSON Lines                    │  ▲
+                                                     │  └ /mavros/local_position/pose 구독
+                                                     ├─▶ /vision/landing_setpoint (PoseStamped, ENU)
                                                      ├─▶ /vision/target_pose   (PoseWithCovarianceStamped)
                                                      ├─▶ /vision/target_status (DiagnosticArray)
                                                      └─▶ /mavros/landing_target/raw  [기본 꺼짐]
                                                               │
-                                                    fc_ros OffboardNode 정밀착륙 서브상태 [미구현]
+                                                    fc_ros OffboardNode 정밀착륙 서브상태 [🔴 미구현 = F2]
 ```
+
+> 🎯 **FC 세션이 정밀착륙(F2)을 착수한다면 → `docs/fc_precision_land_handoff.md` 하나만 읽으면 된다.**
+> 계약(토픽·프레임·QoS·거부권)·붙는 자리·함정·검증·잠정값이 전부 거기 있고, vision 도메인 문서를
+> 읽지 않아도 완주하도록 썼다.
+
+**좌표 변환은 shim이 한다(2026-07-28 사용자 결정).** vision은 body FLU 상대 pose까지만 내고,
+shim이 컨테이너 안에서 기체 자세·위치를 곱해 **절대 목표점**(`/vision/landing_setpoint`, ENU)을
+만든다. 핵심 계약은 **"절대 setpoint를 만들되 절대 좌표를 기억하지 않는다"** — 매 레코드마다
+그 순간의 최신 pose로 다시 계산해야 EKF 드리프트가 현재위치와 목표점에 똑같이 실려 상쇄된다.
+vision이 소켓 앞에서 변환하는 원안은 **attitude 지연**(4.4Hz + 소켓 왕복 → 10m AGL에서 44cm)과
+**`LandingTarget` 네이티브 피벗 경로 폐쇄** 때문에 기각됐다.
 
 - shim은 **`vision/` 안에 있다**(`fc_ros/`가 아니다) — `docs/vision_fc_interface.md` §9 F1의
   배치 권고와 갈리는 지점이고, 그 대가로 `docs/rpi_deploy.md`의 `colcon build` 절차가 무변경이다
