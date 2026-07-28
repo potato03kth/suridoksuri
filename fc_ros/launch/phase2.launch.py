@@ -25,6 +25,20 @@ import os
 import yaml
 from ament_index_python.packages import get_package_share_directory
 
+# 위생 검사 로직은 노드와 공유한다 — 세 층이 같은 문자 집합을 보게 하고,
+# launch/rclpy 없이 테스트 가능하게 하려는 것이다 (fc_ros/test/test_param_hygiene.py).
+from fc_ros.param_hygiene import check_launch_argv, check_value
+
+
+# launch 인자 위생 검사 — 배경·3겹 구조·사고 경위는 `fc_ros/param_hygiene.py` docstring.
+# 요약: 2026-07-28 실비행 2건이 인자에 섞인 U+00A0 하나로 날아갔다(flight01 즉사,
+# flight02 는 transition_alt 가 통째로 유실된 채 **조용히** 기동 → 천이 실패).
+
+
+def _arg(name, context):
+    """launch 인자를 읽고 위생 검사한다. 통과하면 값을 그대로 돌려준다."""
+    return check_value(name, LaunchConfiguration(name).perform(context))
+
 
 def _make_nodes(context):
     pkg    = get_package_share_directory("fc_ros")
@@ -32,7 +46,7 @@ def _make_nodes(context):
 
     # YAML 뒤에 dict를 두어 launch 인자로 받은 것만 덮어쓴다.
     # 빈 값(기본)이면 dict에 넣지 않아 YAML 값이 그대로 쓰인다 — 기본값 이중 관리 없음.
-    overrides = {"vehicle_type": LaunchConfiguration("vehicle_type").perform(context)}
+    overrides = {"vehicle_type": _arg("vehicle_type", context)}
 
     for name in ("v_cruise", "transition_alt",
                  "mc_end_thresh", "mc_wp_settle_time",
@@ -42,16 +56,16 @@ def _make_nodes(context):
                  # SITL-7 R1 — 상태 타임아웃 4종 + 거리 상한 (현장 조정은 여기로만)
                  "climbing_timeout", "transition_fw_timeout",
                  "transition_mc_timeout", "entry_timeout", "range_limit_m"):
-        val = LaunchConfiguration(name).perform(context)
+        val = _arg(name, context)
         if val:
             overrides[name] = float(val)
 
     for name in ("entry_mode", "planner"):
-        val = LaunchConfiguration(name).perform(context)
+        val = _arg(name, context)
         if val:
             overrides[name] = val
 
-    waypoints = LaunchConfiguration("waypoints").perform(context)
+    waypoints = _arg("waypoints", context)
     if waypoints:
         wps = [float(x) for x in yaml.safe_load(waypoints)]
         if len(wps) % 3 != 0:
@@ -59,7 +73,7 @@ def _make_nodes(context):
                 f"waypoints must be a flat [x,y,z, ...] list (len % 3 == 0), got len={len(wps)}")
         overrides["waypoints"] = wps
 
-    waypoint_frame = LaunchConfiguration("waypoint_frame").perform(context)
+    waypoint_frame = _arg("waypoint_frame", context)
     if waypoint_frame:
         overrides["waypoint_frame"] = waypoint_frame
 
@@ -81,7 +95,7 @@ def _make_nodes(context):
 
 
 def generate_launch_description():
-    return LaunchDescription([
+    args = [
         DeclareLaunchArgument(
             "vehicle_type", default_value="vtol",
             description='기체 타입: "vtol"(기본) | "mc"(순수 멀티콥터, FW 천이 생략)'),
@@ -159,5 +173,10 @@ def generate_launch_description():
             "range_limit_m", default_value="",
             description="이륙지점 기준 수평거리 상한 (m). 0 이하면 비활성. "
                         "빈 값(기본)이면 YAML(300.0). 300m 넘는 편도 경로를 시험할 땐 함께 키울 것"),
-        OpaqueFunction(function=_make_nodes),
-    ])
+    ]
+
+    # 선언 목록이 곧 검사 기준이다 — 인자를 추가해도 여기 손댈 필요가 없다.
+    # `_make_nodes`(OpaqueFunction)보다 **먼저** 돌아야 오염된 인자로 노드가 뜨는 걸 막는다.
+    check_launch_argv({a.name for a in args})
+
+    return LaunchDescription(args + [OpaqueFunction(function=_make_nodes)])

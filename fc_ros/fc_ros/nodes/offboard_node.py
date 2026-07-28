@@ -27,6 +27,7 @@ MAVROS 토픽을 직접 구독해 TelemetryNode에 의존하지 않는다.
   (manual 시도 → AUTO.LOITER 폴백)로 떨어진다. 전부 0 이하로 주면 비활성.
 """
 from __future__ import annotations
+from fc_ros.param_hygiene import check_choice, VEHICLE_TYPES, ENTRY_MODES
 from fc_ros.adapters.setpoint_publisher import SetpointPublisher
 from fc_ros.adapters.vehicle_state_bridge import (
     update_from_pose,
@@ -308,10 +309,12 @@ class OffboardNode(Node):
 
         control_hz = self.get_parameter("control_hz").value
         self._dt = 1.0 / max(control_hz, 2.0)
-        self._vehicle_type = str(
-            self.get_parameter("vehicle_type").value).lower()
+        self._vehicle_type = check_choice(
+            "vehicle_type", self.get_parameter("vehicle_type").value,
+            VEHICLE_TYPES)
         self._is_mc = self._vehicle_type == "mc"
-        self._entry_mode = self.get_parameter("entry_mode").value
+        self._entry_mode = check_choice(
+            "entry_mode", self.get_parameter("entry_mode").value, ENTRY_MODES)
         self._wp0_r = self.get_parameter("wp0_entry_radius").value
         self._wp0_htol = self.get_parameter("wp0_heading_tol").value
         self._v_approach = self.get_parameter("v_approach").value
@@ -1148,8 +1151,25 @@ class OffboardNode(Node):
                 return
 
         # Phase 3: 헤딩 정렬 완료 — WP1 위치 setpoint(직선) + 천이 명령.
-        # 위치 setpoint는 MC·FW 양쪽에서 작동: MC가 WP1 방향으로 가속하며 전이 →
-        # FW가 동일 위치 setpoint로 직선 추종한다. (사전가속 불필요)
+        #
+        # 🔴 이 setpoint 는 천이 *구간 중에는* 기체를 움직이지 못한다 (2026-07-28
+        #    실기체 PX4 `c890d9db0a` 소스로 확정, flight02 실측과 일치).
+        #    종전 주석은 "MC가 WP1 방향으로 가속하며 전이 → 사전가속 불필요"라고
+        #    적혀 있었으나 **틀렸다.** `standard.cpp` TRANSITION_TO_FW 분기(:201-245)가
+        #    천이 중 roll 을 FW 제어기 값으로, pitch 를 `FW_PSP_OFF`(이 기체 0.0)로
+        #    덮어쓴다 — MC 위치제어는 자세 지령에서 배제되고 pitch 0° 고정이라
+        #    멀티콥터가 수평 이동할 수단 자체가 없다. 전진 추력은 오직 pusher 에서
+        #    나온다. SITL 에서 통한 건 무풍이라 표류가 안 보였기 때문이다.
+        #    flight02 실측: 3.4초간 남서 65m 를 계속 지령했으나 기체는 정동 90~96°로
+        #    표류, 고도 지령 21.2m 에 대해 50.5m 유지(하강 시도 없음).
+        #
+        #    그래도 이 발행을 유지하는 이유: ① 천이가 완료되는 순간 FW 가 곧바로
+        #    같은 setpoint 로 직선 추종에 들어간다 ② OFFBOARD 유지에 스트림이 필요하다.
+        #    천이 *완료 조건*은 우리 setpoint 와 무관하다 — `vtol_type.cpp:174-193`,
+        #    대기속도계가 유효하면 `VT_TRANS_MIN_TM`(8s) AND airspeed >=
+        #    `VT_ARSP_TRANS`(12m/s). 이 기체는 `SENS_EN_MS4525DO=1` 이라 위 가지를 타고,
+        #    12m/s 를 못 내면 시간이 지나도 FW 로 안 넘어간 채 `VT_TRANS_TIMEOUT`(20s)에
+        #    걸린다. (전문: `logs/2026-07-28_flight02/notes.md` ③·④)
         self._publish_pos_setpoint(
             np.array([self._pts[-1][0], self._pts[-1][1], self._cruise_alt]), chi_wp)
 
