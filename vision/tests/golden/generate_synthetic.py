@@ -301,6 +301,34 @@ def generate() -> None:
             ],
         },
     )
+    # `no_target/distress_coarse/`는 2026-07-21 품질 감사 세션이 **손으로** 만들어 두고 이
+    # 생성기에는 넣지 않아, 골든셋 재생성 경로가 끊겨 있었다(기존 갭 — 재생성하면 이 리프만
+    # 사라진다). [2026-07-28] 여기서 복구한다. 프레임은 위 두 리프와 **같은 `blank` 배열**이고
+    # 실제로 셋 다 바이트 동일(md5 4d33bda6...)임을 확인했다.
+    _write_frame(
+        _ROOT / "no_target" / "distress_coarse",
+        blank,
+        {
+            "target": "no_target",
+            "altitude_label": "n/a — ④ 단순착륙(피듀셜 없음)과 동일 조건, vision_plan.md §5.6",
+            "preset": "distress_coarse.yaml",
+            "note": (
+                "같은 no_target 프레임(frame_000.png, vertiport 리프와 동일 원본)을 ② 조난자 "
+                "구역 coarse 프리셋(초록 HSV 필터+rect_detector)으로도 재생해 오탐 방지를 "
+                "검증한다. 기존 no_target 리프는 vertiport_coarse.yaml로만 회귀됐고 "
+                "distress_coarse.yaml(색 필터 기준이 전혀 다름 — HSV 초록 대역)은 커버되지 "
+                "않아 별도 리프로 추가(품질 감사 세션, 2026-07-21)."
+            ),
+            "frames": [
+                {
+                    "file": "frame_000.png",
+                    "expect_num_detections": 0,
+                    "expect_stage_meta": None,
+                    "known_limitation": False,
+                }
+            ],
+        },
+    )
     _write_frame(
         _ROOT / "no_target" / "distress_fine",
         blank,

@@ -120,3 +120,69 @@ def test_pipeline_stage_meta_matches_golden_labels(leaf_dir):
                 f"실제={state.meta.get(stage_name)!r} 기대={expected_stage_meta!r}"
             )
         assert len(state.detections) == expected["expect_num_detections"]
+
+
+# ---------------------------------------------------------------------------
+# 재생성 경로 무결성 (2026-07-28)
+#
+# `no_target/distress_coarse/` 리프가 2026-07-21에 **손으로** 만들어져 `generate_synthetic.py`
+# 에 들어가지 않았고, 그래서 골든셋을 재생성하면 그 리프만 조용히 사라지는 갭이 있었다.
+# 아래 테스트가 그 갭 자체를 회귀로 고정한다 — 앞으로 새 리프를 손으로 추가하면 red 가 된다.
+# ---------------------------------------------------------------------------
+
+
+def _load_generator_module():
+    """`generate_synthetic.py`는 패키지가 아닌 스크립트라(golden/ 에 `__init__.py` 없음)
+    파일 경로로 직접 로드한다. 파일명이 `test_*` 가 아니라 pytest 수집 대상도 아니다."""
+    import importlib.util
+
+    path = _GOLDEN_ROOT / "generate_synthetic.py"
+    spec = importlib.util.spec_from_file_location("_golden_generate_synthetic", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_every_golden_leaf_is_reproducible_by_generate_synthetic(tmp_path, monkeypatch):
+    """저장소에 커밋된 골든셋 전체가 `generate_synthetic.py` 로 **바이트 동일하게** 재생성되는가.
+
+    리프 목록과 파일 내용을 모두 본다:
+      - 생성기가 안 만드는 리프가 있으면(=손으로 만든 리프) red
+      - 생성기 출력이 커밋된 골든과 한 바이트라도 다르면 red (조용한 드리프트 방지)
+    """
+    gen = _load_generator_module()
+    monkeypatch.setattr(gen, "_ROOT", tmp_path)
+    gen.generate()
+
+    def _tree(root):
+        return {
+            str(p.relative_to(root)): p.read_bytes()
+            for p in sorted(root.rglob("*"))
+            if p.is_file() and p.suffix in (".png", ".json")
+        }
+
+    regenerated = _tree(tmp_path)
+    committed = _tree(_GOLDEN_ROOT)
+
+    missing = sorted(set(committed) - set(regenerated))
+    assert not missing, (
+        f"generate_synthetic.py 가 재생성하지 못하는 골든 파일: {missing} — "
+        "손으로 만든 리프는 생성기에도 반드시 넣어야 재생성 경로가 안 끊긴다."
+    )
+    extra = sorted(set(regenerated) - set(committed))
+    assert not extra, f"생성기가 만들었는데 커밋 안 된 골든 파일: {extra}"
+
+    differing = sorted(k for k in committed if committed[k] != regenerated[k])
+    assert not differing, f"재생성 결과가 커밋된 골든과 다르다(조용한 드리프트): {differing}"
+
+
+def test_no_target_distress_coarse_leaf_is_generated():
+    """복구한 그 리프를 이름으로 못 박는다 — 위 전수 테스트가 통째로 지워져도 남는 최소 방어선."""
+    leaf = _GOLDEN_ROOT / "no_target" / "distress_coarse"
+    assert (leaf / "frame_000.png").exists()
+    labels = json.loads((leaf / "labels.json").read_text(encoding="utf-8"))
+    assert labels["preset"] == "distress_coarse.yaml"
+    assert labels["frames"][0]["expect_num_detections"] == 0
+
+    src = (_GOLDEN_ROOT / "generate_synthetic.py").read_text(encoding="utf-8")
+    assert '"no_target" / "distress_coarse"' in src, "생성기에 이 리프가 없다(재생성 경로 단절)"
