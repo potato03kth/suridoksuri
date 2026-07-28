@@ -647,3 +647,84 @@ GCC 14 는 `-Wimplicit-function-declaration` 등 6종을 C99 이상 모드에서
   `/mnt/c/px4_flash/px4_fmu-v6c_f17f4patch_20260728.px4` 도 그대로.
 - **시스템 전역 변경 0건** — docker/podman 설치 시도 없음, apt/pip 무변경.
 - 실기체 접속·플래시 **없음**, RPi5 접속 **없음**.
+
+---
+
+## 11. 🔴 플래시 실행 + **RC 두절 사고** — §9-4 「남는 의문」 완전 해소 (2026-07-28 20:00~)
+
+> **한 줄 요약: 패치는 정상 적용됐으나, 순정 config 에 CRSF RC 드라이버가 없어
+> ExpressLRS 조종기가 완전히 두절됐다. 원 빌더가 바꾼 것은 컴파일러만이 아니라 보드 config 였다.**
+
+### 11-1. 플래시 결과 — 교체 성공
+
+사용자가 `px4_fmu-v6c_f17f4patch_20260728.px4`(10.3.1 빌드, §10-6 선택지 1)를 QGC로 플래시했다.
+`POST_FLASH_CHECKLIST.md` §1 판정표 대조 (2026-07-28 20:13 실측):
+
+| 항목 | 전 | 후 | 판정 |
+|---|---|---|---|
+| Build datetime | `Jul  7 2026 13:20:51` | **`Jul 28 2026 01:39:05`** | ✅ 교체됨 |
+| Toolchain | `14.2.1 20241119` | **`10.3.1 20210621 (release)`** | ✅ 우리 빌드본 |
+| git-hash / version | `c890d9db0a…` / `1.18.0 40` | 동일 | ✅ 정상(§4-2) |
+
+> 📌 §9-2 의 예상 문자열은 `10.3.1 20210621` 이었으나 실제 `__VERSION__` 은
+> **`10.3.1 20210621 (release)`** 로 접미사가 붙는다. jammy apt 패키지의 원문이다.
+> 또 `PX4 git-branch:` 줄이 **사라졌다** — 별도 worktree(detached HEAD)에서 빌드했기 때문으로,
+> 이것도 우리 빌드본이라는 방증이다.
+
+### 11-2. 🚨 RC 완전 두절 — 실측
+
+플래시 후 파라미터 대조에서 `RC_CRSF_PRT_CFG=103`·`RC_CRSF_TEL_EN=0` 이 **MISSING** 으로 떴다.
+`RC_MAP_*` 30여 개는 값 그대로 살아있고 인덱스만 2씩 밀렸다(`1102→1100`) ⇒ **파라미터 리셋이
+아니라 펌웨어에서 파라미터 정의 자체가 사라진 것.** nsh 실측으로 확정:
+
+```
+nsh> rc_input status      ->  nsh: rc_input: command not found
+nsh> crsf_rc status       ->  nsh: crsf_rc: command not found
+nsh> listener input_rc    ->  never published
+dmesg                     ->  WARN [parameters] ignoring unrecognised parameter 'RC_CRSF_PRT_CFG'
+```
+
+**기체 수신기는 ExpressLRS = CRSF 프로토콜**(사용자 확인). 순정 `px4_fmu-v6c_default` 에는
+`CONFIG_DRIVERS_RC*` 항목이 **하나도 없다**(RC 는 전량 px4io 경유 SBUS/PPM 전제).
+⇒ **조종기 미수신 = 킬스위치·수동인계 불가 = 비행 절대 불가 상태.**
+
+### 11-3. §9-4/§10-4 「남는 의문」의 진짜 답
+
+원 빌더의 변경은 **컴파일러(14.2.1) + 보드 config 2건**이었다. 파라미터 차이가 그대로 증거다:
+
+| 파라미터 차이 | 뜻하는 config |
+|---|---|
+| 원본에 `RC_CRSF_*` 있음 / 우리엔 없음 | 원 빌더가 `CONFIG_DRIVERS_RC_CRSF_RC=y` **추가** |
+| 원본에 `UXRCE_DDS_CFG` 없음 / 우리엔 있음 | 원 빌더가 `CONFIG_MODULES_UXRCE_DDS_CLIENT` **제거** (FLASH 98.65% 에서 자리 확보) |
+
+§10-4 는 "GCC 14 를 썼으니 `-Wno-error=…` 우회를 넣었을 것"까지 추론했는데, **그것만이 아니었다.**
+
+### 11-4. 조치 — crsf_rc 포함 재빌드 (완료)
+
+패치: **`tools/px4/v6c_crsf_rc.patch`**(우리 저장소 보관, PX4 저장소엔 커밋하지 않음).
+
+```bash
+cd /root/PX4-vehicle
+git apply /root/drone_ws/src/suridoksuri/tools/px4/v6c_crsf_rc.patch
+make px4_fmu-v6c_default      # 툴체인은 §2 그대로 10.3.1
+```
+
+| | Used | %age | 여유 | 타깃 수 |
+|---|---|---|---|---|
+| 패치만 (사고 난 본) | 1,939,520 B | 98.65% | 26,560 B | 1255 |
+| **패치 + crsf_rc** | **1,945,548 B** | **98.96%** | **20,532 B** | 1260 |
+
+**crsf_rc 비용 = +6,028 B.** 여유가 남으므로 `uxrce_dds_client` 는 **끄지 않았다**(최소 변경).
+그 결과 원본 대비 `UXRCE_DDS_CFG` 파라미터 1개가 더 있게 되는데, 값 0(비활성)이고
+우리는 MAVROS 를 쓰므로 무해하다.
+
+산출물: `/mnt/c/px4_flash/px4_fmu-v6c_f17f4patch_crsf_20260728.px4`
+크기 **1,843,224 B**, sha256 **`a62df3e923ba2d15320d9cbd1be9d09f86f3687bdcabe0565fc59edfa0d836fa`**
+
+### 11-5. 남은 교훈
+
+- **§4-2 의 "펌웨어가 자기신고하지 않는다"는 파라미터 대조로 보완된다.** `ver all` 로는
+  못 잡는 config 차이를 `compare_px4_params.py` 의 MISSING/ADDED 가 정확히 잡아냈다.
+  플래시 후 파라미터 대조는 **선택이 아니라 필수 절차**다.
+- **`CAL_MAG*` 백업 복원은 금지다** — 상세는 `POST_FLASH_CHECKLIST.md` §3(정정본).
+- 진단 도구 `tools/px4_params/nsh_cmd.py` 신설(읽기 전용 nsh 조회, 화이트리스트 강제).

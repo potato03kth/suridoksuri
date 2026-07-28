@@ -1,0 +1,34 @@
+동기: 실기체(Pixhawk 6C)의 RC 수신기가 ExpressLRS = CRSF 프로토콜인데,
+순정 `px4_fmu-v6c_default` 에는 crsf_rc 드라이버가 들어있지 않다.
+2026-07-28 플래시에서 이것이 실측으로 드러났다:
+
+    nsh> rc_input status   -> command not found
+    nsh> crsf_rc status    -> command not found
+    nsh> listener input_rc -> never published
+    dmesg: WARN [parameters] ignoring unrecognised parameter 'RC_CRSF_PRT_CFG'
+
+즉 순정 빌드를 올리면 조종기가 완전히 두절된다(킬스위치·수동인계 불가).
+실기체 원본 펌웨어(Jul 7 2026 빌드)에는 `RC_CRSF_PRT_CFG=103`(TELEM3=/dev/ttyS1)이
+설정돼 있었으므로 원 빌더가 이 드라이버를 넣어 빌드했음이 확정된다.
+
+비용: FLASH +6,028 B (1,939,520 -> 1,945,548 B, 98.65% -> 98.96%, 여유 20,532 B).
+여유가 남으므로 `CONFIG_MODULES_UXRCE_DDS_CLIENT` 는 건드리지 않았다
+(원본엔 UXRCE_DDS_CFG 파라미터가 없어 원 빌더는 껐던 것으로 보이나,
+ 우리는 MAVROS 를 쓰고 FLASH 가 충분해 최소 변경을 택했다).
+
+적용:
+    cd /root/PX4-vehicle
+    git apply /root/drone_ws/src/suridoksuri/tools/px4/v6c_crsf_rc.patch
+
+diff --git a/boards/px4/fmu-v6c/default.px4board b/boards/px4/fmu-v6c/default.px4board
+index c13d6478b0..d7a34699aa 100644
+--- a/boards/px4/fmu-v6c/default.px4board
++++ b/boards/px4/fmu-v6c/default.px4board
+@@ -6,6 +6,7 @@ CONFIG_BOARD_SERIAL_TEL1="/dev/ttyS5"
+ CONFIG_BOARD_SERIAL_TEL2="/dev/ttyS3"
+ CONFIG_BOARD_SERIAL_TEL3="/dev/ttyS1"
+ CONFIG_DRIVERS_ACTUATORS_VERTIQ_IO=y
++CONFIG_DRIVERS_RC_CRSF_RC=y
+ CONFIG_USE_IFCI_CONFIGURATION=y
+ CONFIG_DRIVERS_ADC_BOARD_ADC=y
+ CONFIG_DRIVERS_BAROMETER_MS5611=y
