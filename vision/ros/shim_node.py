@@ -4,13 +4,20 @@
 
     docker exec fc bash -lc '
       source /opt/ros/humble/setup.bash
-      PYTHONPATH=/drone_ws/src/suridoksuri python3 -m vision.ros.shim_node
+      export PYTHONPATH=/drone_ws/src/suridoksuri:$PYTHONPATH
+      python3 -m vision.ros.shim_node
     '
+
+🔴 **`PYTHONPATH`는 반드시 이어붙인다(`:$PYTHONPATH`).** 덮어쓰면 방금 `setup.bash`가 넣은
+`/opt/ros/humble/lib/python3.10/site-packages`가 날아가 **`import rclpy`가 즉시 죽는다** —
+이 파일의 예전 docstring이 덮어쓰는 형태였고 2026-07-28 실기체에서 `ModuleNotFoundError:
+No module named 'rclpy'`로 실제 재현했다.
 
 확인:
 
     ros2 topic echo /vision/target_pose
     ros2 topic echo /vision/target_status
+    ros2 topic echo /vision/landing_setpoint
 
 ## 🔴 이 파일이 저장소에서 rclpy를 import하는 유일한 vision 파일이다
 

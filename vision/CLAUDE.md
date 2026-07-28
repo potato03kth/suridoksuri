@@ -376,6 +376,43 @@ yaw 점프"*(2026-07-21 flight04 yaw 스핀 사고). 즉 **여기서 단위 쿼�
 같은 이유 — 완성된 객체를 통째로 갈아끼워 부분갱신 상태가 안 보이게).
 🔴 **`--no-landing-setpoint`면 구독도 스레드도 안 만든다** — 이전 동작으로 되돌리는 escape hatch.
 
+#### ✅ 실기체 종단간 실증 (2026-07-28, RPi + `fc` 컨테이너)
+
+**mavros는 안 돌고 있어** `/mavros/local_position/pose`를 `ros2 topic pub -r 30`으로 직접 주입해
+배선을 증명했다. 생산자는 손으로 쓴 JSON이 아니라 **진짜 생산자 코드**(`core/wire.py` +
+`utils/target_sink.py`, 카메라만 뺀 `main.py --target-sink` 경로)를 호스트 picam-venv에서 돌렸다.
+고정 입력 `p_flu=(10, 0, −8)`(전방 10m·아래 8m), 기수 정북.
+
+| 기체 ENU 위치 | 기수 | 실제 `/vision/landing_setpoint` position | 기대 |
+|---|---|---|---|
+| (100, 200, 30) | 북 | **(100.0, 210.0, 22.0)** | (100, 210, 22) ✅ |
+| (105, 195, 31) | 북 | **(105.0, 205.0, 23.0)** | (105, 205, 23) ✅ |
+| (−40.5, 17.25, 12.75) | 북 | **(−40.5, 27.25, 4.75)** | (−40.5, 27.25, 4.75) ✅ |
+| (100, 200, 30) | **동** | **(110.0, 200.0, 22.0)** | (110, 200, 22) ✅ |
+| (0, 0, 50) | 북 | **(≈0, 10.0, 42.0)** | (0, 10, 42) ✅ |
+
+→ **드리프트 상쇄가 실기체에서 증명됐다**: 상대 델타 `(0, +10, −8)`가 네 위치에서 동일하고
+절대 목표점은 전부 다르다. 자세 회전도 실시간 반영된다(북→동에서 목표가 실제로 90° 돌았다).
+`frame_id: map`, orientation `(0, 0, 0.7071, 0.7071)` = **현재 기수방위**(단위 쿼터니언 아님).
+
+**degrade 전이 4단계 실제 재현:**
+
+| 단계 | `/vision/landing_setpoint` | `vision/setpoint` status | `/vision/target_pose` |
+|---|---|---|---|
+| A. attitude 없음 | **침묵**(echo 타임아웃) | `attitude_missing`, `published:false`, **좌표 키 자체가 없음** | (10, 0, −8) **계속 발행** |
+| B. attitude 주입 | **발행 시작**(3.98Hz = 생산자 4Hz) | `ok`, `attitude_age_s:0.0296` | 계속 |
+| C. attitude 끊김 | **침묵**(0.25s 후) | `attitude_stale`, `attitude_age_s:12.71` | (10, 0, −8) **계속 발행** |
+| D. attitude 재개 | **발행 재개** | `ok` | 계속 |
+
+종료 카운터: `pose_pub=53 status_pub=54 setpoint_pub=29 vehicle_pose_rx=222` —
+`vehicle_pose_rx=222`가 executor 데몬 스레드가 실제로 30Hz로 돌았다는 증거이고,
+`setpoint_pub(29) < pose_pub(53)`이 "자세가 없던 초반에는 침묵했다"는 계약을 카운터로 보여준다.
+**SIGTERM graceful 종료도 executor 스레드 추가 후에도 정상**(`RCLError` 없이 위 요약 로그 출력 —
+커밋 `b14f42a` 회귀 유지).
+
+⚠️ `attitude_stamp_ns`가 `0`으로 찍히는 것은 `ros2 topic pub`이 header stamp를 안 채우기
+때문이며 실제 mavros에서는 채워진다. **실제 비행 telemetry로는 검증하지 않았다.**
+
 #### ⚠️ stamp 동기는 안 했다 (미검증/미구현으로 남긴 것)
 
 목표점은 **그 순간의 최신 자세**로 계산한다 — 레코드의 촬영시각(`stamp_wall_ns`)에 가장 가까운
@@ -390,12 +427,19 @@ pose"를 명시했고 드리프트 상쇄가 그쪽을 요구한다. **대신 �
 ```bash
 docker exec fc bash -lc '
   source /opt/ros/humble/setup.bash
-  PYTHONPATH=/drone_ws/src/suridoksuri python3 -m vision.ros.shim_node
+  export PYTHONPATH=/drone_ws/src/suridoksuri:$PYTHONPATH
+  python3 -m vision.ros.shim_node
 '
 ros2 topic echo /vision/target_pose
 ros2 topic echo /vision/target_status
 ros2 topic echo /vision/landing_setpoint
 ```
+
+🔴 **`PYTHONPATH`는 반드시 이어붙인다(`:$PYTHONPATH`) — 이 문서의 예전 명령이 틀렸다.**
+덮어쓰면 방금 `setup.bash`가 넣은 `/opt/ros/humble/lib/python3.10/site-packages`가 날아가
+`import rclpy`가 즉시 죽는다. 2026-07-28 실기체에서 `ModuleNotFoundError: No module named
+'rclpy'`로 직접 재현했고(덮어쓰기 실패 / 이어붙이기 성공을 같은 세션에서 대조), 종단간 검증은
+고친 형태로 수행했다.
 
 ⚠️ `docker exec fc bash -lc "python3 -c 'import rclpy'"`는 **ROS setup을 source하지 않아
 실패한다** — 반드시 `source /opt/ros/humble/setup.bash &&`를 앞에 붙일 것.
