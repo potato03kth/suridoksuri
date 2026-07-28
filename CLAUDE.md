@@ -28,6 +28,27 @@ VTOL 자율비행 대회용 통합 소프트웨어 저장소다.
   (기존 `geo_project.pixel_to_gps` GPS 절대좌표 방식은 GPS 정확도 한계(~1~2m)로 30cm 요구 미달 →
   폐기 예정, 상대 pose 폐루프로 대체.)
 
+**실제 이음매(2026-07-28 구현 완료, 빌드 의존 0):** 두 도메인은 **localhost TCP 소켓 + JSON
+Lines**로만 만난다 — 코드 수준 교차 import도, `colcon`/`pip` 빌드 의존도 **여전히 없다.**
+
+```
+[호스트 picam-venv Py3.12, ROS 없음]           [fc 컨테이너 ros:humble Py3.10]
+ vision/main.py --target-sink                   vision/ros/shim_node.py
+   └ utils/target_sink.py (TCP 서버) ──────────▶  (TCP 클라이언트, 재접속 담당)
+       127.0.0.1:8091  JSON Lines                    │
+                                                     ├─▶ /vision/target_pose   (PoseWithCovarianceStamped)
+                                                     ├─▶ /vision/target_status (DiagnosticArray)
+                                                     └─▶ /mavros/landing_target/raw  [기본 꺼짐]
+                                                              │
+                                                    fc_ros OffboardNode 정밀착륙 서브상태 [미구현]
+```
+
+- shim은 **`vision/` 안에 있다**(`fc_ros/`가 아니다) — `docs/vision_fc_interface.md` §9 F1의
+  배치 권고와 갈리는 지점이고, 그 대가로 `docs/rpi_deploy.md`의 `colcon build` 절차가 무변경이다
+  (근거·트레이드오프는 `vision/CLAUDE.md` "컨테이너 ROS2 shim 노드" 절).
+- shim은 vision 코드를 import하지 않는 stdlib 소비 규약을 쓴다(컨테이너에 cv2가 없다).
+- FC 쪽 소비자(`OffboardNode` 정밀착륙 서브상태, §9 F2)는 **아직 없다** — 지금은 토픽만 나온다.
+
 새 도메인 간 의존을 추가하기 전에 반드시 이 파일에 의존 관계를 먼저 기록할 것.
 
 ---
