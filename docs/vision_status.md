@@ -2,10 +2,16 @@
 doc_type: session_status
 project: suridoksuri-1
 scope: vision 세션 유일 진입점 — 트랙 보드 + 설계 포인터
-last_updated: 2026-07-25
+last_updated: 2026-07-28
 ---
 
 # vision 세션 진입 상태 문서
+
+> # ▶ 오케스트레이터로 진입한다면 → **`docs/vision_orchestration_handoff.md`**
+> 사용자가 "너는 오케스트레이터이다"로 시작했다면 **그 문서 하나만** 읽고 이어받으면 된다 —
+> 진행 중인 백그라운드 트랙, 재조사 금지 확정사실, 사용자 결정, 환경 함정, 남은 백로그가 전부 거기 있다.
+> 이 문서(트랙 보드)는 **이력**이므로 필요한 절만 참조하면 된다.
+> (2026-07-25 작성 `docs/vision_next_session_brief.md`는 **대체됨**.)
 
 > **새 세션 진입:** 아래 vision 트랙 블록을 읽고, 설계 상세는 `docs/vision_plan.md`의 **필요 섹션만** 연다.
 > FC 트랙은 `docs/session_status.md`에 별도로 있으며 **vision 세션은 그걸 읽지 않는다**(도메인 간 컨텍스트 격리).
