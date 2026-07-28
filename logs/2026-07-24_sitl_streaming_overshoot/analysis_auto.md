@@ -1,4 +1,4 @@
-# 자동분석 — logs/2026-07-24_sitl_streaming_overshoot
+# 자동분석 — /home/suri/suridoksuri/logs/2026-07-24_sitl_streaming_overshoot
 
 (analyze_flight.py 자동생성 — 해석 없이 사실만. notes.md에 결론 작성 시 이 파일 인용)
 
