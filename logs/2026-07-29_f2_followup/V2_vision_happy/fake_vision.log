@@ -1,0 +1,36 @@
+[INFO] [1785291524.565880151] [fake_vision]: fake_vision 시작 mode=steady target ENU=(0.0,300.0,0.2) rate=4.4Hz watch=/root/ws_f2b/src/suridoksuri/logs/2026-07-29_f2_followup/V2_vision_happy/node.log match='VISION_SEARCH'
+[WARN] [1785291636.828371642] [fake_vision]: 트리거 성립 t=108.1s
+[INFO] [1785291641.600867547] [fake_vision]: t=4.8s emitted=22 veto=False hint=False
+[INFO] [1785291646.601158947] [fake_vision]: t=9.8s emitted=44 veto=False hint=False
+[INFO] [1785291651.601531630] [fake_vision]: t=14.8s emitted=66 veto=False hint=False
+[INFO] [1785291656.600844599] [fake_vision]: t=19.8s emitted=88 veto=False hint=False
+[INFO] [1785291662.510502548] [fake_vision]: t=24.6s emitted=110 veto=False hint=False
+[INFO] [1785291667.510262763] [fake_vision]: t=29.6s emitted=132 veto=False hint=False
+[INFO] [1785291672.510056059] [fake_vision]: t=34.6s emitted=154 veto=False hint=False
+[INFO] [1785291677.510118663] [fake_vision]: t=39.6s emitted=176 veto=False hint=False
+[INFO] [1785291682.510163471] [fake_vision]: t=44.6s emitted=198 veto=False hint=False
+[INFO] [1785291687.510114554] [fake_vision]: t=49.6s emitted=220 veto=False hint=False
+[INFO] [1785291693.419466908] [fake_vision]: t=54.4s emitted=242 veto=False hint=False
+[INFO] [1785291698.419763100] [fake_vision]: t=59.4s emitted=264 veto=False hint=False
+[INFO] [1785291703.419356304] [fake_vision]: t=64.4s emitted=286 veto=False hint=False
+[INFO] [1785291708.419182997] [fake_vision]: t=69.4s emitted=308 veto=False hint=False
+[INFO] [1785291713.419441454] [fake_vision]: t=74.4s emitted=330 veto=False hint=False
+[INFO] [1785291718.420394697] [fake_vision]: t=79.4s emitted=352 veto=False hint=False
+[INFO] [1785291723.418965012] [fake_vision]: t=84.4s emitted=374 veto=False hint=False
+[INFO] [1785291729.328041006] [fake_vision]: t=89.2s emitted=396 veto=False hint=False
+Traceback (most recent call last):
+  File "/root/ws_f2b/src/suridoksuri/tools/sitl/fake_vision.py", line 215, in <module>
+    main()
+  File "/root/ws_f2b/src/suridoksuri/tools/sitl/fake_vision.py", line 203, in main
+    rclpy.spin(n)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 229, in spin
+    executor.spin_once()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 681, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
