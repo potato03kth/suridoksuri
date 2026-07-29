@@ -27,7 +27,8 @@ created: 2026-07-29
 | `V1_vision_off` | `vision_landing` 기본(false), `range_limit_m` 기본 300 | ARM→CLIMBING→TRANSITION_FW→STREAMING→FOLLOWING→TRANSITION_MC→**OVERRIDE**→DONE | 종전 경로 정상. OVERRIDE 는 F2 와 무관한 **기존** 거리상한 발동(300m 경로 + 역천이 오버슈트) — 아래 F2-e 참조 |
 | `V1b_vision_off` | 위 + `range_limit_m=1200` | ❌ `CLIMBING 타임아웃 120s` → exit 2 | **환경 문제**(직전 런의 gz 잔류, 런 간격 8초). 코드와 무관 |
 | **`V2_vision_happy`** | `vision_landing=true`, `range_limit_m=1200`, fake_vision 정상 발행 | ✅ **HOLD→VISION_SEARCH→PRECISION_LAND→LANDING→DONE 완주** (195.3s) | **a·b·e 실증 + g 발견** (아래) |
-| `V3`/`V4`/`V5` | — | ❌ `px4_dead` (exit 3) | **다른 세션(`/root/ws_c1b`)이 같은 배포판에서 SITL 캠페인 중** — 아래 "단일 테넌트" |
+| `V3`/`V4`/`V5` | — | ❌ `px4_dead`·`mavros_not_connected` (exit 3) | **다른 세션(`/root/ws_c1b`)이 같은 배포판에서 SITL 캠페인 중** — 아래 "단일 테넌트" |
+| `V6` | — | ⏸ **미실행** | 위와 같은 이유. 대기 큐가 `RACED_WITH_OTHER_SESSION` 으로 물러났다 |
 
 ## `V2_vision_happy` — 실측 증거
 
@@ -71,6 +72,12 @@ created: 2026-07-29
 F-10 재검증 캠페인)이 돌고 있는 동안 내 런은 전부 `px4_dead`(exit 3)로 죽었다
 (`V3`/`V4`/`V5`). 두 세션이 겹치면 **둘 다** 못 산다.
 
+재시도 이력: 남의 캠페인이 비는 창을 기다렸다가 `V3` 를 띄웠지만, 실행 도중
+상대가 다음 시나리오를 시작해 포트를 가져가면서 `mavros_not_connected` 로 죽었다.
+그 다음 `V5` 는 대기 큐가 상대 런을 감지하고 **스스로 물러났다**
+(`RACED_WITH_OTHER_SESSION`) — 겹치면 **남의 런도 같이 죽기** 때문이다.
+⇒ **동시 세션 환경에서 이 박스의 SITL 은 선착순 배타 자원으로 다뤄야 한다.**
+
 > 🔴 **더 나쁜 것:** `tools/sitl/run_scenario.py` 의 정리 루틴이
 > **`pkill -f "gz sim"` 을 시스템 전역으로** 부른다(세션이 하나뿐이던 시절의 코드).
 > 즉 내 런이 끝날 때마다 **남의 gz 가 같이 죽는다.** 이번에는 내 클론에만
@@ -82,6 +89,37 @@ F-10 재검증 캠페인)이 돌고 있는 동안 내 런은 전부 `px4_dead`(e
 
 | 항목 | 상태 |
 |---|---|
-| F2-c 생산자 사망 SITL 실증 (`V5`) | ❌ 박스 점유로 미완. 노드 테스트 + 파괴검증으로만 확인 |
-| F2-f align 타임아웃 SITL 실증 (`V6`) | ❌ 위와 같음 |
+| F2-c 생산자 사망 SITL 실증 (`V5`) | ❌ 박스 점유로 미완. **노드 테스트(`_step_precision_land` 를 실제로 실행) + 파괴검증**으로만 확인 |
+| F2-f align 타임아웃 SITL 실증 (`V6`) | ❌ 위와 같음. 재현 인자는 준비돼 있다(아래) |
+| F2-d 유도 상실 SITL 실증 | ❌ 위와 같음 |
 | `vision_landing=false` 완전 완주(HOLD→LANDING) | ⚠️ `V1` 은 거리상한 OVERRIDE 로 끝났고 `V1b` 는 환경 문제로 실패. **HOLD→LANDING 종점까지 간 런은 이번에 없다** (다만 그 경로는 `db7aa9c` 이전과 코드가 같고 노드 테스트가 고정한다) |
+
+## 다음 세션이 그대로 이어받을 재현 명령
+
+박스가 비면 아래 3건만 돌리면 된다(`/mnt/c/sitl7_xfer/f2b_run.sh` 사용,
+`PYTHONPATH`·`PX4_DIR`·`DRONE_WS` 는 그 래퍼가 잡는다).
+
+```bash
+# ① vision_landing=false 회귀 — HOLD→LANDING 종점까지
+bash f2b_run.sh V3_vision_off "" --launch-arg range_limit_m=1200.0
+
+# ② F2-c 생산자 사망 (PRECISION_LAND 한복판에서 죽인다)
+#    래치는 AGL 33.6m 아래에서 서고(V2 실측 t≈11.5s) 거기서 3m 까지 38초가 더
+#    걸리므로, 25s 면 확실히 PRECISION_LAND 안이다.
+bash f2b_run.sh V5_producer_death \
+  "--enu-x 0.0 --enu-y 300.0 --enu-z 0.2 --on-match VISION_SEARCH --linkdead-at 25" \
+  --launch-arg range_limit_m=1200.0 --launch-arg vision_landing=true
+
+# ③ F2-f align 타임아웃 → 나선 강제 진행
+#    🔴 `wp1_land_radius` 는 launch 인자로 **선언돼 있지 않다** — 주면 위생검사가
+#       RuntimeError 를 던져 launch 자체가 실패한다. 선언된 인자만 쓴다.
+#    v_approach=0.5 로 슬루를 늦춰 역천이 오버슈트(≈47m) 복귀가 align 30s 안에
+#    끝날 수 없게 만든다. hold_timeout=20 이 HOLD 도 같은 이유로 끊는다.
+bash f2b_run.sh V6_hold_timeout_align "" \
+  --launch-arg range_limit_m=1200.0 --launch-arg vision_landing=true \
+  --launch-arg v_approach=0.5 --launch-arg hold_timeout=20.0 \
+  --launch-arg vision_search_timeout=45.0
+```
+
+기대 로그: ② `vision 생산자 사망(link ERROR) — AGL …m → GPS 착륙 폴백` 이
+**시한을 다 채우기 전에** 뜬다. ③ `탐색고도 정렬 타임아웃 30s 초과 … → 나선 강제 진행`.

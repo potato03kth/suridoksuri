@@ -36,7 +36,7 @@
       "topic": "/mavros/state"
     }
   ],
-  "started_utc": "2026-07-29T02:30:15.719911+00:00",
+  "started_utc": "2026-07-29T02:43:50.926094+00:00",
   "run_id": "V3_vision_off",
   "px4_dir": "/root/PX4-vehicle",
   "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
@@ -49,10 +49,11 @@
   "mavros_fcu_url": "udp://:14540@localhost:14580",
   "host": "DESKTOP-Kilogram",
   "repo_head": "3d73bfb",
-  "bringup_error": "PX4 가 기동 직후 종료됨",
-  "exit_reason": "px4_dead",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785293038\n    nanosec: 143983413\n  frame_id: ''\nconnected: false\narmed: false\nguided: false\nmanual_input: false\nmode: ''\nsystem_status: 0\n---",
+  "bringup_error": "/mavros/state connected=true 미도달",
+  "exit_reason": "mavros_not_connected",
   "exit_code": 3,
-  "ended_utc": "2026-07-29T02:30:22.401030+00:00",
-  "elapsed_s": 6.0,
+  "ended_utc": "2026-07-29T02:46:03.634775+00:00",
+  "elapsed_s": 127.4,
   "ulogs": []
 }
