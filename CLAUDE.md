@@ -95,6 +95,25 @@ FC 작업 세션 절차 (정형):
   실제로 stale colcon build가 실비행 8건의 근본원인이었다(`4dc30f9`).
 - 도메인 디렉터리 밖으로 import 하기 전에 의존 관계를 이 파일에 기록한다.
 - 각 도메인은 자체 `tests/` 폴더를 가진다. 작업 후 해당 도메인 테스트를 실행한다.
+- **FC 테스트 기준선은 아래 네 경로 합계다 — 세션마다 다른 숫자를 보고해 혼란이 반복됐다**
+  (2026-07-29 하루에만 594/617/646/701/736 다섯 가지가 보고됐고, 원인은 `tools` 누락과
+  stale `__pycache__` 였다). 셀 때는 **반드시 이 명령 그대로** 쓴다:
+
+  ```bash
+  find . -name __pycache__ -type d -not -path "./.git/*" -not -path "./.claude/*" -exec rm -rf {} +
+  python3 -m pytest fc_bridge/tests fc_ros vtol_sim_checkpoint1_1/vtol_sim/tests tools -q
+  ```
+
+  | 경로 | 건수 (2026-07-29) |
+  |---|---|
+  | `fc_bridge/tests` | 260 |
+  | `fc_ros` | 394 |
+  | `vtol_sim_checkpoint1_1/vtol_sim/tests` | 47 |
+  | **`tools`** | **82** ← 자주 누락된다 (SITL 하니스·px4_params 도구) |
+  | **합계** | **783** |
+
+  `vision/tests` 는 `cv2` 가 필요해 이 venv 에서 수집 실패한다(별도 picam-venv 소관, 정상).
+  `.claude/worktrees/*` 아래 사본은 세지 않는다.
 - **로컬 전용 파일이 협업·재현을 여러 번 망친 이력이 있다 → 앵간하면 다 커밋·push한다.** `results/`
   플롯 등 재현 산출물도 포함해 올린다. 유일한 예외는 **대용량 raw 바이너리**(실측 캡처 등)이며
   그것만 `.gitignore`로 뺀다(현재: `vision/data/calibration_raw/`). "일단 로컬에만 두자"는 금지.
