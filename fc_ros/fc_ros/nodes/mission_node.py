@@ -38,7 +38,7 @@ class MissionNode(Node):
         super().__init__("mission_node")
 
         self.declare_parameter("waypoints",
-                               [0.0, 0.0, 50.0, 100.0, 0.0, 50.0])
+                               [0.0, 0.0, 25.0, 150.0, 0.0, 25.0])
         self.declare_parameter("home_lat", _SITL_HOME_LAT)   # PX4 SITL gz_x500 기본 홈
         self.declare_parameter("home_lon", _SITL_HOME_LON)
 

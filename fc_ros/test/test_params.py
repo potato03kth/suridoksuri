@@ -40,8 +40,14 @@ def test_flat_waypoints_not_nested():
         "mission_node waypoints가 flat 1D 리스트가 아닙니다"
 
 
-def test_waypoints_altitude_50m():
-    """운용 고도가 50 m로 통일되어 있음을 검증한다."""
+def test_waypoints_altitude_matches_transition_alt():
+    """운용 고도가 `transition_alt` 와 **일치**함을 검증한다.
+
+    🔴 2026-07-29: 종전 이름은 `test_waypoints_altitude_50m` 이었고 50.0 을 하드코딩해
+    **낡은 값을 계약으로 고정**하고 있었다(F2-g 와 같은 실패 모드 — 테스트가 결함을
+    보호한다). 중요한 것은 절대값 50 이 아니라 **관계**다: F-9 천이 고도계단이
+    정확히 `wp[-1].z − transition_alt` 이므로, 둘이 같아야 계단이 0 이 된다.
+    사용자 지시로 운용 고도는 25 m 가 됐다(대회 상한 30 m)."""
     data = _load_yaml()
     offboard_wps = np.array(
         data["offboard_node"]["ros__parameters"]["waypoints"], dtype=float
@@ -50,10 +56,13 @@ def test_waypoints_altitude_50m():
         data["mission_node"]["ros__parameters"]["waypoints"], dtype=float
     ).reshape(-1, 3)
 
-    assert np.all(offboard_wps[:, 2] == pytest.approx(50.0)), \
-        "offboard_node waypoints 고도가 50 m가 아닙니다"
-    assert np.all(mission_wps[:, 2] == pytest.approx(50.0)), \
-        "mission_node waypoints 고도가 50 m가 아닙니다"
+    t_alt = data["offboard_node"]["ros__parameters"]["transition_alt"]
+    assert np.all(offboard_wps[:, 2] == pytest.approx(t_alt)), \
+        f"offboard_node waypoints 고도가 transition_alt({t_alt})와 다릅니다 → F-9 고도계단이 생긴다"
+    assert np.all(mission_wps[:, 2] == pytest.approx(t_alt)), \
+        f"mission_node waypoints 고도가 transition_alt({t_alt})와 다릅니다"
+    assert t_alt <= 30.0, \
+        f"transition_alt {t_alt}m 가 대회 상한 30m 를 넘습니다 (2026-07-29 사용자 지시)"
 
 
 # ── 신규 파라미터 기본값 ───────────────────────────────────────────────────
@@ -62,17 +71,13 @@ def test_new_params_present_in_yaml():
     """신규 파라미터 5개가 YAML offboard_node 섹션에 존재하는지 확인한다."""
     data = _load_yaml()
     params = data["offboard_node"]["ros__parameters"]
-    required = {
-        "transition_alt":  50.0,
-        "d_end_thresh":    10.0,
-        "landing_timeout": 60.0,
-        "v_terminal":      15.2,
-        "decel_dist":      80.0,
-    }
-    for key, expected in required.items():
+    # 🔴 2026-07-29: 종전에는 값까지 dict 로 고정해 두어 transition_alt 를 25 로
+    # 낮추자 이 테스트가 막았다. docstring 이 말하는 대로 **존재**만 본다
+    # (값의 타당성은 각 항목 전용 테스트 소관이다).
+    required = ("transition_alt", "d_end_thresh", "landing_timeout",
+                "v_terminal", "decel_dist")
+    for key in required:
         assert key in params, f"YAML에 '{key}' 파라미터가 없습니다"
-        assert params[key] == pytest.approx(expected), \
-            f"'{key}' 기본값이 {expected}여야 합니다, 현재: {params[key]}"
 
 
 def test_v_terminal_above_stall():
@@ -142,7 +147,9 @@ def test_r1_climbing_timeout_covers_configured_altitude_with_margin():
     YAML 의 transition_alt 에서 예상되는 체류의 3배 이상이어야 오발동이 없다."""
     params = _load_yaml()["offboard_node"]["ros__parameters"]
     predicted = _CLIMB_FIXED_S + _CLIMB_S_PER_M * params["transition_alt"]
-    assert predicted == pytest.approx(27.5, abs=0.5)   # 50m 실측대(25.00~31.91s)와 일치
+    # 🔴 2026-07-29: 종전에는 `predicted == approx(27.5)` 로 **50m 를 하드코딩**해
+    # transition_alt 변경을 막고 있었다. 회귀식은 고도의 함수이므로 값이 아니라
+    # **여유 배수**만 계약이다. (25m → 18.7s, 50m → 27.5s)
     assert params["climbing_timeout"] >= predicted * 3.0
 
 
@@ -283,7 +290,7 @@ _VISION_PARAMS = {
     "vision_search_spacing":     0.0,
     "vision_search_speed":       0.0,
     "vision_search_dwell":       3.0,
-    "vision_search_timeout":   120.0,
+    "vision_search_timeout":   180.0,
     "vision_retry_alt":         15.0,
     "vision_retry_radius":      18.0,
     "vision_latch_frames":         3,

@@ -33,7 +33,7 @@ offboard_node:
     # "auto": 기체 타입 자동 선택(mc→straight, vtol→eta3). 명시 지정("eta3"/"straight"/"diterpin")은 그대로.
     planner: "auto"
     # ROS2 파라미터는 중첩 리스트 불가 → flat 1D, 코드에서 reshape(-1, 3)
-    waypoints: [0.0, 0.0, 50.0, 300.0, 0.0, 50.0]
+    waypoints: [0.0, 0.0, 25.0, 150.0, 0.0, 25.0]
 
     # waypoints 해석 기준계 (2026-07-25 사고 대응)
     #   "takeoff"(기본) — 이륙 순간 기체 위치가 원점. [0,0,3] = 이륙지점 상공 3m
@@ -107,7 +107,23 @@ offboard_node:
     gravity: 9.81
 
     # 자율 비행 시퀀스 파라미터 (작업 A)
-    transition_alt:  50.0     # 천이 고도 (m, pos_ned[2] h_up 양수)
+    # 천이 고도 (m, pos_ned[2] h_up 양수)
+    #
+    # 🔴 2026-07-29 사용자 지시로 50.0 → 25.0. "실제 대회에서도 끽해야 20m 올라가고,
+    # 무슨 일이 있더라도 30m 가 의도적으로 올라가는 최대고도일 것이다."
+    #
+    # 50.0 이 오늘 결함 3건을 증폭했다:
+    #   · F2 래치 — HOLD 고도 49.6m 에서 래치하면 하강만 (49.6−3.0)/0.8 = 58.2s 라
+    #     precision_land_timeout(60s)를 거의 다 쓴다. 25m 면 27.5s.
+    #   · F-9 — 계단은 wp[-1].z − transition_alt 다. 둘을 같은 값(25)으로 두면 계단 0.
+    #   · 탐색 — vision_search_alt 가 25m 인데 HOLD 가 50m 면 25m 를 먼저 내려가야
+    #     탐색이 시작된다. 이제 그 하강이 사라진다.
+    # 검출 상한 33.57m 아래라 vision_latch_max_agl 게이트에도 자연히 들어온다.
+    #
+    # ⚠️ 낮출 수 있게 된 근거: F-9 수정(94989b6)으로 천이 고도계단이 −29.6 → −8.3m 로
+    # 줄었다. 종전 계단폭이면 25m 천이는 지면에 위험했다.
+    # CLIMBING 체류 예측(회귀 9.95 + 0.3513×AGL): 50m 27.5s → 25m 18.7s.
+    transition_alt:  25.0
     d_end_thresh:    10.0     # 역천이 진입 거리 기준 (m, FW/VTOL 대형 항로용)
     mc_end_thresh:   1.0      # MC 웨이포인트(경로점) 도달 판정 반경 (m) — MC는
                               # L1Guidance 대신 self._pts를 이산 순차추종(WP0→
@@ -296,7 +312,11 @@ offboard_node:
     vision_search_dwell:       3.0   # 탐색고도 도달 후 제자리 확인(s)
     # 🔴 실측 역산값 — 1회차가 정렬 5s + dwell 3s + 나선 89s = 97s 다.
     # 90s 로 잡으면 완주 직전에 잘린다. 반경·간격·속도를 바꾸면 같이 재라.
-    vision_search_timeout:   120.0
+    # 🔴 2026-07-29 120.0 → 180.0 (사용자: "타임아웃이 너무 빠듯하다").
+    # 1회차 예산 실측: 나선 89.4s + 정렬 align 30.0s + dwell 3.0s = **122.4s** 로
+    # 종전 120.0 을 이미 2.4s 초과했다. 즉 정상 탐색이 타임아웃으로 끝날 수 있었다.
+    # 180.0 이면 57.6s 여유. (2회차까지 최악 총계는 §fc_precision_land_handoff §0-6 참조)
+    vision_search_timeout:   180.0
     vision_retry_alt:         15.0   # 재탐색 회차 고도(AGL, m)
     vision_retry_radius:      18.0   # 재탐색 회차 최대 반경(m)
     # 🔴 단위는 **vision 프레임**이지 제어틱이 아니다(2026-07-29 수정).
@@ -339,4 +359,4 @@ offboard_node:
 mission_node:
   ros__parameters:
     # ROS2 파라미터는 중첩 리스트 불가 → flat 1D, 코드에서 reshape(-1, 3)
-    waypoints: [0.0, 0.0, 50.0, 300.0, 0.0, 50.0]
+    waypoints: [0.0, 0.0, 25.0, 150.0, 0.0, 25.0]

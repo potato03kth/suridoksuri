@@ -215,7 +215,7 @@ class OffboardNode(Node):
         self.declare_parameter("wp0_heading_tol",   0.2)
         self.declare_parameter("v_approach",        5.0)
         self.declare_parameter("cmd_vel_frame_id",  "base_link")
-        self.declare_parameter("transition_alt",    50.0)
+        self.declare_parameter("transition_alt",    25.0)
         self.declare_parameter("d_end_thresh",      10.0)
         # d_end_thresh(10.0m)는 FW/VTOL 대형 항로(300m급)의 "역천이 진입 거리"
         # 기준이라 MC 테스트기체의 짧은 왕복경로(4~6m 스케일)엔 과대 — 경로
@@ -299,7 +299,7 @@ class OffboardNode(Node):
         # 나선 완주에 89s가 걸리고 고도정렬(~5s)+dwell(3s)을 더하면 97s다 —
         # 90s로 잡으면 **완주 직전에 잘려** 재탐색으로 넘어간다. 23s 여유를 둔다.
         # 파라미터로 반경·간격·속도를 바꾸면 이 값도 같이 재야 한다.
-        self.declare_parameter("vision_search_timeout", 120.0)
+        self.declare_parameter("vision_search_timeout", 180.0)
         # 재탐색(2회차) — 고도를 낮춰 GSD를 벌고 반경을 줄여 시간을 아낀다.
         self.declare_parameter("vision_retry_alt",       15.0)
         self.declare_parameter("vision_retry_radius",    18.0)
