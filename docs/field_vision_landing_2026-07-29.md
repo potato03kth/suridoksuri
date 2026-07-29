@@ -78,6 +78,38 @@ sudo dmesg | grep -i imx708 | tail -4
 ⚠️ **드라이버 재바인드(`modprobe -r imx708 && modprobe imx708`)로는 안 고쳐진다** — 실측으로
 같은 `-5` 가 그대로 재현됐다. 소프트웨어 상태 문제가 아니다.
 
+### 1-2. `-5` 가 나올 때 — **Pi 탓인지 케이블/카메라 탓인지 가르는 법**
+
+리본을 다시 꽂아도 안 되면 여기서 갈라라. 셋 다 통과인데 버스가 조용하면 **Pi 는 결백**하다.
+
+```bash
+# ① i2c 버스에 뭐라도 응답하는가 (센서 0x1a, AF VCM 0x0c)
+sudo python3 -c "
+import fcntl, os
+for bus in (10, 11):
+    fd = os.open('/dev/i2c-%d' % bus, os.O_RDWR); found=[]
+    for a in range(0x03, 0x78):
+        try: fcntl.ioctl(fd, 0x0703, a); os.read(fd, 1); found.append(hex(a))
+        except Exception: pass
+    os.close(fd); print(bus, found or 'ACK 없음')
+"
+# ② 디바이스트리 오버레이가 적용됐는가 (imx708@1a · dw9817@c 가 보여야 한다)
+ls /proc/device-tree/axi/pcie@120000/rp1/i2c@80000/
+# ③ probe 중에 카메라 전원(2.7V)이 실제로 켜지는가
+for r in /sys/class/regulator/regulator.*; do
+  [ "$(cat $r/name)" = cam0_reg ] && echo "cam0 $(cat $r/state) $(cat $r/microvolts)"; done
+```
+
+| 관측 | 판정 |
+|---|---|
+| ②가 비어 있다 | `/boot/firmware/config.txt` 의 `dtoverlay=imx708,cam0/cam1` 문제 — **Pi 쪽** |
+| ③이 probe 중에도 계속 `disabled` | 전원 레일이 안 뜬다 — **Pi 쪽** |
+| ②③ 정상인데 ①이 **전 주소 무응답** | **케이블 또는 카메라 모듈.** 리본 방향(은색 접점 vs 파란 보강판)·22핀 협폭 케이블 여부 확인, 예비 케이블 → 예비 카메라 순으로 교체 |
+
+> 📌 2026-07-29 실측이 마지막 행이었다: 오버레이 적용됨(`imx708@1a`·`dw9817@c`), probe 중
+> `cam0_reg`/`cam1_reg` 가 **실제로 `enabled` 로 올라갔고**, 그런데도 i2c-10·11 **양쪽 다
+> 0x03~0x77 전 대역에서 ACK 0건**이었다. 리본 재삽입·단자 교체 후에도 동일. ⇒ Pi 결백.
+
 - 포트 **8091** 에 TCP 서버가 뜬다. 이미 점유돼 있으면 **종료코드 3** 으로 즉사한다
   (`ss -ltnp | grep 8091` 로 확인).
 - `--target-sink` 를 **안 주면 소켓이 안 열리고**, shim 은 영원히 재접속만 한다
