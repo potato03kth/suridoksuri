@@ -898,3 +898,66 @@ def test_replay_display_stream_draws_the_sink_overlay_with_live_counters(tmp_pat
     assert len(seen) == 3
     assert all(k["enabled"] is True and k["consumers"] == 0 for k in seen)
     assert [k["seq"] for k in seen] == [2, 4, 6], "발행 seq가 화면에 반영되지 않는다"
+
+
+# ---------------------------------------------------------------------------
+# `--report-overlay` / `--output-fps` — main.py와 **문자 그대로 같은 인자**여야 한다
+# (2026-07-29, 2차예선 보고 제출 영상). 정책이 갈리면 회귀검증 경로로서의 가치가 사라진다.
+#
+# 🔴 재생 경로에만 있는 가치: `telemetry.jsonl`의 AGL이 실려 상태머신이 `TERMINAL`까지 가는
+# 유일한 경로라, **착륙 최종단계가 실제로 화면에 그려지는지**는 여기서만 검증된다.
+# ---------------------------------------------------------------------------
+
+
+def test_replay_report_overlay_is_off_by_default_and_never_draws(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(replay_mod, "draw_landing_overlay", lambda *a, **k: calls.append(k))
+    rec_dir = _make_distress_fine_recording_dir(tmp_path, n=3)
+    replay_mod.run_replay(
+        str(rec_dir), _DISTRESS_FINE_PRESET, display="none", output=None,
+        log_dir=str(tmp_path / "logs"), log_name="rep_ov_off",
+    )
+    assert calls == [], "--report-overlay 없이 착륙 오버레이를 그렸다"
+
+
+def test_replay_report_overlay_draws_every_frame_with_the_real_state(tmp_path, monkeypatch):
+    """켜면 매 프레임 그리고, 상태머신 상태가 실제로 실려야 한다(하드코딩이면 red)."""
+    seen = []
+    real = replay_mod.draw_landing_overlay
+
+    def _spy(image, detections, **kwargs):
+        seen.append(kwargs)
+        return real(image, detections, **kwargs)
+
+    monkeypatch.setattr(replay_mod, "draw_landing_overlay", _spy)
+    rec_dir = _make_distress_fine_recording_dir_with_telemetry(
+        tmp_path, n=6, alts=[20.0, 12.0, 8.0, 4.0, 2.0, 2.0]
+    )
+    replay_mod.run_replay(
+        str(rec_dir), _DISTRESS_FINE_PRESET, display="none", output=None,
+        log_dir=str(tmp_path / "logs"), log_name="rep_ov_on", report_overlay=True,
+    )
+    assert len(seen) == 6
+    states = [k["state"] for k in seen]
+    assert states[0] is not None and len(set(states)) > 1, f"상태가 안 실렸다: {states}"
+    # AGL이 실린 재생만 도달할 수 있는 최종단계가 화면에도 실제로 나가는지.
+    assert "TERMINAL" in states, f"TERMINAL이 화면에 안 나갔다: {states}"
+    assert [k["frame_id"] for k in seen] == [0, 1, 2, 3, 4, 5]
+
+
+def test_replay_output_fps_actually_reaches_the_video_writer(tmp_path, monkeypatch):
+    rec_dir = _make_distress_fine_recording_dir(tmp_path, n=3)   # 패치 전에 만든다
+    seen = []
+    real_writer = cv2.VideoWriter
+
+    def _spy(path, fourcc, fps, size):
+        seen.append(fps)
+        return real_writer(path, fourcc, fps, size)
+
+    monkeypatch.setattr(cv2, "VideoWriter", _spy)
+    replay_mod.run_replay(
+        str(rec_dir), _DISTRESS_FINE_PRESET, display="none",
+        output=str(tmp_path / "out.mp4"), log_dir=str(tmp_path / "logs"),
+        log_name="rep_fps", output_fps=12.0,
+    )
+    assert seen == [12.0], f"--output-fps가 무시됐다(실제 전달값: {seen})"

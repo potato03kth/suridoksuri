@@ -29,7 +29,11 @@ from vision.core.wire import (
 )
 from vision.utils.frame_source import FrameRecord
 from vision.utils.target_sink import SocketTargetSink
-from vision.utils.visualize import SINK_OVERLAY_ALERT_COLOR, SINK_OVERLAY_OFF_COLOR
+from vision.utils.visualize import (
+    LANDING_OVERLAY_POINT_COLOR,
+    SINK_OVERLAY_ALERT_COLOR,
+    SINK_OVERLAY_OFF_COLOR,
+)
 
 _DICTIONARY = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 _VERTIPORT_FINE_PRESET = str(Path(main_mod.__file__).parent / "presets" / "vertiport_fine.yaml")
@@ -1546,3 +1550,109 @@ def test_main_actually_wires_derived_half_hfov_tan_into_state_machine(tmp_path, 
     assert len(seen) == 1 and seen[0] is not None, "기본 config로 상태머신을 만들었다(배선 누락)"
     assert seen[0].half_hfov_tan == pytest.approx(1.0)
     assert seen[0].half_hfov_tan != pytest.approx(NOMINAL_HALF_HFOV_TAN)
+
+
+# ---------------------------------------------------------------------------
+# `--report-overlay` / `--output-fps` (2026-07-29, 2차예선 보고 제출 영상)
+#
+# **왜 있는가:** 제출용 녹화를 실제로 뽑아 보니 두 가지가 걸렸다 —
+#  ① 화면에 그려지는 것이 초록 얇은 bbox뿐이라 **초록 매트 위에서 인식이 눈에 안 보였다**
+#     (착륙점·흰 박스·상태머신 상태는 JSONL에만 있고 화면엔 한 픽셀도 없었다).
+#  ② 라이브 mp4 fps가 20.0 고정이라 **실측 캡처 속도와 다르면 배속으로 재생된다**
+#     (1536x864 ~13.6fps / 4608x2592 ~4.4Hz, `vision/CLAUDE.md` U5 실측).
+#
+# 두 기능 다 **opt-in**이라 드론 기본 경로는 한 픽셀도 달라지지 않아야 한다 — 그게 아래
+# 첫 두 테스트다.
+# ---------------------------------------------------------------------------
+
+
+def test_report_overlay_is_off_by_default_and_never_draws(tmp_path, monkeypatch):
+    """🔴 기본 경로 비용 0 — `--report-overlay`를 안 주면 호출 자체가 없어야 한다
+    (게이팅을 지우고 항상 그리면 red)."""
+    calls = []
+    monkeypatch.setattr(main_mod, "draw_landing_overlay", lambda *a, **k: calls.append(k))
+    monkeypatch.setattr(
+        sys, "argv",
+        ["vision.main", _write_image(tmp_path), "--log-dir", str(tmp_path / "logs")],
+    )
+    main_mod.main()
+    assert calls == [], "--report-overlay 없이 착륙 오버레이를 그렸다"
+
+
+def test_report_overlay_draws_even_with_display_none(tmp_path, monkeypatch):
+    """`--display none + --output`(헤드리스 녹화)이 제출 영상의 실제 촬영 형태다 — 그 경로에서
+    실제로 그려져야 의미가 있다. `--display != none`으로만 게이팅하면 red가 된다."""
+    calls = []
+    monkeypatch.setattr(main_mod, "draw_landing_overlay", lambda *a, **k: calls.append(k))
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", _write_image(tmp_path), "--log-dir", str(tmp_path / "logs"),
+            "--report-overlay", "--output", str(tmp_path / "out.png"),
+        ],
+    )
+    main_mod.main()
+    assert len(calls) == 1
+
+
+def test_report_overlay_reaches_the_saved_pixels_of_a_real_distress_frame(tmp_path, monkeypatch):
+    """몽키패치 없이 **실제 파이프라인 + 실제 흰 박스 검출**로 저장 파일 픽셀까지 확인한다 —
+    착륙점 마젠타가 실제로 찍히고, 플래그 없는 저장본과 실제로 달라야 한다."""
+    frame_path = tmp_path / "distress.png"
+    cv2.imwrite(str(frame_path), _distress_fine_frame())
+
+    outs = {}
+    for tag, extra in (("plain", []), ("overlay", ["--report-overlay"])):
+        out = tmp_path / f"{tag}.png"
+        monkeypatch.setattr(
+            sys, "argv",
+            [
+                "vision.main", str(frame_path), "--preset", "vision/presets/distress_fine.yaml",
+                "--log-dir", str(tmp_path / f"logs_{tag}"), "--output", str(out), *extra,
+            ],
+        )
+        main_mod.main()
+        outs[tag] = cv2.imread(str(out))
+
+    assert _count_colour(outs["overlay"], LANDING_OVERLAY_POINT_COLOR) > 0, "착륙점이 안 그려졌다"
+    assert _count_colour(outs["plain"], LANDING_OVERLAY_POINT_COLOR) == 0
+    assert not np.array_equal(outs["plain"], outs["overlay"])
+
+
+def test_measure_capture_fps_uses_intervals_not_frame_count(tmp_path):
+    """🔴 `frame_count`개 프레임의 간격은 `frame_count - 1`개다 — `frame_count`로 나누면 fps를
+    체계적으로 과소평가해 "느리다"는 거짓 경고가 상시 뜬다. 나눗셈을 바꾸면 red가 된다."""
+    # 10fps로 11프레임 = 스팬 1.0초. 정답은 10.0이지 11.0이 아니다.
+    assert main_mod._measure_capture_fps(100.0, 101.0, 11) == pytest.approx(10.0)
+
+
+def test_measure_capture_fps_returns_none_when_it_cannot_be_measured():
+    """못 재면 지어내지 않는다(경고를 만들어내면 운영자가 멀쩡한 녹화를 다시 찍는다)."""
+    assert main_mod._measure_capture_fps(None, None, 10) is None
+    assert main_mod._measure_capture_fps(100.0, 100.0, 10) is None   # 스팬 0
+    assert main_mod._measure_capture_fps(100.0, 101.0, 1) is None    # 간격이 없음
+
+
+def test_output_fps_actually_reaches_the_video_writer(tmp_path, monkeypatch):
+    """`--output-fps`가 VideoWriter까지 도달하는지 — 인자를 받기만 하고 버리면 red가 된다."""
+    # ⚠️ 입력 영상은 **패치 전에** 만든다 — 이 헬퍼도 VideoWriter를 쓰므로 스파이에 잡힌다.
+    video_path = _write_distress_fine_video(tmp_path, n_frames=3)
+    seen = []
+    real_writer = cv2.VideoWriter
+
+    def _spy(path, fourcc, fps, size):
+        seen.append(fps)
+        return real_writer(path, fourcc, fps, size)
+
+    monkeypatch.setattr(cv2, "VideoWriter", _spy)
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "vision.main", video_path,
+            "--preset", "vision/presets/distress_fine.yaml",
+            "--log-dir", str(tmp_path / "logs"), "--output", str(tmp_path / "out.mp4"),
+            "--output-fps", "7.5",
+        ],
+    )
+    main_mod.main()
+    assert seen == [7.5], f"--output-fps가 무시됐다(실제 전달값: {seen})"

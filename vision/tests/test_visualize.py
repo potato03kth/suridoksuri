@@ -140,3 +140,161 @@ def test_overlay_text_is_ascii_only():
     assert literals, "오버레이 문자열 리터럴을 찾지 못했다(테스트가 낡았다)"
     for line in literals:
         assert line.isascii(), f"오버레이 문자열에 비-ASCII가 섞였다: {line.strip()}"
+
+
+# ---------------------------------------------------------------------------
+# `draw_landing_overlay` — 착륙 판단 오버레이 (2026-07-29, 2차예선 보고 제출 영상)
+#
+# **왜 있는가:** `draw_detections()`가 그리는 것은 초록 얇은 bbox + 신뢰도 숫자뿐이라, 우선
+# 타겟인 ② 조난자 구역(**초록 매트**) 위에서는 배경에 묻혀 "인식되고 있다"가 눈에 안 보였다
+# (실제로 뽑아 본 녹화 영상에서 확인). 게다가 파이프라인이 실제로 판단하는 값들 — 착륙점,
+# 흰 박스, 상태머신 상태/명령, 추정거리 — 은 JSONL에만 있고 화면엔 한 픽셀도 없었다.
+#
+# 이 함수의 계약은 **"그리기만 한다"** 이다 — 착륙점을 다시 계산하지 않고
+# `det.meta["white_box_detector"]["landing_point_px"]`를 그대로 읽는다. 아래
+# `test_landing_point_follows_the_meta_value_and_is_not_recomputed`가 그걸 고정한다.
+# ---------------------------------------------------------------------------
+from vision.utils.visualize import (  # noqa: E402 - 절 구분을 위해 여기서 import
+    LANDING_OVERLAY_BOX_COLOR,
+    LANDING_OVERLAY_POINT_COLOR,
+    LANDING_OVERLAY_TARGET_COLOR,
+    draw_landing_overlay,
+)
+
+
+def _mat_detection(landing_px=(300.0, 200.0), box_bbox=(280, 180, 40, 40)) -> Detection:
+    """`modules/distress_box.py::WhiteBoxDetector`가 확정 검출에 붙이는 meta 형태 그대로."""
+    return Detection(
+        bbox=(200, 120, 200, 160),
+        confidence=1.0,
+        meta={
+            "white_box_detector": {
+                "box_bbox": list(box_bbox),
+                "landing_point_px": list(landing_px),
+            }
+        },
+    )
+
+
+def test_landing_point_follows_the_meta_value_and_is_not_recomputed():
+    """🔴 이 오버레이의 핵심 계약 — 착륙점을 **재계산하지 않고** meta 값을 그대로 그린다.
+    (규칙을 두 곳에 복사하면 한쪽만 고쳐졌을 때 조용히 어긋난다 — `modules/distress_mat.py`가
+    같은 이유로 재구현을 거부하는 것과 같은 원칙.) meta의 픽셀을 옮기면 십자도 따라 움직여야
+    하고, bbox 중심 같은 자체 계산으로 그리면 두 이미지가 같아져 red가 된다."""
+    a = draw_landing_overlay(_blank(), [_mat_detection(landing_px=(260.0, 160.0))])
+    b = draw_landing_overlay(_blank(), [_mat_detection(landing_px=(340.0, 240.0))])
+    assert _count_colour(a, LANDING_OVERLAY_POINT_COLOR) > 0
+    assert not np.array_equal(a, b), "meta의 착륙점을 안 읽고 자체 계산으로 그리고 있다"
+
+    # 십자 중심이 실제로 meta 픽셀 근처인지 — 좌표를 통째로 무시하면 여기서 잡힌다.
+    ys, xs = np.where(np.all(a == np.array(LANDING_OVERLAY_POINT_COLOR, dtype=np.uint8), axis=2))
+    # "LANDING PT" 라벨도 같은 색이라 오른쪽으로 퍼진다 — 십자 세로선이 있는 x 근방만 본다.
+    assert abs(int(np.median(ys)) - 160) <= 20
+    assert xs.min() <= 260 <= xs.max()
+
+
+def test_no_landing_point_drawn_when_the_detection_has_no_white_box_meta():
+    """coarse 전용 프리셋(흰 박스 단계 없음)에서는 착륙점이 아직 없다 — 없는 것을 지어내지
+    않는다(`core/wire.py`가 "가장 위험한 거짓말"이라 부른 그것). 타겟 bbox는 그린다."""
+    img = draw_landing_overlay(_blank(), [Detection(bbox=(200, 120, 200, 160))])
+    assert _count_colour(img, LANDING_OVERLAY_TARGET_COLOR) > 0
+    assert _count_colour(img, LANDING_OVERLAY_POINT_COLOR) == 0
+    assert _count_colour(img, LANDING_OVERLAY_BOX_COLOR) == 0
+
+
+def test_target_box_colour_is_not_the_detection_green_that_vanishes_on_a_green_mat():
+    """🔴 이 오버레이가 만들어진 이유 자체 — 초록 매트 위 초록 선은 안 보인다. 타겟 박스
+    색이 `draw_detections`의 초록(0,200,0)으로 되돌아가면 red가 된다."""
+    assert LANDING_OVERLAY_TARGET_COLOR != (0, 200, 0)
+    green_mat = np.zeros((480, 640, 3), dtype=np.uint8)
+    green_mat[:, :] = (60, 180, 60)
+    img = draw_landing_overlay(green_mat.copy(), [_mat_detection()])
+    assert _count_colour(img, LANDING_OVERLAY_TARGET_COLOR) > 0
+
+
+def test_state_and_command_actually_reach_the_pixels():
+    """상태/명령 문자열이 실제로 그려지는지 — 라벨만 그리고 값을 버리면 두 이미지가 같아진다."""
+    servo = draw_landing_overlay(_blank(), [_mat_detection()], state="PRECISION_SERVO",
+                                 command="center")
+    hold = draw_landing_overlay(_blank(), [_mat_detection()], state="HOLD", command="hold")
+    assert not np.array_equal(servo, hold)
+
+
+def test_estimate_distance_reaches_the_pixels_and_is_omitted_when_absent():
+    """추정거리(z)도 값이 실제로 그려져야 하고, `estimate`가 없으면 그 줄 자체가 없어야 한다
+    (0을 채워 "기체 바로 아래" 같은 거짓말을 만들지 않는다)."""
+    class _Est:
+        target_type = "distress_landing_point"
+        position = (0.1, 0.2, 12.5)
+
+    class _Far(_Est):
+        position = (0.1, 0.2, 31.0)
+
+    near = draw_landing_overlay(_blank(), [_mat_detection()], estimate=_Est())
+    far = draw_landing_overlay(_blank(), [_mat_detection()], estimate=_Far())
+    none = draw_landing_overlay(_blank(), [_mat_detection()], estimate=None)
+    assert not np.array_equal(near, far), "거리 값이 픽셀에 반영되지 않는다"
+    assert not np.array_equal(near, none)
+
+
+def test_landing_point_colour_does_not_collide_with_the_sink_alert_colour():
+    """🔴 두 오버레이를 같이 켠 프레임에서 같은 색이 다른 뜻을 가지면 안 된다 — 착륙점 색을
+    sink 경고색(빨강)으로 되돌리면 red가 된다."""
+    assert LANDING_OVERLAY_POINT_COLOR != SINK_OVERLAY_ALERT_COLOR
+    assert LANDING_OVERLAY_POINT_COLOR != SINK_OVERLAY_OK_COLOR
+    assert LANDING_OVERLAY_POINT_COLOR != SINK_OVERLAY_OFF_COLOR
+
+
+def test_landing_overlay_panel_is_at_the_bottom_and_does_not_hide_the_sink_panel():
+    """sink 패널(좌상단)과 이 패널(좌하단)을 같이 켜도 서로 안 가려야 한다 — 두 오버레이를
+    동시에 쓰는 것이 보고 영상의 실제 사용 형태다. 패널을 상단으로 옮기면 red가 된다."""
+    img = draw_sink_status(_blank(), enabled=True, consumers=0, seq=1, dropped=0,
+                           endpoint="127.0.0.1:8091")
+    top_before = img[:120].copy()          # sink 패널이 사는 영역
+    # 검출 그리기는 프레임 어디에나 갈 수 있으므로(그건 이 계약이 아니다) 패널만 그리게 한다.
+    draw_landing_overlay(img, [], state="HOLD", command="hold")
+    assert np.array_equal(img[:120], top_before), "착륙 패널이 sink 패널 영역을 침범했다"
+    assert _count_colour(img, SINK_OVERLAY_ALERT_COLOR) > 0
+    assert not np.array_equal(img[-120:], _blank()[-120:]), "하단에 패널이 안 그려졌다"
+
+
+def test_landing_overlay_draws_in_place_and_preserves_shape_and_dtype():
+    """`draw_sink_status`와 같은 계약 — 사본을 또 만들지 않는다(매 프레임 전체 복사 금지)."""
+    img = _blank()
+    out = draw_landing_overlay(img, [_mat_detection()], state="LOCK")
+    assert out is img
+    assert out.shape == (480, 640, 3) and out.dtype == np.uint8
+
+
+def test_landing_overlay_is_deterministic():
+    a = draw_landing_overlay(_blank(), [_mat_detection()], state="LOCK", command="hold",
+                             frame_id=7)
+    b = draw_landing_overlay(_blank(), [_mat_detection()], state="LOCK", command="hold",
+                             frame_id=7)
+    assert np.array_equal(a, b)
+
+
+def test_landing_overlay_survives_tiny_and_huge_frames_without_crashing():
+    """실기체 4608px과 테스트용 초소형 프레임 양쪽에서 크래시 없이 그려져야 한다."""
+    for w, h in ((64, 48), (4608, 2592)):
+        img = np.full((h, w, 3), 40, dtype=np.uint8)
+        draw_landing_overlay(img, [_mat_detection()], state="TERMINAL", command="land",
+                             frame_id=1)
+
+
+def test_landing_overlay_handles_empty_detections():
+    img = draw_landing_overlay(_blank(), [], state="ACQUIRE", command="scan")
+    assert _count_colour(img, LANDING_OVERLAY_POINT_COLOR) == 0
+
+
+def test_landing_overlay_text_is_ascii_only():
+    """Hershey 폰트는 한글을 못 그린다 — 화면 문자열이 ASCII임을 소스에서 고정한다."""
+    import inspect
+
+    import vision.utils.visualize as vis
+
+    src = inspect.getsource(vis.draw_landing_overlay)
+    literals = [line for line in src.splitlines() if 'f"' in line or '"LANDING' in line]
+    assert literals, "오버레이 문자열 리터럴을 찾지 못했다(테스트가 낡았다)"
+    for line in literals:
+        assert line.isascii(), f"오버레이 문자열에 비-ASCII가 섞였다: {line.strip()}"

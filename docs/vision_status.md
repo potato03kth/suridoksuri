@@ -2,7 +2,7 @@
 doc_type: session_status
 project: suridoksuri-1
 scope: vision 세션 유일 진입점 — 트랙 보드 + 설계 포인터
-last_updated: 2026-07-28
+last_updated: 2026-07-29
 ---
 
 # vision 세션 진입 상태 문서
@@ -107,6 +107,14 @@ last_updated: 2026-07-28
 ---
 
 ### 👁 vision-정밀착륙 — ▶ 활성 (**2026-07-23: libcamera 정공법 브링업 성공** — AF/AE/AWB 실동작. 우회책 폐기 대상 전환. **2026-07-24: ArUco 브랜치(Phase 1~4) 완료 + `LiveFrameSource` picamera2 재구현 + `main.py` 라이브 배선까지 RPi 실기체 종단간 검증 완료(picam-venv opencv 업그레이드 포함). 2026-07-24 후속: MjpegStreamer 실네트워크 검증+fps 튜닝(2→17fps) 완료. **2026-07-25 야간 오케스트레이터 세션(사용자 취침 중 자율 진행) — vision 도메인 §9 빌드순서 1~6번 전부 완료:** ① **ffmpeg Phase 3 완료**(`tools/h264_stream.py`, 30fps·지연 25~41ms, 재접속/SIGTERM 실기체 검증) ② **§9 6번 공통 상태머신 완료**(`core/state_machine.py`, JSONL `state` 필드가 드디어 실제로 채워짐) ③ **② 초록구역 fine 브랜치 완료**(`modules/distress_box.py` — 끊어져 있던 체인을 이음) ④ **§9 5번 현장 색 캘리브레이터 완료**(`tools/color_calibrate.py`) ⑤ **RPi 실기체 종단간 통합 검증 완료** — 실기체에서만 드러난 SIGTERM 무대응 버그를 잡아 고쳤고, 라이브 카메라 1205프레임 전부에 `state` 필드가 실제로 채워지는 것을 확인 ⑥ **미실시(인간개입 필요) 6항목을 트랙 보드 위에 표로 명시** — 위 "🔴 미실시 항목" 절 참조. `pytest vision/tests/` 330 → **462 passed**. 남은 §9 항목은 7번(offboard 연동, **FC 도메인 소관**)과 8번(폐루프 30cm 검증, **실측 캘리브레이션 필요 = 예선 후**)뿐이다**)
+
+- **✅ 보고 제출용 영상 녹화 경로 정비 완료(2026-07-29) + 🔴 카메라 하드웨어 사망 발견.** 사용자 질문 *"지금 vision부 작동하는 상황 영상녹화 가능한가(FHD/HD면 충분)"*에서 출발. **녹화 기능(`--output`) 자체는 이미 있었고**, 실제로 뽑아 보니 제출물로 쓸 수 없는 결함 2건이 나와 고쳤다. 절차 정본은 **`docs/vision_report_video.md`**(이것만 읽으면 됨), 구현 근거는 `vision/CLAUDE.md` "착륙 판단 오버레이 + `--output-fps`" 절.
+  - **🔴 실촬영 블로커 — RPi 카메라가 libcamera에 0대로 보인다.** `imx708 11-001a: failed to read chip id 708, with error -5`(I2C 무응답)로 **부팅 시 드라이버 프로브가 실패**했다(2026-07-29 02:04 부팅). 디바이스 트리 선언은 정상이라 **소프트웨어 문제가 아니다** — 리본 케이블 재체결 + **재부팅**(프로브는 부팅 시 1회뿐)이 필요하고, 그건 사람만 할 수 있다. 마지막 정상 동작은 2026-07-25(1205프레임), 그 사이 F2 첫 실비행이 있었다. RPi에 저장된 과거 영상도 **없다**(`.mp4`/`.h264` 0건).
+  - **결함① 화면에서 "인식 중"이 안 보였다** → `--report-overlay` 신설(`utils/visualize.py::draw_landing_overlay`). 기존엔 초록 얇은 bbox + 신뢰도 숫자뿐이라 **초록 매트 위에서 배경에 묻혔고**, 착륙점·흰 박스·상태머신 상태·추정거리는 전부 JSONL에만 있었다. 노랑=타겟 / 하늘색=흰 박스 / **마젠타=착륙점** / 좌하단 상태 패널. **opt-in이라 드론 기본 경로 산출물은 한 픽셀도 안 바뀐다.**
+  - **결함② 저장 mp4가 배속 재생됐다** → `--output-fps` 신설 + 종료 시 실측 fps 경고. 라이브 mp4 fps가 20.0 고정인데 실측은 4608px에서 **4.4Hz**(U5), 1536×864에서 13.6fps라 각각 4.5배·1.5배 빠른 영상이 저장되고 있었다. 기본값은 그대로 뒀다(기존 녹화물 재생속도 보존).
+  - **부수 발견 — 해상도별 nominal 부재로 화면 `DIST`가 2.4배 틀렸다.** 1920px 프레임에 4608px 기준 캘리브를 쓰면 7.35m가 17.63m로 나온다(자동 재스케일은 저장소 확정 방침상 안 함). 녹화용 `calibration/cam109-imx708af75-1920x1080/`·`-1280x720/`을 미리 만들어 뒀고, 맞춰 쓰면 **오차 0.1%**로 떨어지는 것을 실측 확인.
+  - **카메라 없이도 가능한 경로 2개를 문서화** — (B) **휴대폰으로 실물 타겟을 찍어 파이프라인 통과**(`python -m vision.main 촬영본.mp4 --report-overlay --output ...`) → 실물 인식 그림, 지금 당장 가능. 면적 필터/색/거리값 함정 3개도 같이 기록. (C) 합성 데이터(증거로는 약함).
+  - **검증:** `pytest vision/tests/` **1049 passed**(신규 21건) · 파괴검증 2종 red 확인 후 원복 green · 산출물 `vision/results/report_overlay_demo/`(골든셋 1프레임은 완전 재현 가능, 나머지는 FHD 합성 클립 프레임). **🔴 실카메라 라이브 경로는 위 블로커 때문에 한 번도 못 돌렸다.**
 
 - **✅ RPi 실기체 종단간 통합 검증 완료(2026-07-25 야간 마지막 세션, 커밋 `078ddea`) — 실기체에서만 드러나는 버그 1건을 잡아 고쳤다.** 오늘 밤 만든 것(상태머신·초록구역 fine·색 캘리브레이터)이 전부 **랩탑 합성 데이터로만** 검증됐던 상태라, 실카메라에서 함께 도는지를 마지막에 확인했다. 이 프로젝트엔 *"랩탑 cv2 5.0.0에선 멀쩡한데 RPi picam-venv의 cv2 4.6.0엔 `ArucoDetector` 클래스형 API가 아예 없어 실기체에서만 터진"* 전례(2026-07-24)가 있어 생략하지 않았다. 상세:
   - **🔴 실기체에서만 드러난 버그 — `main.py --live`에 SIGTERM 핸들러가 없어 프로세스가 아무 로그 없이 즉사했다.** `KeyboardInterrupt`(SIGINT) 경로만 있었는데, **비대화형 SSH 백그라운드 자식/systemd에서는 SIGINT가 SIG_IGN으로 막혀** graceful shutdown을 보장하는 유일한 신호가 SIGTERM이다(ffmpeg Phase 3에서 `/proc/PID/status` 비트로 이미 규명된 사실). SIGTERM 기본 처분은 즉시 강제종료라 Python `finally`가 아예 안 돌았다 — **카메라 release·blackbox close가 보장되지 않는 상태였다**(이번엔 우연히 데이터가 안 깨졌을 뿐). `tools/h264_stream.py`의 `_install_sigterm_handler` 패턴을 재사용해 `main.py`에 추가(기존 Ctrl+C 경로는 그대로 둠).

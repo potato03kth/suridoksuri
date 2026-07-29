@@ -93,7 +93,9 @@ from vision.utils.target_sink import (
     SocketTargetSink,
     TargetSink,
 )
-from vision.utils.visualize import save_result, draw_detections, draw_sink_status
+from vision.utils.visualize import (
+    save_result, draw_detections, draw_sink_status, draw_landing_overlay,
+)
 
 
 _VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv"}
@@ -105,7 +107,16 @@ _DEFAULT_CALIB_PATH = str(Path(__file__).parent / "calibration" / "cam109-imx708
 _LIVE_INPUT_SPEC = "live"
 # --output 지정 시 라이브 모드 VideoWriter가 쓸 fps. VideoReader처럼 소스가 fps를 알려주지 않으므로
 # (무한 실시간 스트림) 고정값을 쓴다 — 정밀한 재생속도가 목적이 아니라 결과 확인용 기록이라 충분.
+#
+# 🔴 **이 값이 실제 캡처 속도와 다르면 저장된 mp4가 배속으로 재생된다**(2026-07-29, 2차예선 제출
+# 영상 준비 중 확인). 실측 캡처 속도는 해상도에 크게 좌우된다 — 1536x864에서 ~13.6fps,
+# 4608x2592(기본)에서 **~4.4Hz**(`vision/CLAUDE.md` U5 실측)라 20.0을 그대로 쓰면 각각 약 1.5배·
+# 4.5배 빨라진다. 그래서 (a) `--output-fps`로 명시할 수 있게 하고 (b) 종료 시 **실측 평균 fps를
+# 계산해 기록 fps와 10% 이상 어긋나면 경고**한다(아래 `_LIVE_OUTPUT_FPS_WARN_RATIO`).
+# 기본값 자체는 바꾸지 않았다 — 기존 녹화물/스크립트의 재생속도가 조용히 달라지면 안 되므로.
 _LIVE_DEFAULT_OUTPUT_FPS = 20.0
+# 실측 평균 fps가 기록 fps와 이 비율 이상 어긋나면 경고한다(0.10 = 10%).
+_LIVE_OUTPUT_FPS_WARN_RATIO = 0.10
 
 # `--target-sink` 발행의 `valid=false` 사유 문자열(§5.4 계약 2번 — 침묵 대신 **사유와 함께**
 # "안 보임"을 알린다). 매직 문자열을 호출부에 흩뿌리지 않도록 상수로 모은다(§7.3).
@@ -480,6 +491,29 @@ def _draw_sink_overlay(annotated, sink: TargetSink) -> None:
         draw_sink_status(annotated, enabled=False)
 
 
+def _draw_report_overlay(annotated, state, decision, estimate, frame_id: int) -> None:
+    """착륙 판단(착륙점/흰 박스/상태머신/추정거리)을 화면에 덧그린다 — **제자리 수정**.
+
+    🔴 **호출자는 `--report-overlay`가 켜졌을 때만 부른다.** 기본 경로에서는 비용이 정확히 0이고
+    저장/스트림 산출물도 이 플래그 이전과 한 픽셀도 다르지 않다(회귀테스트로 고정) —
+    `_draw_sink_overlay`가 `--display none`에서 비용 0인 것과 같은 원칙(§7.9).
+
+    **왜 opt-in인가:** 이건 비행 중 필요한 정보가 아니라 **사람에게 보여줄 영상**을 위한 것이다
+    (2차예선 보고 제출). 드론 기본 경로에 상시 비용을 얹을 이유가 없다.
+
+    `draw_detections()`/`_draw_sink_overlay()` **뒤에** 부르는 것이 계약이다(패널 위치가 좌하단
+    이라 sink 패널(좌상단)과 겹치지 않는다).
+    """
+    draw_landing_overlay(
+        annotated,
+        state.detections,
+        state=decision.state.value if decision is not None else None,
+        command=decision.command if decision is not None else None,
+        estimate=estimate,
+        frame_id=frame_id,
+    )
+
+
 def _build_observation(state, frame_id: int, ts: float, agl_m: Optional[float] = None) -> Observation:
     """§9 6번(공통 상태머신) 배선 — 현재 파이프라인 산출물에서 `Observation` 최소 필드만 뽑는다.
 
@@ -577,6 +611,7 @@ def _run_image(
     calib: Optional[CameraCalibration] = None,
     state_machine: Optional[LandingStateMachine] = None,
     sink: Optional[TargetSink] = None,
+    report_overlay: bool = False,
 ) -> None:
     sink = sink if sink is not None else NullSink()
     image = load_image(str(input_path))
@@ -617,10 +652,15 @@ def _run_image(
     )
 
     # `--display none`이면 주석 프레임 자체를 만들지 않는다(기존 동작) → 오버레이 비용도 0.
+    # 단 `--report-overlay`는 "사람에게 보여줄 산출물"이 목적이라 `--display none + --output`
+    # (헤드리스 녹화)에서도 그려야 의미가 있다 — 그래서 프레임 생성 조건에 함께 들어간다.
     annotated = None
-    if display != "none":
+    if display != "none" or report_overlay:
         annotated = draw_detections(state.original, state.detections, state.confirmed)
-        _draw_sink_overlay(annotated, sink)
+        if display != "none":
+            _draw_sink_overlay(annotated, sink)
+        if report_overlay:
+            _draw_report_overlay(annotated, state, decision, estimate, 0)
 
     if output:
         if annotated is not None:
@@ -651,6 +691,8 @@ def _run_video(
     calib: Optional[CameraCalibration] = None,
     state_machine: Optional[LandingStateMachine] = None,
     sink: Optional[TargetSink] = None,
+    report_overlay: bool = False,
+    output_fps: Optional[float] = None,
 ) -> None:
     from vision.utils.video_reader import VideoReader
 
@@ -697,6 +739,9 @@ def _run_video(
             # 발행 뒤에 그려야 이 프레임의 seq까지 반영된다. `none`이면 비용 0.
             if display != "none":
                 _draw_sink_overlay(annotated, sink)
+            if report_overlay:
+                # frame_count는 바로 위에서 증가했으므로 이 프레임의 id는 -1이다.
+                _draw_report_overlay(annotated, state, decision, estimate, frame_count - 1)
 
             if streamer is not None:
                 streamer.push_frame(annotated)  # 비차단(§7.9 비침습 전제) — 파이프라인 루프를 지연시키지 않음
@@ -705,7 +750,9 @@ def _run_video(
                 if writer is None:
                     h, w = annotated.shape[:2]
                     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                    writer = cv2.VideoWriter(output, fourcc, reader.fps or 30, (w, h))
+                    writer = cv2.VideoWriter(
+                        output, fourcc, output_fps or reader.fps or 30, (w, h)
+                    )
                 writer.write(annotated)
 
             if display == "window" and not _show_window(annotated, wait=1):
@@ -732,6 +779,23 @@ def _install_sigterm_handler(stop_event: threading.Event) -> None:
     signal.signal(signal.SIGTERM, _handler)
 
 
+def _measure_capture_fps(
+    first_ts: Optional[float], last_ts: Optional[float], frame_count: int
+) -> Optional[float]:
+    """기록된 프레임들의 **실제** 평균 캡처 fps. 못 재면 None(경고를 지어내지 않는다).
+
+    `frame_count`개 프레임의 시각 스팬은 **간격이 `frame_count - 1`개**다 — `frame_count`로
+    나누면 fps를 체계적으로 과소평가한다(그러면 "느리다"는 거짓 경고가 상시 뜬다).
+    프레임이 2개 미만이거나 시각이 단조증가하지 않으면(같은 ts 반복 등) 잴 수 없으므로 None.
+    """
+    if first_ts is None or last_ts is None or frame_count < 2:
+        return None
+    span = last_ts - first_ts
+    if span <= 0:
+        return None
+    return (frame_count - 1) / span
+
+
 def _run_live(
     pipeline: Pipeline,
     camera_num: int,
@@ -748,6 +812,8 @@ def _run_live(
     sink: Optional[TargetSink] = None,
     af_mode: Optional[str] = DEFAULT_AF_MODE,
     lens_position: Optional[float] = None,
+    report_overlay: bool = False,
+    output_fps: Optional[float] = None,
 ) -> None:
     """실카메라 라이브 모드 — `_run_video`와 거의 동일한 프레임 루프(무한 이터레이터라는 점만
     다름). 헤드리스(`--display none`)에서는 무한정 도는 게 정상 동작이라 Ctrl+C(KeyboardInterrupt)와
@@ -777,6 +843,10 @@ def _run_live(
 
     writer = None
     frame_count = 0
+    # mp4에 기록할 fps. `--output-fps` 미지정이면 기존 고정값 그대로(동작 무변경).
+    written_fps = output_fps or _LIVE_DEFAULT_OUTPUT_FPS
+    first_ts: Optional[float] = None
+    last_ts: Optional[float] = None
     try:
         with LiveFrameSource(**live_kwargs) as source:
             # AF 적용 결과를 사람로그에 남긴다 — 실패해도 카메라는 드라이버 기본 초점으로 계속
@@ -844,6 +914,9 @@ def _run_live(
                 # 발행 뒤에 그려야 이 프레임의 seq까지 반영된다. `none`이면 비용 0.
                 if display != "none":
                     _draw_sink_overlay(annotated, sink)
+                if report_overlay:
+                    # frame_count는 바로 위에서 증가했으므로 이 프레임의 id는 -1이다.
+                    _draw_report_overlay(annotated, state, decision, estimate, frame_count - 1)
 
                 if streamer is not None:
                     streamer.push_frame(annotated)  # 비차단(§7.9 비침습 전제)
@@ -852,8 +925,12 @@ def _run_live(
                     if writer is None:
                         h, w = annotated.shape[:2]
                         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                        writer = cv2.VideoWriter(output, fourcc, _LIVE_DEFAULT_OUTPUT_FPS, (w, h))
+                        writer = cv2.VideoWriter(output, fourcc, written_fps, (w, h))
                     writer.write(annotated)
+                    # 실측 재생속도 검증용 — 첫/마지막 프레임 시각만 들고 있으면 충분하다.
+                    if first_ts is None:
+                        first_ts = ts
+                    last_ts = ts
 
                 if display == "window" and not _show_window(annotated, wait=1):
                     break
@@ -865,6 +942,21 @@ def _run_live(
         if writer:
             writer.release()
             print(f"Saved: {output}  ({frame_count} frames)")
+            measured = _measure_capture_fps(first_ts, last_ts, frame_count)
+            if measured is not None:
+                msg = (
+                    f"기록 fps={written_fps:.2f} / 실측 캡처 fps={measured:.2f}"
+                )
+                if abs(measured - written_fps) > written_fps * _LIVE_OUTPUT_FPS_WARN_RATIO:
+                    # 🔴 이걸 모르고 제출하면 영상이 배속으로 재생된다. 다시 돌릴 명령까지 준다.
+                    logger.warning(
+                        "%s — 저장된 mp4가 실제보다 %.2f배 빠르게 재생된다. "
+                        "정확한 속도가 필요하면 `--output-fps %.2f`로 다시 녹화할 것.",
+                        msg, written_fps / measured, measured,
+                    )
+                    print(f"WARNING: {msg} → --output-fps {measured:.2f} 권장")
+                else:
+                    logger.info("%s (일치)", msg)
         logger.info("live camera_num=%s 종료: %d 프레임 처리", camera_num, frame_count)
         if display == "window":
             cv2.destroyAllWindows()
@@ -997,6 +1089,21 @@ def main() -> None:
         help=f"--target-sink 포트 (기본 {_SINK_DEFAULT_PORT}). 0을 주면 OS가 임시 포트를 고른다.",
     )
     parser.add_argument(
+        "--report-overlay",
+        action="store_true",
+        help="착륙 판단(착륙점/흰 박스/상태머신 상태·명령/추정거리)을 프레임에 그린다(기본 꺼짐). "
+             "사람에게 보여줄 영상(보고/발표)용 — `--output`과 함께 쓰면 저장 파일에 그대로 남는다. "
+             "드론 기본 경로에서는 켜지 않는다(비용 0).",
+    )
+    parser.add_argument(
+        "--output-fps",
+        type=float,
+        default=None,
+        help="--output mp4에 기록할 fps. 미지정 시 라이브는 고정값 "
+             f"{_LIVE_DEFAULT_OUTPUT_FPS}, 영상 입력은 원본 fps. 실측 캡처 속도와 다르면 "
+             "저장 영상이 배속으로 재생되므로, 라이브 녹화 종료 시 실측값과 어긋나면 경고가 뜬다.",
+    )
+    parser.add_argument(
         "--calib",
         default=_DEFAULT_CALIB_PATH,
         help="ArUco TargetEstimate 계산용 카메라 캘리브레이션 yaml (기본: nominal.yaml, "
@@ -1071,16 +1178,21 @@ def main() -> None:
                 state_machine, sink,
                 af_mode=(None if args.af_mode == "none" else args.af_mode),
                 lens_position=args.lens_position,
+                report_overlay=args.report_overlay,
+                output_fps=args.output_fps,
             )
         elif input_path.suffix.lower() in _VIDEO_SUFFIXES:
             _run_video(
                 pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib,
                 state_machine, sink,
+                report_overlay=args.report_overlay,
+                output_fps=args.output_fps,
             )
         else:
             _run_image(
                 pipeline, input_path, args.output, args.display, logger, blackbox, streamer, calib,
                 state_machine, sink,
+                report_overlay=args.report_overlay,
             )
     finally:
         blackbox.close()

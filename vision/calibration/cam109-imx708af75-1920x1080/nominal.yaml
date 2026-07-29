@@ -1,0 +1,32 @@
+schema_version: 1
+camera_id: cam109-imx708af75-1920x1080
+created_utc: '2026-07-29T08:07:48.559413+00:00'
+git_commit: d4a8a763021b26121a8128d5c262e401343b9683
+source: nominal_datasheet
+accuracy: unverified
+not_for_closed_loop_30cm: true
+image_size:
+- 1920
+- 1080
+camera_matrix:
+- - 1251.0963579275574
+  - 0.0
+  - 960.0
+- - 0.0
+  - 1251.0963579275574
+  - 540.0
+- - 0.0
+  - 0.0
+  - 1.0
+dist_coeffs:
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+hfov_assumption:
+  axis: horizontal
+  hfov_deg: 75.0
+  note: 실측 아님 — 데이터시트/실측 화각 근사(nominal). 이번 산출은 축=horizontal로 가정하고 진행했다(docs/vision_aruco_branch.md
+    §1 확정 지시). 이 카메라(CAM109-IMX708AF-75)의 HFOV 75°가 실제로 수평인지 대각인지는 docs/vision_camera_bringup.md
+    '미해결로 남긴 판단' 절 기준 아직 불일치가 안 풀렸다 — 대각일 가능성이 있고, 실측 캘리브레이션 재개 시 검정 대상이다.

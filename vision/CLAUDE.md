@@ -68,7 +68,7 @@
 | `utils/image_loader.py` | 파일 경로 → BGR numpy 배열 |
 | `utils/calibration_loader.py` | **신설(ArUco 브랜치 Phase 3)** — `vision/calibration/<camera_id>/nominal.yaml` 로드 어댑터. `CameraCalibration`(camera_matrix/dist_coeffs/image_size/accuracy/not_for_closed_loop_30cm/calib_id 등) 반환, `core/target.py::solve_target_pose()` 입력으로 바로 연결. `compute_nominal_intrinsics.py`가 만드는 `nominal.yaml` 스키마 전용(`calib_analyze.py`의 `<calib_id>.yaml`은 스키마가 달라 별개 — 과설계 금지, 필요해지면 그때 확장). `calib_id`는 로드에 쓴 파일 경로 문자열(§7.3 provenance echo) |
 | `utils/video_reader.py` | 영상 파일 → 프레임 이터레이터 |
-| `utils/visualize.py` | bbox 드로잉, 결과 이미지 저장. **[2026-07-28] `draw_sink_status()` 추가** — 유도(정밀착륙) 발행 상태 오버레이(소비자 수/마지막 seq/드롭 수/엔드포인트). `--display`와 `--target-sink`가 완전히 독립이라 "화면은 뜨는데 유도 좌표는 아무 데도 안 나가는" 상태가 가능하다는 사각지대 대응(사용자 결정). 소비자 0명=빨강+큰 글씨, sink 꺼짐=주황, 정상=초록. `draw_detections()`가 만든 사본을 **제자리에서** 고치고(사본 재생성 없음) 좌상단 **반투명** 패널에만 그려 검출 결과를 가리지 않는다. ⚠️ 문자열은 **ASCII만**(Hershey 폰트가 한글을 못 그린다). 호출 게이팅(`--display none`이면 비용 0)은 호출자 책임 — 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절 |
+| `utils/visualize.py` | bbox 드로잉, 결과 이미지 저장. **[2026-07-28] `draw_sink_status()` 추가** — 유도(정밀착륙) 발행 상태 오버레이(소비자 수/마지막 seq/드롭 수/엔드포인트). `--display`와 `--target-sink`가 완전히 독립이라 "화면은 뜨는데 유도 좌표는 아무 데도 안 나가는" 상태가 가능하다는 사각지대 대응(사용자 결정). 소비자 0명=빨강+큰 글씨, sink 꺼짐=주황, 정상=초록. `draw_detections()`가 만든 사본을 **제자리에서** 고치고(사본 재생성 없음) 좌상단 **반투명** 패널에만 그려 검출 결과를 가리지 않는다. ⚠️ 문자열은 **ASCII만**(Hershey 폰트가 한글을 못 그린다). 호출 게이팅(`--display none`이면 비용 0)은 호출자 책임 — 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절. **[2026-07-29] `draw_landing_overlay()` 추가** — 착륙 판단(착륙점/흰 박스/타겟 bbox/상태머신 상태·명령/추정거리) 오버레이. 2차예선 보고 제출 영상을 실제로 뽑아 보니 화면에 그려지는 것이 **초록 얇은 bbox + 신뢰도 숫자**뿐이라 **초록 매트 위에서 인식이 눈에 안 보였고**, 파이프라인이 실제로 판단하는 값들은 전부 JSONL에만 있었다. 노랑=타겟 bbox / 하늘색=흰 박스 / **마젠타=착륙점** / 좌하단 반투명 패널=상태. 🔴 **착륙점을 계산하지 않고 `meta["white_box_detector"]["landing_point_px"]`를 그대로 읽는다**(규칙 복제 금지 — `modules/distress_mat.py`와 같은 원칙). 마젠타인 이유는 빨강이 `SINK_OVERLAY_ALERT_COLOR`라 한 프레임에서 같은 색이 다른 뜻을 갖기 때문. 게이팅은 `--report-overlay`(opt-in, 기본 꺼짐) — 아래 "착륙 판단 오버레이" 절 |
 | `utils/logging.py` | 이중싱크 사람로그(터미널+.log 로테이션) + provenance 헤더(config+git해시+캘리브id) (§7.4/§7.3). `main.py`/`replay.py`에 연결됨 |
 | `utils/blackbox.py` | 프레임별 JSONL 블랙박스 + 거절이유 로깅. bounded queue+drop-oldest 비차단 (§7.4). `main.py`/`replay.py`에 연결됨 |
 | `utils/stream.py` | `MjpegStreamer` — 라이브 저해상 MJPEG-over-HTTP 스트림(§7.9 항목5, "작동영상 피드백 3경로" (b)). `push_frame()`은 bounded queue+drop-oldest 비차단(`blackbox.py`와 동일 패턴 재사용). 다운스케일·인코딩·HTTP 서빙은 전부 별도 스레드. `main.py --display stream`/`replay.py --display stream`으로 opt-in 연결(항상 켜지지 않음). 기본값 결정 근거는 아래 "라이브 스트림 어댑터 기본값" 참조 |
@@ -887,6 +887,64 @@ Phase 1(`core/wire.py`/`core/frames.py`/`utils/target_sink.py`)이 만들어 놓
   `target=80 (valid=60 / invalid=20), state_hint=80`, `seq` 1~160 단조증가, main() 종료 시 EOF
   수신. FLU/FRD 부호도 규약대로(`position_flu` z=−10.076 / `position_frd` z=+10.076, y 부호 반전).
   소비자 0명으로도, 소비자가 끊겨도 파이프라인은 80프레임을 그대로 처리했다.
+
+---
+
+## 착륙 판단 오버레이 + `--output-fps` (2026-07-29, 2차예선 보고 제출 영상)
+
+사용자 질문 *"지금 vision부 작동하는 상황 영상녹화 가능한가"*에서 출발했다. 녹화 기능
+(`--output`)은 **이미 있었고**, 실제로 뽑아 보니 **제출물로 쓸 수 없는 결함이 두 개** 나왔다.
+촬영 절차 전체는 `docs/vision_report_video.md`.
+
+### ① 화면에서 "인식 중"이 안 보였다 → `--report-overlay`
+
+`draw_detections()`가 그리는 것은 **초록(0,200,0) 얇은 bbox + 신뢰도 숫자**뿐인데 우선
+타겟(② 조난자 구역)이 **초록 매트**라 배경에 묻힌다. 게다가 파이프라인이 실제로 판단하는
+값들 — **착륙점**(박스 옆 빈 초록면), 흰 박스, 상태머신 상태/명령, 추정 거리 — 은 전부
+JSONL에만 있고 화면엔 한 픽셀도 없었다.
+
+- **그리기만 한다.** 착륙점은 `modules/distress_box.py`가 확정한
+  `meta["white_box_detector"]["landing_point_px"]`를 **그대로 읽는다**(재계산 금지 —
+  `modules/distress_mat.py`가 같은 이유로 재구현을 거부하는 것과 같은 원칙, 회귀테스트로 고정).
+- **색:** 노랑=타겟 bbox / 하늘색=흰 박스 / **마젠타=착륙점** / 흰색 패널 글씨.
+  🔴 착륙점이 빨강이 아닌 이유 — 빨강은 `SINK_OVERLAY_ALERT_COLOR`("소비자 0명")가 이미 쓰고
+  있어서 두 오버레이를 같이 켠 프레임에서 **같은 색이 다른 뜻**을 갖는다(회귀테스트로 고정).
+- **패널은 좌하단** — sink 패널(좌상단)과 안 겹친다(둘 다 켜는 것이 실제 사용 형태).
+- 🔴 **opt-in.** `--report-overlay` 없이는 호출 자체가 없어 기존 산출물이 **한 픽셀도** 달라지지
+  않는다. 단 `--display none + --output`(=헤드리스 녹화, 제출 영상의 실제 촬영 형태)에서는
+  **그려야 의미가 있으므로** `display != "none"`이 아니라 이 플래그로 게이팅한다.
+- `main.py`/`replay.py` 둘 다 **문자 그대로 같은 인자**(기존 `--target-sink` 관례).
+
+### ② 저장 mp4가 배속으로 재생됐다 → `--output-fps`
+
+라이브 `--output`은 `_LIVE_DEFAULT_OUTPUT_FPS = 20.0` **고정**이었는데 실측 캡처 속도는
+4608×2592에서 **~4.4Hz**(U5 실측), 1536×864에서 ~13.6fps다 — 각각 **4.5배·1.5배 빠른**
+영상이 저장된다. `--output-fps`로 명시할 수 있게 하고, 종료 시 `_measure_capture_fps()`로
+실측 평균을 계산해 10% 이상 어긋나면 **다시 찍을 명령까지 담아 경고**한다.
+**기본값은 안 바꿨다** — 기존 녹화물/스크립트의 재생속도가 조용히 달라지면 안 되므로.
+⚠️ `frame_count`개 프레임의 간격은 `frame_count - 1`개다(그냥 나누면 상시 거짓 경고 — 회귀 고정).
+
+### ③ 부수 발견 — 해상도별 nominal이 없어 `DIST`가 배수로 틀렸다
+
+`solvePnP` focal은 픽셀 단위라 프레임 해상도 ≠ 캘리브 해상도면 거리가 그 비율로 통째로 틀린다
+(실측: 1920px 프레임 + 4608px `nominal.yaml` → **2.4배**, 7.35m가 17.63m로). 저장소는 이걸
+**자동 보정하지 않는 것이 확정 방침**이라(다운스케일/크롭 구분 불가), 대신 녹화용 해상도의
+nominal을 미리 만들어 뒀다: `calibration/cam109-imx708af75-1920x1080/`,
+`.../-1280x720/`(둘 다 `tools/compute_nominal_intrinsics.py` 산출, 같은 HFOV 75° 수평 가정,
+`accuracy: unverified`/`not_for_closed_loop_30cm: true` 그대로). 맞춰 쓰면 합성 참값 대비
+**0.1% 오차**(7.35→7.34m)로 떨어지는 것을 실측 확인했다.
+
+### 검증
+
+`pytest vision/tests/` **1049 passed**(신규 21건: visualize 12 / main 6 / replay 3).
+**파괴검증 2종** — ① 착륙점을 meta 대신 bbox 중심으로 재계산 → `test_landing_point_follows_
+the_meta_value_and_is_not_recomputed` red ② 착륙점 색을 sink 경고색으로 되돌림 → 색 충돌
+테스트 red. 둘 다 원복 후 green(전환마다 `__pycache__` 제거 — stale `.pyc` 함정).
+산출물: `vision/results/report_overlay_demo/`(골든셋 1프레임은 **완전 재현 가능**).
+
+🔴 **실카메라 미검증** — 이 작업 시점에 RPi 카메라가 I2C 응답 없음(`imx708 ... failed to read
+chip id 708, error -5`)으로 죽어 있어 라이브 경로는 한 번도 못 돌렸다. 리본 케이블 재체결 +
+재부팅이 선행돼야 한다(`docs/vision_report_video.md` §1).
 
 ---
 

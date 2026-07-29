@@ -57,12 +57,19 @@ from vision.utils.target_sink import (
     SocketTargetSink,
     TargetSink,
 )
-from vision.utils.visualize import draw_detections, draw_sink_status
+from vision.utils.visualize import (
+    draw_detections, draw_sink_status, draw_landing_overlay,
+)
 
 _WINDOW_NAME = "Landing Zone Detector — Replay"
 # ArUco Phase 4(docs/vision_aruco_branch.md) — 기본 카메라 캘리브레이션. main.py와 동일 기본값
 # (main.py와 헬퍼 상호 import 안 함 원칙 — vision/CLAUDE.md import 규칙, 각자 얇게 중복 허용).
 _DEFAULT_CALIB_PATH = str(Path(__file__).parent / "calibration" / "cam109-imx708af75" / "nominal.yaml")
+# `--output` mp4 fps 기본값. 재생 입력(녹화 폴더/bag)은 프레임 시각을 갖고 있지만 재생 속도는
+# 실시간이 아니라 **처리 속도**라 원본 촬영 fps를 그대로 안다고 볼 수 없다 — 그래서 예전부터
+# 이 고정값(30)을 썼고 그 동작을 그대로 보존한다. 실제 촬영 fps를 아는 사람이 `--output-fps`로
+# 명시하면 그 값이 이긴다(2026-07-29 — main.py의 같은 이름 인자와 의미를 맞춤).
+_REPLAY_DEFAULT_OUTPUT_FPS = 30.0
 
 # `--target-sink` 발행의 `valid=false` 사유 문자열(§5.4 계약 2번) — main.py와 동일 값·동일 의미
 # (얇게 중복). 소비자가 두 경로를 구분 없이 같은 문자열로 읽을 수 있어야 한다.
@@ -458,6 +465,8 @@ def run_replay(
     target_sink: bool = False,
     target_sink_host: str = _SINK_DEFAULT_HOST,
     target_sink_port: int = _SINK_DEFAULT_PORT,
+    report_overlay: bool = False,
+    output_fps: float | None = None,
 ) -> int:
     """실제 재생 루프. main()에서 분리해 프로그램적으로도 호출/테스트 가능하게 한다.
 
@@ -563,6 +572,17 @@ def run_replay(
                 # 발행 뒤에 그려야 이 프레임의 seq까지 반영된다. `none`이면 비용 0.
                 if display != "none":
                     _draw_sink_overlay(annotated, sink)
+                if report_overlay:
+                    # main.py::_draw_report_overlay와 같은 내용(헬퍼 상호 import 금지 관례에 따라
+                    # 얇게 중복). 착륙점/상태를 화면에 그리기만 한다 — 계산은 하지 않는다.
+                    draw_landing_overlay(
+                        annotated,
+                        state.detections,
+                        state=decision.state.value if decision is not None else None,
+                        command=decision.command if decision is not None else None,
+                        estimate=estimate,
+                        frame_id=record.frame_id,
+                    )
 
                 if streamer is not None:
                     streamer.push_frame(annotated)  # 비차단 — 재생 루프를 지연시키지 않음
@@ -571,7 +591,9 @@ def run_replay(
                     if writer is None:
                         h, w = annotated.shape[:2]
                         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                        writer = cv2.VideoWriter(output, fourcc, 30, (w, h))
+                        writer = cv2.VideoWriter(
+                            output, fourcc, output_fps or _REPLAY_DEFAULT_OUTPUT_FPS, (w, h)
+                        )
                     writer.write(annotated)
 
                 if display == "window" and not _show_window(annotated, wait=1):
@@ -649,6 +671,19 @@ def main() -> None:
         help=f"--target-sink 포트 (기본 {_SINK_DEFAULT_PORT}). 0을 주면 OS가 임시 포트를 고른다.",
     )
     parser.add_argument(
+        "--report-overlay",
+        action="store_true",
+        help="착륙 판단(착륙점/흰 박스/상태머신 상태·명령/추정거리)을 프레임에 그린다(기본 꺼짐). "
+             "사람에게 보여줄 영상(보고/발표)용 — main.py와 문자 그대로 같은 인자다.",
+    )
+    parser.add_argument(
+        "--output-fps",
+        type=float,
+        default=None,
+        help=f"--output mp4에 기록할 fps (미지정 시 {_REPLAY_DEFAULT_OUTPUT_FPS}). "
+             "원본 촬영 fps를 알면 명시할 것 — 아니면 저장 영상이 배속으로 재생된다.",
+    )
+    parser.add_argument(
         "--calib",
         default=_DEFAULT_CALIB_PATH,
         help="ArUco TargetEstimate 계산용 카메라 캘리브레이션 yaml (기본: nominal.yaml, "
@@ -667,6 +702,7 @@ def main() -> None:
         stream_host=args.stream_host, stream_port=args.stream_port, calib_path=args.calib,
         target_sink=args.target_sink, target_sink_host=args.target_sink_host,
         target_sink_port=args.target_sink_port,
+        report_overlay=args.report_overlay, output_fps=args.output_fps,
     )
     print(f"Replayed {frame_count} frames from {input_path}")
 
