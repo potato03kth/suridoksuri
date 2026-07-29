@@ -21,7 +21,13 @@
 waypoints/원점 이동 규약을 다시 구현하지 않아도 되고 프레임 불일치가 원리적으로
 없다(둘 다 EKF 로컬 NED).
 
-사용: python3 f10_endcapture_probe.py <run_dir> [<run_dir> ...] [--near 60]
+⚠️ **완료 틱은 FOLLOWING 상태창 밖에 있다.** 상태창 끝은 `TRANSITION_MC` 진입
+시각이고, 완료를 만든 그 표본은 그 경계 위/직후에 있다 — 창을 그대로 자르면
+완주한 런의 최근접거리가 **높게 편향**된다(실측: A1 이 거리 원(10m)으로 완료했는데
+창 안 최솟값은 13.40m 였다). 그래서 창 뒤로 `--tail` 초(기본 1.5s)를 더 본다.
+미완주 런은 최솟값이 창 한복판이라 이 보정과 무관하다.
+
+사용: python3 f10_endcapture_probe.py <run_dir> [<run_dir> ...] [--near 60] [--tail 1.5]
 """
 from __future__ import annotations
 
@@ -67,7 +73,7 @@ def _endpoint_xy(sp, t, win) -> tuple[np.ndarray | None, str | None]:
     return sel.mean(axis=0), None
 
 
-def probe(run_dir: Path, near_m: float) -> dict:
+def probe(run_dir: Path, near_m: float, tail_s: float = 1.5) -> dict:
     out = {"run": run_dir.name}
     ulgs = sorted(run_dir.glob("*.ulg"))
     if not ulgs:
@@ -92,7 +98,9 @@ def probe(run_dir: Path, near_m: float) -> dict:
 
     t = tsec(lp)
     a, b = win
-    m = (t >= a) & (t <= b)
+    # 완료 틱은 창 경계 위/직후에 있다 — 그만큼 뒤를 더 본다(위 ⚠️ 참조).
+    b_ext = b + float(tail_s)
+    m = (t >= a) & (t <= b_ext)
     xy = np.column_stack([lp["x"], lp["y"]]).astype(float)[m]
     z = np.asarray(lp["z"], dtype=float)[m]         # NED z, 아래가 +
     tt = t[m]
@@ -134,6 +142,7 @@ def probe(run_dir: Path, near_m: float) -> dict:
         **out,
         "endpoint_local_ne": [_f(end_xy[0]), _f(end_xy[1])],
         "following_window_ulog_s": [_f(a), _f(b)],
+        "tail_s": _f(tail_s),
         "following_dwell_s": _f(b - a),
         "d_end_thresh_m": _f((met.get("resolved_params") or {}).get("d_end_thresh")),
         "min_dist_to_end_m": _f(d[i_min]),
@@ -153,10 +162,13 @@ def main() -> int:
     ap.add_argument("run_dirs", nargs="+")
     ap.add_argument("--near", type=float, default=60.0,
                     help="선회 바퀴를 세는 종점 반경 (m, 기본 60)")
+    ap.add_argument("--tail", type=float, default=1.5,
+                    help="FOLLOWING 상태창 뒤로 더 볼 시간 (s, 기본 1.5). "
+                         "완료 틱이 창 경계 밖이라 필요하다")
     ap.add_argument("--json", action="store_true", help="JSON 만 출력")
     args = ap.parse_args()
 
-    rows = [probe(Path(p), args.near) for p in args.run_dirs]
+    rows = [probe(Path(p), args.near, args.tail) for p in args.run_dirs]
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
         return 0

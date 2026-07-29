@@ -1,0 +1,149 @@
+{
+  "scenario_id": "C1b",
+  "desc": "천이고도 민감도 — 고(120m). 경로는 A1",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "120.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local",
+    "range_limit_m": "1200.0"
+  },
+  "launch_args_scenario": {
+    "transition_alt": "120.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local"
+  },
+  "launch_args_cli": [
+    "range_limit_m=1200.0"
+  ],
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=120.0",
+    "waypoints:=[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame:=local",
+    "range_limit_m:=1200.0"
+  ],
+  "home": null,
+  "timeout_s": 540.0,
+  "inject_spec": [],
+  "started_utc": "2026-07-29T02:22:24.551553+00:00",
+  "run_id": "F10FIX_C1b",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_dirty": true,
+  "px4_diff_sha256": "f8aeff376e20a4b6",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-28T18:31:12.441221+00:00",
+  "px4_gz_world": null,
+  "px4_gz_worlds_dir": null,
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "afce94d",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785291759\n    nanosec: 314345569\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: AUTO.LOITER\nsystem_status: 0\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-29T02:22:51.234004+00:00",
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 1.2,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785291772.4265068,
+      "t_since_launch_s": 1.2,
+      "t_since_node_alive_s": 0.0,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785291773.5269907,
+      "t_since_launch_s": 2.4,
+      "t_since_node_alive_s": 1.2,
+      "msg": "CommandTOL 이륙 요청 alt=120.0m AMSL (지면 -0.0+120.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785291827.6265874,
+      "t_since_launch_s": 54.28,
+      "t_since_node_alive_s": 53.08,
+      "msg": "운용 고도 120.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785291840.0261834,
+      "t_since_launch_s": 66.7,
+      "t_since_node_alive_s": 65.5,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785291840.1294858,
+      "t_since_launch_s": 66.9,
+      "t_since_node_alive_s": 65.7,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    },
+    {
+      "state": "TRANSITION_MC",
+      "ros_t": 1785291861.627795,
+      "t_since_launch_s": 87.32,
+      "t_since_node_alive_s": 86.12,
+      "msg": "경로 추종 완료 -> transition_mc"
+    },
+    {
+      "state": "HOLD",
+      "ros_t": 1785291867.526563,
+      "t_since_launch_s": 93.13,
+      "t_since_node_alive_s": 91.93,
+      "msg": "MC 전환 완료 -> HOLD (WP1 복귀)"
+    },
+    {
+      "state": "LANDING",
+      "ros_t": 1785291887.5270865,
+      "t_since_launch_s": 113.16,
+      "t_since_node_alive_s": 111.96,
+      "msg": "WP1 도달·안정 (dist=0.6m speed=0.1m/s) → LANDING"
+    },
+    {
+      "state": "DONE",
+      "ros_t": 1785291932.9268088,
+      "t_since_launch_s": 156.82,
+      "t_since_node_alive_s": 155.62,
+      "msg": "착륙 완료 (disarmed) -> DONE"
+    }
+  ],
+  "warn_count": 3,
+  "error_count": 0,
+  "range_guard": {
+    "enabled": true,
+    "limit_m": 1500.0,
+    "samples": 28,
+    "max_horiz_m": 361.2,
+    "max_at_local_enu": [
+      -59.2,
+      356.3,
+      80.2
+    ],
+    "breach": null
+  },
+  "exit_reason": "done",
+  "exit_code": 0,
+  "ended_utc": "2026-07-29T02:25:39.395748+00:00",
+  "elapsed_s": 188.5,
+  "ulogs": [
+    "02_22_36.ulg"
+  ]
+}

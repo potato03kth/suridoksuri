@@ -156,7 +156,45 @@ last_updated: 2026-07-29
 - **주의:** 최신 코드(작업 H 포함, `000f478`까지 커밋·푸시 완료)가 RPi에 **미전파** — RPi에서 `git pull` 필요(RPi 정본=호스트 `~/drone_ws/src/suridoksuri`, potato03kth). WSL(`~/suridoksuri-1`)은 이미 pull·재빌드 완료. `waypoints` 300 m·`v_cruise 20.0` 유지 결정(2026-06-30). V2/V5는 MAVROS 중지 필요(단독 링크). **작업 H가 실기체로 검증되기 전까지** 🚁 트랙의 "transition_alt를 낮게" 임시조치를 유지할 것 — SITL은 PASS했으나 실기체 미확인. **작업 H-2(AMSL 이륙고도 수정, `9451861`)는 단위테스트만 통과 — SITL 재검증 전이라 실비행 반영 금지.** geoid 리스크(MAVROS `geo.altitude`가 ellipsoid면 이륙 과상승) SITL 로그로 판별.
 - **참조:** `fc_ros/fc_ros/nodes/offboard_node.py`(`_step_arm_takeoff`) · `fc_bridge/execution/state_logic.py`(`takeoff_request_fields`) · `fc_bridge/planning/planner_runner.py`(resolve_planner_name) · `vtol_sim/…/straight_line_planner.py`·`eta3clothoid_v3_1_planner.py`(v3.3) · `tools/flight_logs/VERIFY.md`(V1~V5) · `flight_plan.md`·`sitl_verification_log.md`(작업 H) · `docs/flight_plan.md`(작업 G)
 
-### 🛩 sitl-vtol — ▶ 활성 (**2026-07-29: R5 F-9 ✅완료·SITL 검증. 남은 R5 항목은 F-8·F-10·F-11·F-6**)
+### 🛩 sitl-vtol — ▶ 활성 (**2026-07-29: R5 F-9·F-10 ✅완료·SITL 검증. 남은 R5 항목은 F-8·F-11·F-6**)
+
+- **✅ R5 F-10 (종점 포착) 완료 — 코드·단위테스트·SITL 7시나리오 전부 (2026-07-29, `8bbcb94`).**
+  전문·실측표는 `logs/2026-07-29_r5_f10/notes.md`.
+  - **의뢰는 "C1b 회귀의 범인을 R1/R2/`v_cruise` 중에서 찾아라"였고, 답은 「범인 커밋 없음」이다.**
+    셋 다 직접 측정으로 배제됐다 — R2 창탐색은 실패런 실측 인덱스가 전역탐색 결과와
+    **정확히 일치**(역행 상한 5m 가 **틱당**이라 10Hz 에서 50 m/s = 무구속) /
+    R1 거리상한은 발동은 하나 증상이 OVERRIDE 이지 timeout 이 아니다 /
+    `v_cruise` 18 은 20 과 **경로가 비트 동일**(301점·300.0000m·최대 |Δ|=0.0)이고
+    FW 분기는 속도 프로파일을 쓰지도 않는다. (후보 밖 PX4 F-17/F-4 패치도 무관 —
+    `yaw`/`course` 는 `in_transition_to_fw`·`GUIDED_COURSE` 에서만 읽힌다.)
+  - **🔴 재현 결과가 F-9 보고를 뒤집었다** — HEAD 에서 C1b 2/2 완주(FOLLOWING 45.99/46.44s).
+    그래서 신설 프로브 `tools/sitl/f10_endcapture_probe.py` 로 ulog 에서 **종점 최근접거리**를
+    직접 쟀고, 거기서 진짜 결함이 나왔다: **1·2바퀴는 5런 전부 11.7~13.8m 로 10m 원에
+    한 번도 못 들어간다.** 포착은 AGL 이 82→60→49m 로 안착하는 **3바퀴째에만** 가능했다.
+    즉 완주 여부는 커밋이 아니라 **"70m 고도차(t_alt 120 vs 경로 50)를 안고 두 바퀴를
+    버티느냐"** 였다 — 캠페인의 "완주"도 최저 AGL **36.05m** 까지 깎이며 통과한 것이고,
+    F-9 두 런은 2→3바퀴 사이에 접지했다(`min_agl` −2.61/−3.58m).
+  - **수정 ①** `path_end_passed()` — 거리 원 대신 종점의 **수직 반평면(결승선)** 통과.
+    횡방향 이탈량과 무관하므로 FW 가 반드시 만족한다. 종전 거리 원은 OR 로 남겨
+    정상 경로 거동 불변. **폐회로 보호는 `seg_idx` 게이트**가 한다 — `d_end_thresh` 를
+    ≈57 로 키우는 §4 결정 5 대안이 깨지던 바로 그 지점이며, `B5` 실측으로
+    **진입 시 종점까지 19.66m 인데도 조기완료 없이** 810점 한 바퀴를 다 돌았다.
+  - **수정 ②** `following_timeout` **240.0s** — R1 타임아웃 4종에서 유일하게 빠져 있던
+    상태이고, 체류가 가장 길며 기체를 순항속도로 쥐고 있다. 469초 무한 선회 + 접지에
+    아무것도 개입하지 않았다. 규약·폴백은 R1 과 동일.
+  - **SITL 재검증 7/7 완주, 회귀 0건** (`logs/2026-07-29_r5_f10/F10FIX_*`):
+    C1b **21.40s/21.20s 결승선으로 결정론화**(종전 46s 또는 영원히), 선회 진입 3회→**1회**,
+    **최저 AGL 33.5~36.1m → 79~82m**. A1·C1a·B5·B7·B8 은 전부 종전대로 거리 원으로
+    완료하고 `결승선` 로그 0건 — 결승선은 거리 원이 실패하는 곳에서만 발동한다.
+    추가로 **실패 궤적 반사실 재생**: F-9 접지런의 실제 10Hz ulog 위치를 수정 코드에
+    먹이면 거리 원은 469초 내내 미성립, 결승선은 **t+20.74s**(약 80m AGL)에 성립한다.
+  - 테스트 **617 → 646**(+29), 파괴검증 4종 red→green.
+  - ⚠️ **하니스:** 다른 FC 세션(`/root/ws_f2b`)과 SITL 벤치가 겹쳐 3런이
+    `mavros_not_connected`/`px4_dead` 로 날아갔다. `wsl --terminate` 는 공용 배포판이라
+    금지이므로, 런 사이에 `px4`/`run_scenario`/`mavros_node`/`gz sim` 이 **전부 사라질
+    때까지 기다린 뒤 20초 정착**시키는 게이트로 해결했다 — `--terminate` 없는 회피책이다.
+  - **남은 것:** `min_agl` 침하 자체(선회 중 −14~−16m)는 **F-5 소관으로 남는다** —
+    F-10 은 선회 횟수를 없애 접지를 막았을 뿐 침하율을 고치지 않았다.
 
 - **✅ R5 F-9 (천이 고도 계단) 완료 — 코드·단위테스트·SITL A/B 전부 (2026-07-29, `94989b6`+`f6f8789`).**
   전문은 `docs/sitl_vtol_remediation_plan.md` R5 2항 · 런 산출물 `logs/2026-07-29_r5_f9/`(notes.md).
