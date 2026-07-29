@@ -1957,6 +1957,10 @@ class OffboardNode(Node):
         # ① AUTO.LAND 인계 — 고도 도달 또는 vision의 land 힌트.
         #    `closed_loop_floor_agl_m` = vision의 `terminal_agl_m` = 3.0m라
         #    계약상 이미 "3m부터 AUTO.LAND 인계"다.
+        #    🔴 고도 판정은 **점이 아니라 허용대**(±`HANDOFF_ALT_TOL_M`)다 —
+        #    아래 ④의 하강 스케줄 하한이 `handoff_agl` 과 같은 숫자라 기체는
+        #    그 위에 정착하고, 단측 판정은 원리적으로 성립하지 않는다(F2-g,
+        #    실측 3.1m 에서 22초 정지). 근거 전문은 `handoff_due()` 독스트링.
         if handoff_due(agl, self._vs_handoff_agl, vt.land_handoff_hint):
             why = (f"인계고도 도달 ({agl:.1f}m AGL, 목표 "
                    f"{self._vs_handoff_agl:.1f}m±{HANDOFF_ALT_TOL_M:.1f})"
