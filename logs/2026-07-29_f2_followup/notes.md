@@ -581,27 +581,74 @@ exit=0 done / 126.7s / range_guard.max_horiz_m 106.4 (상한 300 미접촉)
 
 ---
 
+# `V8b_vision_off_60m` — **`vision_landing=false` 종점 완주 ✅** (후퇴 경로)
+
+현장에서 §3 게이트(토픽이 흐르는가)가 실패하면 사용자가 `vision_landing:=false`
+로 후퇴한다. **그 경로의 전용 런이 이제까지 없었다** (앞 세션 `V1` 은 거리상한
+OVERRIDE 로 끝났고 `V1b` 는 환경 실패).
+
+설정: **오늘 형상** `transition_alt=25.0 waypoints=[0,0,25, 60,0,25]`,
+`range_limit_m` **기본 300**. **`vision_landing` 을 아예 주지 않았다** — yaml
+기본값 `false` 가 그대로 쓰인다(= 현장에서 인자를 빼는 것과 같은 상태).
+fake_vision 도 안 띄웠다.
+
+> ⚠️ `f2c_v8.sh` 는 앞 세션 형상(A1 기본 = `transition_alt 50` · 편도 300m ·
+> `range_limit_m=1200`)이라 그대로 쓰면 오늘 형상이 아니다. 실제로 돌린 것은
+> **`f2c_v8b.sh`** 다.
+
+```
+[  1.01s] ARM_TAKEOFF     ARM 요청
+[  2.21s] CLIMBING        CommandTOL 이륙 요청 alt=25.1m AMSL (지면 0.1+25.0)
+[ 21.83s] TRANSITION_FW   운용 고도 25.0m 도달 → transition_fw
+[ 34.45s] STREAMING       [ 34.65s] FOLLOWING
+[ 36.85s] TRANSITION_MC   경로 추종 완료 -> transition_mc      ← FOLLOWING 체류 2.2s
+[ 43.66s] HOLD            MC 전환 완료 -> HOLD (WP1 복귀)
+[ 58.28s] LANDING         WP1 도달·안정 (dist=0.6m speed=0.1m/s) → LANDING
+[ 87.11s] DONE            착륙 완료 (disarmed) -> DONE
+exit=0 done / 119.5s / range_guard.max_horiz_m 122.6 (상한 300 미접촉)
+```
+
+```
+거리 상한 감시 활성 300m (이륙지점 기준 수평, 경로 최원점 60m)
+FOLLOWING 시작 pos=[13.8,1.0] tgt=[60.0,0.0] cte=1.0m mode=OFFBOARD seg=13/60
+WP1 홀드 dist=59.5m speed=8.0m/s stable=0/10
+WP1 홀드 dist= 7.8m speed=5.0m/s stable=0/10
+WP1 도달·안정 (dist=0.6m speed=0.1m/s) → LANDING
+```
+
+- **`HOLD → LANDING → DONE` 이 깨끗이 간다 ✅.** `_exit_hold` 의 vision 미사용
+  분기(`offboard_node.py:1651-1654`)가 그대로 탔다 — 종료 문구가
+  `→ LANDING` 이고 `→ VISION_SEARCH (비전 착륙 활성)` 이 아니다.
+  `VISION_SEARCH`/`PRECISION_LAND` 상태는 **한 번도 등장하지 않았다.**
+- **F2-e 계약 재확인 ✅.** 이륙 전 문구가
+  `거리 상한 감시 활성 300m (이륙지점 기준 수평, 경로 최원점 60m)` 로,
+  **`탐색 최원점 …` 항이 빠져 있다.** vision 이 꺼지면 문구·판정이 종전과
+  동일하다는 계약이 지켜졌다(켜진 런들은 `탐색 최원점 90m (=WP1 60m + 반경 30m)`
+  를 같이 찍는다).
+- 기동 로그에 `비전 정밀착륙 활성 …` 줄이 **없다** — 서브상태가 통째로 비활성.
+- 오버슈트 **59.5m** (같은 60m 편도의 `S60_short` 는 49.3m). 런 간 편차가
+  ±10m 있다는 뜻이므로, 앞의 "편도 + 75m" 여유 기준은 **이 편차를 이미 흡수한다.**
+
+---
+
 # 이 세션의 미실시 (정직하게)
 
 | 항목 | 상태 |
 |---|---|
-| **`vision_landing=false` 종점 완주(HOLD→LANDING)** | ❌ **여전히 미실시.** 앞 세션 `V1`(거리상한 OVERRIDE 종료)·`V1b`(환경 실패)에 이어 이번에도 못 돌렸다. **다만 `_exit_hold` 의 반대 분기를 안 태웠을 뿐, `HOLD → … → LANDING → DONE` 종점 도달 자체는 이번 세션 7런 중 6런에서 관측됐다** |
 | 편도 80 / 100m | ❌ 미실시. 60m 가 완주했으므로 그 사이는 단조로 안전하다고 **추정**했다(실측 아님) |
 | 편도 20m 이하 | ❌ 미실시. 20m 면 FOLLOWING 진입 시 잔여거리가 `d_end_thresh=10m` 아래라 **FOLLOWING 이 0틱**이 될 수 있다 — 여기가 진짜 벼랑일 가능성이 있으나 확인 못 했다 |
 
 ## 다음 세션이 그대로 이어받을 재현 명령
 
 ```bash
-# ① vision_landing=false 종점 완주
-bash /mnt/c/sitl7_xfer/f2c_v8.sh
-
-# ② 짧은 경로 추가 스윕 (편도 20m — FOLLOWING 0틱 여부)
+# ① 짧은 경로 추가 스윕 (편도 20m — FOLLOWING 0틱 여부)
 bash /mnt/c/sitl7_xfer/f2c_short.sh 20
 ```
 
-⚠️ `f2c_v7.sh` 는 **앞 세션 형상(300m·`range_limit_m=1200`·`--exit-at 25`)**
-이라 쓰지 마라. 실제로 돌린 것은 오늘 형상판 **`f2c_v7b.sh`** 다
-(60m·`transition_alt=25`·상한 기본·`--exit-at 10`).
+⚠️ **`f2c_v7.sh` 와 `f2c_v8.sh` 는 쓰지 마라** — 둘 다 앞 세션 형상
+(편도 300m · `transition_alt 50` · `range_limit_m=1200`)이다. 오늘 형상으로
+실제 돌린 것은 **`f2c_v7b.sh`**(F2-d, `--exit-at 10`)와
+**`f2c_v8b.sh`**(vision off)다. 앞으로도 오늘 형상은 `*b.sh` 쪽을 써라.
 
 이 세션이 새로 만든 헬퍼(전부 `/mnt/c/sitl7_xfer/`):
 `f2c_verify.sh`(진입 위생검사) · `f2c_inspect.sh <RUN_ID>`(산출물 요약) ·

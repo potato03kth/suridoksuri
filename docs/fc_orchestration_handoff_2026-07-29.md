@@ -66,15 +66,19 @@ last_updated: 2026-07-29
 실내 측정은 한계에 도달했다(GPS 없어 `ref=nan` → 채점 자체가 안 됨). 근거는
 `docs/fc_ground_diagnostics_2026-07-29.md`.
 
-### 2-2. F2 SITL 실증 — **c·f·g 해소, d 만 남음** (2026-07-29 갱신)
+### 2-2. F2 SITL 실증 — **c·d·f·g 전부 해소, 후퇴 경로까지 실증** (2026-07-29 갱신)
 
 | | 상태 |
 |---|---|
 | **F2-c**(생산자 사망) | ✅ 실증 — `V5b`. `link ERROR → GPS 착륙 폴백` 이 **13 s** 에 발화(시한 60 s) |
 | **F2-f**(align 타임아웃) | ✅ 실증 — `V6`. 함정대로 `v_approach=0.5` + `hold_timeout=20` 으로 재현했다(`wp1_land_radius` 가 launch 인자 **미선언**) |
 | **F2-g**(인계 고도) | ✅ 실증 — 전 런. `인계고도 도달 (3.5m AGL, 목표 3.0m±0.5)` |
-| **F2-d**(유도 상실) | 🔴 **남음.** `--linkdead-at` 이 아니라 **`--exit-at`** 을 써야 한다 — shim 자신이 죽으면 `link_dead` 가 안 서고 **`vision_lost_timeout=5.0` 이 메워야** 정상이다. **그 경로는 아직 한 번도 실행된 적이 없다.** 명령은 `f2c_v7.sh` |
-| `vision_landing=false` 종점 완주 | 🔴 전용 런 미실시(단 종점 도달 자체는 6런 중 5런에서 관측) |
+| **F2-d**(유도 상실) | ✅ **실증 — `V7b`**(오늘 형상 60 m/25 m/상한 기본). `--exit-at 10` 으로 shim 자체를 죽였다. `vision 유도 상실 5s 지속 (setpoint age=6.0s status age=6.0s, AGL 16.4m) → GPS 착륙 폴백` 이 **Δ5.835 s** 에 발화(전체 시한은 `t=16/60 s` 로 44 s 남아 있었다 = 다른 시한이 먼저 잡지 않았다). 같은 런에 `link ERROR` **0 건** — **F2-c 와 깨끗이 갈렸다**. 폴백 직전 2.7 s 는 고도를 붙들었고(17.7→16.4 m) 21.4 s 뒤 `DONE` |
+| `vision_landing=false` 종점 완주 | ✅ **실증 — `V8b`**(오늘 형상). `WP1 도달·안정 → LANDING → DONE`, `exit=0` 119.5 s. `VISION_SEARCH`/`PRECISION_LAND` 미등장, 기동 로그에 `비전 정밀착륙 활성` 줄 없음. **F2-e 계약도 같이 확인** — 거리상한 문구가 `경로 최원점 60m` 만 찍고 `탐색 최원점 …` 항이 빠진다 |
+
+> 🔴 **`f2c_v7.sh` / `f2c_v8.sh` 는 앞 세션 형상**(편도 300 m · `transition_alt 50` ·
+> `range_limit_m=1200`)이다. 오늘 형상으로 실제 돌린 것은 **`f2c_v7b.sh`** ·
+> **`f2c_v8b.sh`** 다. `--exit-at 25` 는 인계 3.5 s 전이라 **F2-d 를 놓친다** — 10 s 로 잡아야 한다.
 
 근거·재현 명령은 `logs/2026-07-29_f2_followup/notes.md`.
 
@@ -325,12 +329,15 @@ FOLLOWING 창은 예고대로 소멸했다(**8.2 → 0.2 초**). 그런데도 �
 - **F2-f** `탐색고도 정렬 타임아웃 30s 초과 (AGL 41.8m/25m, WP1 거리 30.4m) → 나선 강제 진행`
 - **F2-c** `vision 생산자 사망(link ERROR) — AGL 23.6m → GPS 착륙 폴백` 이 **13 s** 에 발화(시한 60 s)
 - **F2-g** `인계고도 도달 (3.5m AGL, 목표 3.0m±0.5) → LANDING` — V2 의 22 초 정지가 사라졌다
+- **F2-d** `vision 유도 상실 5s 지속 (setpoint age=6.0s status age=6.0s, AGL 16.4m) → GPS 착륙 폴백`
+  — `V7b`. shim 사망 `…342.827` → 폴백 `…348.662` = **Δ5.835 s**. 같은 런에 `link ERROR` **0 건**
+- **후퇴 경로** `WP1 도달·안정 (dist=0.6m speed=0.1m/s) → LANDING` — `V8b`.
+  `vision_landing` 미지정(yaml 기본 `false`)에서 `HOLD → LANDING → DONE` 완주
 
 ### 9-5. 미실시
 
 - **편도 20 m 이하** — `d_end_thresh=10 m` 라 FOLLOWING 0 틱 가능성. **가지 말 것.**
 - 편도 80/100 m(60 m 완주로부터 단조 추정)
-- `vision_landing=false` 전용 종점 완주 런
 
 ### 9-6. 실기체 사전 검증 (오케스트레이터 직접 확인)
 

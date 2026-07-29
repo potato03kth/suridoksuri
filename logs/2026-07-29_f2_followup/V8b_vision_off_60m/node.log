@@ -1,0 +1,144 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-07-29-16-03-51-426137-DESKTOP-Kilogram-15070
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [telemetry_node-1]: process started with pid [15099]
+[INFO] [offboard_node-2]: process started with pid [15101]
+[offboard_node-2] [INFO] [1785308631.868478970] [offboard_node]: 경로 계획 시작 — planner=eta3 WP 2개 v_cruise=18.0 → 예상 약 0s 블로킹. 이 동안 노드는 응답하지 않는다 — 죽은 것이 아니니 재기동 금지 (재기동하면 중복 인스턴스가 된다).
+[offboard_node-2] [INFO] [1785308631.871339969] [offboard_node]: 경로 계획 완료 — 소요 0.0s (예상 0s), 경로점 61개, 전장 60.0m
+[offboard_node-2] [INFO] [1785308631.992220371] [offboard_node]: ARM 요청
+[offboard_node-2] [INFO] [1785308633.092194439] [offboard_node]: 거리 상한 감시 활성 300m (이륙지점 기준 수평, 경로 최원점 60m)
+[offboard_node-2] [INFO] [1785308633.092701995] [offboard_node]: CommandTOL 이륙 요청 alt=25.1m AMSL (지면 0.1+25.0) -> CLIMBING
+[telemetry_node-1] [INFO] [1785308633.847890857] [telemetry_node]: pos_ned=[-0.05869387 -0.04094278  0.02856957]  yaw=1.713  armed=True  vtol=3  batt=0.00V/100%
+[telemetry_node-1] [INFO] [1785308635.832695078] [telemetry_node]: pos_ned=[-0.02206295 -0.05314156 -0.00042795]  yaw=1.715  armed=True  vtol=3  batt=16.16V/99%
+[telemetry_node-1] [INFO] [1785308640.553239567] [telemetry_node]: pos_ned=[-0.02927536 -0.04437235  0.08211051]  yaw=1.715  armed=True  vtol=3  batt=16.10V/96%
+[telemetry_node-1] [INFO] [1785308641.833135870] [telemetry_node]: pos_ned=[-0.07095619 -0.23191325  1.32587373]  yaw=1.711  armed=True  vtol=3  batt=16.04V/93%
+[telemetry_node-1] [INFO] [1785308643.832806976] [telemetry_node]: pos_ned=[-0.02074025 -0.12635028  4.00158739]  yaw=1.691  armed=True  vtol=3  batt=15.98V/90%
+[telemetry_node-1] [INFO] [1785308645.832882387] [telemetry_node]: pos_ned=[-0.03145909 -0.04381533  6.90843058]  yaw=1.687  armed=True  vtol=3  batt=15.92V/86%
+[telemetry_node-1] [INFO] [1785308647.832818294] [telemetry_node]: pos_ned=[ 2.72860075e-03 -4.35435735e-02  9.97756672e+00]  yaw=1.692  armed=True  vtol=3  batt=15.86V/83%
+[telemetry_node-1] [INFO] [1785308649.832982186] [telemetry_node]: pos_ned=[ 0.02155835 -0.0542093  15.05013657]  yaw=1.697  armed=True  vtol=3  batt=15.80V/80%
+[telemetry_node-1] [INFO] [1785308651.833141117] [telemetry_node]: pos_ned=[-1.95193372e-03 -4.90851328e-02  2.04923286e+01]  yaw=1.696  armed=True  vtol=3  batt=15.74V/76%
+[telemetry_node-1] [INFO] [1785308653.832980141] [telemetry_node]: pos_ned=[ 5.99243212e-03 -5.93272299e-02  2.31388836e+01]  yaw=1.690  armed=True  vtol=3  batt=15.68V/73%
+[telemetry_node-1] [INFO] [1785308655.832708862] [telemetry_node]: pos_ned=[-1.77046098e-02 -3.72374691e-02  2.44126453e+01]  yaw=1.692  armed=True  vtol=3  batt=15.62V/70%
+[offboard_node-2] [INFO] [1785308656.192457330] [offboard_node]: 운용 고도 25.0m 도달 → transition_fw
+[telemetry_node-1] [INFO] [1785308657.832694632] [telemetry_node]: pos_ned=[-0.07422425 -0.03586734 24.81925774]  yaw=1.690  armed=True  vtol=3  batt=15.56V/66%
+[offboard_node-2] [INFO] [1785308658.192753478] [offboard_node]: 천이 전 MC OFFBOARD 요청 (헤딩 정렬 대기)
+[offboard_node-2] [WARN] [1785308658.292833841] [offboard_node]: 정렬 구간 OFFBOARD 이탈 → 재요청 (mode=AUTO.LOITER)
+[telemetry_node-1] [INFO] [1785308659.833111008] [telemetry_node]: pos_ned=[-0.10633533 -0.03212974 24.89797974]  yaw=1.197  armed=True  vtol=3  batt=15.50V/63%
+[telemetry_node-1] [INFO] [1785308661.832722456] [telemetry_node]: pos_ned=[-0.02724248 -0.10686196 24.88229752]  yaw=0.563  armed=True  vtol=3  batt=15.44V/60%
+[telemetry_node-1] [INFO] [1785308663.833047796] [telemetry_node]: pos_ned=[ 0.08455032 -0.23321192 24.87983322]  yaw=0.297  armed=True  vtol=3  batt=15.38V/56%
+[telemetry_node-1] [INFO] [1785308665.832774222] [telemetry_node]: pos_ned=[ 0.14460704 -0.26292261 24.86889648]  yaw=0.218  armed=True  vtol=3  batt=15.32V/53%
+[offboard_node-2] [INFO] [1785308666.192455392] [offboard_node]: 헤딩 정렬 완료 target=0.0° current=12.3° err=-12.3° (20틱 안정) → 전진 + 천이 명령
+[offboard_node-2] [INFO] [1785308666.192914178] [offboard_node]: FW 고도 램프 시작 24.9 → 25.0m (계단 +0.1m, 3.0m/s, 0.0s 소요)
+[offboard_node-2] [INFO] [1785308666.193760836] [offboard_node]: MC→FW 천이 명령 요청 (위치 setpoint 직선 천이)
+[telemetry_node-1] [INFO] [1785308667.833022368] [telemetry_node]: pos_ned=[ 1.57443202 -0.16506629 24.92962837]  yaw=0.144  armed=True  vtol=1  batt=15.30V/51%
+[offboard_node-2] [INFO] [1785308668.891932125] [offboard_node]: FW 전환 완료 -> STREAMING
+[offboard_node-2] [INFO] [1785308668.993007827] [offboard_node]: OFFBOARD 확인 → FOLLOWING
+[offboard_node-2] [INFO] [1785308669.093544394] [offboard_node]: FOLLOWING 시작 pos=[13.8,1.0] tgt=[60.0,0.0] cte=1.0m mode=OFFBOARD seg=13/60
+[telemetry_node-1] [INFO] [1785308669.833198481] [telemetry_node]: pos_ned=[28.33533478  2.18482661 24.73807716]  yaw=0.052  armed=True  vtol=4  batt=15.30V/50%
+[offboard_node-2] [INFO] [1785308670.993689163] [offboard_node]: FOLLOWING tick=20 mode=OFFBOARD cte=1.4m pos=[48.3,1.4] tgt=[60.0,0.0] seg=48/60
+[offboard_node-2] [INFO] [1785308671.193403611] [offboard_node]: 경로 추종 완료 -> transition_mc
+[offboard_node-2] [INFO] [1785308671.292793815] [offboard_node]: FW->MC 역천이 명령 요청
+[telemetry_node-1] [INFO] [1785308671.832934015] [telemetry_node]: pos_ned=[61.28905869  0.56736088 27.76393509]  yaw=-0.010  armed=True  vtol=2  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308676.080842761] [telemetry_node]: pos_ned=[75.45063782 -0.31482378 27.21738815]  yaw=0.016  armed=True  vtol=2  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308677.832968104] [telemetry_node]: pos_ned=[96.02848816 -0.79634058 28.88650894]  yaw=0.081  armed=True  vtol=2  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308679.832903777] [telemetry_node]: pos_ned=[112.47090149  -1.49080789  29.32642365]  yaw=0.100  armed=True  vtol=2  batt=15.30V/50%
+[offboard_node-2] [INFO] [1785308681.192308295] [offboard_node]: MC 전환 완료 -> HOLD (WP1 복귀)
+[telemetry_node-1] [INFO] [1785308681.832821982] [telemetry_node]: pos_ned=[123.83834839  -1.63855851  29.23918915]  yaw=0.132  armed=True  vtol=3  batt=15.30V/50%
+[offboard_node-2] [INFO] [1785308683.192548962] [offboard_node]: WP1 홀드 dist=59.5m speed=8.0m/s stable=0/10
+[telemetry_node-1] [INFO] [1785308683.832847601] [telemetry_node]: pos_ned=[115.03779602  -1.47121131  28.53044128]  yaw=0.095  armed=True  vtol=3  batt=15.30V/50%
+[offboard_node-2] [INFO] [1785308685.192681448] [offboard_node]: WP1 홀드 dist=48.8m speed=4.8m/s stable=0/10
+[telemetry_node-1] [INFO] [1785308685.832775101] [telemetry_node]: pos_ned=[105.30702209  -1.15619755  27.76872444]  yaw=0.095  armed=True  vtol=3  batt=15.30V/50%
+[offboard_node-2] [INFO] [1785308687.192658339] [offboard_node]: WP1 홀드 dist=38.0m speed=4.7m/s stable=0/10
+[telemetry_node-1] [INFO] [1785308687.832778339] [telemetry_node]: pos_ned=[95.00534821 -0.90636396 27.16510963]  yaw=0.090  armed=True  vtol=3  batt=15.30V/50%
+[offboard_node-2] [INFO] [1785308689.192058284] [offboard_node]: WP1 홀드 dist=27.7m speed=4.8m/s stable=0/10
+[telemetry_node-1] [INFO] [1785308689.832859546] [telemetry_node]: pos_ned=[84.71716309 -0.62916034 26.53691292]  yaw=0.087  armed=True  vtol=3  batt=15.30V/50%
+[offboard_node-2] [INFO] [1785308691.192096970] [offboard_node]: WP1 홀드 dist=17.7m speed=4.9m/s stable=0/10
+[telemetry_node-1] [INFO] [1785308691.833174619] [telemetry_node]: pos_ned=[74.66540527 -0.35228911 25.908041  ]  yaw=0.085  armed=True  vtol=3  batt=15.30V/50%
+[offboard_node-2] [INFO] [1785308693.192255359] [offboard_node]: WP1 홀드 dist=7.8m speed=5.0m/s stable=0/10
+[telemetry_node-1] [INFO] [1785308693.832749110] [telemetry_node]: pos_ned=[64.68756866 -0.11197687 25.27077866]  yaw=0.084  armed=True  vtol=3  batt=15.30V/50%
+[offboard_node-2] [INFO] [1785308695.192044464] [offboard_node]: WP1 홀드 dist=0.9m speed=1.0m/s stable=2/10
+[telemetry_node-1] [INFO] [1785308695.832829272] [telemetry_node]: pos_ned=[ 6.06281357e+01 -5.20652942e-02  2.51315308e+01]  yaw=0.077  armed=True  vtol=3  batt=15.30V/50%
+[offboard_node-2] [INFO] [1785308695.892265934] [offboard_node]: WP1 도달·안정 (dist=0.6m speed=0.1m/s) → LANDING
+[offboard_node-2] [INFO] [1785308695.992891504] [offboard_node]: AUTO.LAND 요청
+[telemetry_node-1] [INFO] [1785308697.833057885] [telemetry_node]: pos_ned=[60.87216187  0.06343951 23.13303947]  yaw=0.070  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308699.832865547] [telemetry_node]: pos_ned=[6.05235519e+01 2.58429367e-02 2.02483654e+01]  yaw=0.068  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308701.832846339] [telemetry_node]: pos_ned=[6.07681007e+01 1.97321698e-02 1.73249245e+01]  yaw=0.066  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308703.832937667] [telemetry_node]: pos_ned=[6.06154709e+01 1.48442267e-02 1.43535185e+01]  yaw=0.066  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308705.832902458] [telemetry_node]: pos_ned=[6.06045341e+01 3.41956876e-02 1.14045382e+01]  yaw=0.063  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308707.833243408] [telemetry_node]: pos_ned=[60.75598526  0.06159793  8.61695862]  yaw=0.061  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308711.644904955] [telemetry_node]: pos_ned=[60.73858261  0.06535283  8.02327633]  yaw=0.060  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308711.832787215] [telemetry_node]: pos_ned=[6.07245712e+01 6.06870577e-02 7.79865789e+00]  yaw=0.060  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308713.832930337] [telemetry_node]: pos_ned=[6.05575676e+01 4.14552279e-02 5.94575167e+00]  yaw=0.058  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308715.832886678] [telemetry_node]: pos_ned=[6.06761589e+01 3.72938178e-02 4.55849171e+00]  yaw=0.056  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308717.832744351] [telemetry_node]: pos_ned=[6.06558380e+01 1.64240692e-02 3.26676202e+00]  yaw=0.055  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308719.832816956] [telemetry_node]: pos_ned=[6.06125793e+01 3.62652764e-02 1.99900353e+00]  yaw=0.053  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308721.832656711] [telemetry_node]: pos_ned=[6.06727943e+01 4.20776196e-02 7.62730598e-01]  yaw=0.052  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308723.833061963] [telemetry_node]: pos_ned=[ 6.06675911e+01  4.54958081e-02 -4.55444306e-01]  yaw=0.052  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308725.832953009] [telemetry_node]: pos_ned=[ 6.06756821e+01  3.54537219e-02 -4.34433937e-01]  yaw=0.048  armed=True  vtol=3  batt=15.30V/50%
+[telemetry_node-1] [INFO] [1785308727.832924477] [telemetry_node]: pos_ned=[ 6.07113953e+01  4.82147150e-02 -4.16357219e-01]  yaw=0.046  armed=True  vtol=3  batt=15.30V/50%
+[offboard_node-2] [INFO] [1785308728.092148423] [offboard_node]: 착륙 완료 (disarmed) -> DONE
+[telemetry_node-1] [INFO] [1785308729.832915701] [telemetry_node]: pos_ned=[ 6.07140732e+01  2.01498233e-02 -1.74530968e-01]  yaw=0.044  armed=False  vtol=3  batt=16.20V/81%
+[telemetry_node-1] [INFO] [1785308731.832925959] [telemetry_node]: pos_ned=[ 6.06790352e+01  5.74568063e-02 -1.05059177e-01]  yaw=0.042  armed=False  vtol=3  batt=16.20V/97%
+[telemetry_node-1] [INFO] [1785308733.832924873] [telemetry_node]: pos_ned=[ 6.06959953e+01  4.73076366e-02 -5.37145361e-02]  yaw=0.040  armed=False  vtol=3  batt=16.20V/100%
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [offboard_node-2]: sending signal 'SIGINT' to process[offboard_node-2]
+[INFO] [telemetry_node-1]: sending signal 'SIGINT' to process[telemetry_node-1]
+[offboard_node-2] Traceback (most recent call last):
+[offboard_node-2]   File "/root/ws_f2b/install/fc_ros/lib/python3.10/site-packages/fc_ros/nodes/offboard_node.py", line 2320, in main
+[telemetry_node-1] Traceback (most recent call last):
+[telemetry_node-1]   File "/root/ws_f2b/install/fc_ros/lib/python3.10/site-packages/fc_ros/nodes/telemetry_node.py", line 109, in main
+[telemetry_node-1]     rclpy.spin(node)
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 229, in spin
+[telemetry_node-1]     executor.spin_once()
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+[offboard_node-2]     rclpy.spin(node)
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 229, in spin
+[offboard_node-2]     executor.spin_once()
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+[telemetry_node-1]     self._spin_once_impl(timeout_sec)
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+[telemetry_node-1]     handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+[telemetry_node-1]     return next(self._cb_iter)
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 677, in _wait_for_ready_callbacks
+[offboard_node-2]     self._spin_once_impl(timeout_sec)
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+[offboard_node-2]     handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+[offboard_node-2]     return next(self._cb_iter)
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 677, in _wait_for_ready_callbacks
+[telemetry_node-1]     wait_set.wait(timeout_nsec)
+[telemetry_node-1] KeyboardInterrupt
+[telemetry_node-1] 
+[telemetry_node-1] During handling of the above exception, another exception occurred:
+[telemetry_node-1] 
+[telemetry_node-1] Traceback (most recent call last):
+[telemetry_node-1]   File "/root/ws_f2b/install/fc_ros/lib/fc_ros/telemetry_node", line 33, in <module>
+[telemetry_node-1]     sys.exit(load_entry_point('fc-ros==0.1.0', 'console_scripts', 'telemetry_node')())
+[telemetry_node-1]   File "/root/ws_f2b/install/fc_ros/lib/python3.10/site-packages/fc_ros/nodes/telemetry_node.py", line 111, in main
+[offboard_node-2]     wait_set.wait(timeout_nsec)
+[offboard_node-2] KeyboardInterrupt
+[offboard_node-2] 
+[offboard_node-2] During handling of the above exception, another exception occurred:
+[offboard_node-2] 
+[offboard_node-2] Traceback (most recent call last):
+[offboard_node-2]   File "/root/ws_f2b/install/fc_ros/lib/fc_ros/offboard_node", line 33, in <module>
+[offboard_node-2]     sys.exit(load_entry_point('fc-ros==0.1.0', 'console_scripts', 'offboard_node')())
+[offboard_node-2]   File "/root/ws_f2b/install/fc_ros/lib/python3.10/site-packages/fc_ros/nodes/offboard_node.py", line 2322, in main
+[telemetry_node-1]     node.destroy_node()
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 1691, in destroy_node
+[telemetry_node-1]     self.destroy_service(self._services[0])
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 1615, in destroy_service
+[telemetry_node-1]     service.destroy()
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/service.py", line 93, in destroy
+[telemetry_node-1]     self.__service.destroy_when_not_in_use()
+[telemetry_node-1] KeyboardInterrupt
+[offboard_node-2]     node.destroy_node()
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 1689, in destroy_node
+[offboard_node-2]     self.destroy_client(self._clients[0])
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 1599, in destroy_client
+[offboard_node-2]     client.destroy()
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/client.py", line 187, in destroy
+[offboard_node-2]     self.__client.destroy_when_not_in_use()
+[offboard_node-2] KeyboardInterrupt
+[ERROR] [telemetry_node-1]: process has died [pid 15099, exit code -2, cmd '/root/ws_f2b/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __node:=telemetry_node'].
+[ERROR] [offboard_node-2]: process has died [pid 15101, exit code -2, cmd '/root/ws_f2b/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node:=offboard_node --params-file /root/ws_f2b/install/fc_ros/share/fc_ros/params/fc_ros_params.yaml --params-file /tmp/launch_params_jwyfi81d'].
