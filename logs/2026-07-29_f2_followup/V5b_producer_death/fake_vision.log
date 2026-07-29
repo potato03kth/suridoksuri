@@ -1,0 +1,23 @@
+[INFO] [1785306818.920174410] [fake_vision]: fake_vision 시작 mode=steady target ENU=(0.0,300.0,0.2) rate=4.4Hz watch=/root/ws_f2b/src/suridoksuri/logs/2026-07-29_f2_followup/V5b_producer_death/node.log match='VISION_SEARCH'
+[WARN] [1785306932.546036289] [fake_vision]: 트리거 성립 t=104.8s
+[INFO] [1785306937.319434150] [fake_vision]: t=4.8s emitted=22 veto=False hint=False
+[INFO] [1785306942.319766289] [fake_vision]: t=9.8s emitted=44 veto=False hint=False
+[INFO] [1785306950.046987415] [fake_vision]: t=14.7s emitted=66 veto=False hint=False
+[INFO] [1785306955.046431943] [fake_vision]: t=19.7s emitted=88 veto=False hint=False
+[INFO] [1785306960.046717138] [fake_vision]: t=24.7s emitted=110 veto=False hint=False
+Traceback (most recent call last):
+  File "/root/ws_f2b/src/suridoksuri/tools/sitl/fake_vision.py", line 215, in <module>
+    main()
+  File "/root/ws_f2b/src/suridoksuri/tools/sitl/fake_vision.py", line 203, in main
+    rclpy.spin(n)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 229, in spin
+    executor.spin_once()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 681, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException

@@ -1,0 +1,192 @@
+{
+  "scenario_id": "A1",
+  "desc": "SITL-4 직선 300m 재현 (3주치 변경 후 회귀 여부). waypoint_frame=local(SITL-4 당시 동작)",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "25.0",
+    "waypoints": "[0.0,0.0,25.0,60.0,0.0,25.0]",
+    "waypoint_frame": "local",
+    "vision_landing": "true"
+  },
+  "launch_args_scenario": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 300.0,0.0,50.0]",
+    "waypoint_frame": "local"
+  },
+  "launch_args_cli": [
+    "vision_landing=true",
+    "transition_alt=25.0",
+    "waypoints=[0.0,0.0,25.0,60.0,0.0,25.0]"
+  ],
+  "px4_params_cli": [],
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=25.0",
+    "waypoints:=[0.0,0.0,25.0,60.0,0.0,25.0]",
+    "waypoint_frame:=local",
+    "vision_landing:=true"
+  ],
+  "home": null,
+  "timeout_s": 420.0,
+  "inject_spec": [
+    {
+      "on_state": "FOLLOWING",
+      "delay_s": 3.0,
+      "action": "probe",
+      "topic": "/mavros/state"
+    }
+  ],
+  "started_utc": "2026-07-29T06:25:04.354836+00:00",
+  "run_id": "S60_short",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_dirty": true,
+  "px4_diff_sha256": "f8aeff376e20a4b6",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-28T18:31:12.441221+00:00",
+  "px4_gz_world": null,
+  "px4_gz_worlds_dir": null,
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "44027a5",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785306320\n    nanosec: 276172974\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: CMODE(50593792)\nsystem_status: 0\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-29T06:25:30.970346+00:00",
+  "inject_transport": "in-process",
+  "inject_setmode_service_ready": true,
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 1.43,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785306332.4008598,
+      "t_since_launch_s": 1.63,
+      "t_since_node_alive_s": 0.2,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785306333.4010932,
+      "t_since_launch_s": 2.63,
+      "t_since_node_alive_s": 1.2,
+      "msg": "CommandTOL 이륙 요청 alt=25.1m AMSL (지면 0.1+25.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785306356.5002697,
+      "t_since_launch_s": 22.65,
+      "t_since_node_alive_s": 21.23,
+      "msg": "운용 고도 25.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785306369.9000866,
+      "t_since_launch_s": 35.87,
+      "t_since_node_alive_s": 34.44,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785306370.0010808,
+      "t_since_launch_s": 36.07,
+      "t_since_node_alive_s": 34.64,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    },
+    {
+      "state": "TRANSITION_MC",
+      "ros_t": 1785306372.4009259,
+      "t_since_launch_s": 38.47,
+      "t_since_node_alive_s": 37.05,
+      "msg": "경로 추종 완료 -> transition_mc"
+    },
+    {
+      "state": "HOLD",
+      "ros_t": 1785306378.4003448,
+      "t_since_launch_s": 44.48,
+      "t_since_node_alive_s": 43.05,
+      "msg": "MC 전환 완료 -> HOLD (WP1 복귀)"
+    },
+    {
+      "state": "VISION_SEARCH",
+      "ros_t": 1785306394.3007088,
+      "t_since_launch_s": 57.1,
+      "t_since_node_alive_s": 55.67,
+      "msg": "WP1 도달·안정 (dist=0.6m speed=0.1m/s) → VISION_SEARCH (비전 착륙 활성)"
+    },
+    {
+      "state": "PRECISION_LAND",
+      "ros_t": 1785306394.900341,
+      "t_since_launch_s": 57.7,
+      "t_since_node_alive_s": 56.27,
+      "msg": "타겟 래치 (연속 3프레임, N=60.2 E=0.2) → PRECISION_LAND"
+    },
+    {
+      "state": "LANDING",
+      "ros_t": 1785306425.802765,
+      "t_since_launch_s": 85.54,
+      "t_since_node_alive_s": 84.11,
+      "msg": "인계고도 도달 (3.5m AGL, 목표 3.0m±0.5) → LANDING (AUTO.LAND)"
+    },
+    {
+      "state": "DONE",
+      "ros_t": 1785306435.1008706,
+      "t_since_launch_s": 94.75,
+      "t_since_node_alive_s": 93.33,
+      "msg": "착륙 완료 (disarmed) -> DONE"
+    }
+  ],
+  "warn_count": 1,
+  "error_count": 0,
+  "range_guard": {
+    "enabled": true,
+    "limit_m": 1500.0,
+    "samples": 17,
+    "max_horiz_m": 112.6,
+    "max_at_local_enu": [
+      -1.2,
+      112.6,
+      26.0
+    ],
+    "breach": null
+  },
+  "inject_results": [
+    {
+      "spec": {
+        "on_state": "FOLLOWING",
+        "delay_s": 3.0,
+        "action": "probe",
+        "topic": "/mavros/state"
+      },
+      "action": "probe",
+      "fired_mono_s": 39.157,
+      "fired_utc": "2026-07-29T06:26:13.205661+00:00",
+      "rc": 0,
+      "via": "cli",
+      "done_mono_s": 41.773,
+      "output": "header:\n  stamp:\n    sec: 1785306371\n    nanosec: 504921226\n  frame_id: ''\nconnected: true\narmed: true\nguided: false\nmanual_input: false\nmode: OFFBOARD\nsystem_status: 4\n---"
+    }
+  ],
+  "exit_reason": "done",
+  "exit_code": 0,
+  "ended_utc": "2026-07-29T06:27:21.225069+00:00",
+  "elapsed_s": 123.9,
+  "ulogs": [
+    "06_25_19.ulg"
+  ]
+}
