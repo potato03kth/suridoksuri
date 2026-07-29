@@ -179,11 +179,14 @@ def _dashes(a: float, b: float, dash: float, gap: float):
 
 # ── 기하 (1x 픽셀) ──────────────────────────────────────────────────────────
 CAM_HW = (38, 88, 320, 176)
+UVC_HW = (340, 88, 622, 176)
 GROUND = (820, 88, 1750, 176)
 
 RPI = (38, 240, 712, 1172)
 CAM0 = (58, 292, 320, 348)
 LIBCAM = (58, 364, 320, 430)
+USBP = (340, 292, 622, 348)
+V4L2 = (340, 364, 622, 430)
 VISION = (58, 452, 692, 646)
 V_SRC = (76, 508, 268, 578)
 V_PIPE = (282, 508, 474, 578)
@@ -216,16 +219,30 @@ def draw(pen: Pen) -> None:
         13,
     )
 
-    # ── 기체 외부: 카메라 모듈 ───────────────────────────────────────────────
-    pen.fill(CAM_HW, WASH_TEAL)
-    pen.box(CAM_HW, TEAL, 2.0, 8)
-    pen.text((58, 100), "카메라 모듈", TEAL, 15, bold=True)
+    # ── 기체 외부: 카메라 두 경로 (CSI 사망 → UVC 대체) ─────────────────────
+    pen.box(CAM_HW, MUTE, 2.0, 8)
+    pen.text((58, 100), "CSI 카메라 모듈", MUTE, 15, bold=True)
     pen.lines(
         [
             "IMX708 클론 CAM109 (서드파티, 정품 CM3 아님)",
-            "기체 하방 장착 · 오토포커스",
+            "2026-07-29 I2C 무응답 — 물리적 사망 확정",
         ],
         58,
+        126,
+        MUTE,
+        10.5,
+        lead=16,
+    )
+
+    pen.fill(UVC_HW, WASH_TEAL)
+    pen.box(UVC_HW, TEAL, 2.0, 8)
+    pen.text((360, 100), "USB 웹캠 (UVC)", TEAL, 15, bold=True)
+    pen.lines(
+        [
+            "CSI 사망 대응 임시 경로 — 다이소 웹캠",
+            "실물 미검증 · 화각/해상도 실측 필요",
+        ],
+        360,
         126,
         GRAY,
         10.5,
@@ -267,15 +284,33 @@ def draw(pen: Pen) -> None:
         (58, 254), "Raspberry Pi 5  ·  Ubuntu 24.04 (호스트)", PURPLE, 16, bold=True
     )
 
-    pen.box(CAM0, GREEN, 2.0, 7)
-    pen.text((76, 302), "CAM0 커넥터", GREEN, 13, bold=True)
-    pen.text((76, 324), "MIPI CSI-2 4-lane (RPi5 CAM/DISP 0)", GRAY, 10.5)
+    pen.box(CAM0, MUTE, 2.0, 7)
+    pen.text((76, 302), "CAM0 커넥터", MUTE, 13, bold=True)
+    pen.text((76, 324), "MIPI CSI-2 4-lane (RPi5 CAM/DISP 0)", MUTE, 10.5)
 
-    pen.box(LIBCAM, GREEN, 2.0, 7)
-    pen.text((76, 374), "libcamera / picamera2", GREEN, 13, bold=True)
+    pen.box(LIBCAM, MUTE, 2.0, 7)
+    pen.text((76, 374), "libcamera / picamera2", MUTE, 13, bold=True)
     pen.lines(
-        ["로컬 소스빌드 (ipa_rpi_pisp.so)", "/dev/video19 · /dev/media0~4"],
+        ["로컬 소스빌드 (ipa_rpi_pisp.so) · env.sh 필요", "picam-venv Py3.12 분리 필요"],
         76,
+        396,
+        MUTE,
+        10.5,
+        lead=15,
+    )
+
+    pen.box(USBP, GREEN, 2.0, 7)
+    pen.text((358, 302), "USB 2.0 포트 (UVC 클래스)", GREEN, 13, bold=True)
+    pen.text((358, 324), "커널 uvcvideo 드라이버 · 200~500 mA", GRAY, 10.5)
+
+    pen.box(V4L2, GREEN, 2.0, 7)
+    pen.text((358, 374), "cv2.VideoCapture (V4L2)", GREEN, 13, bold=True)
+    pen.lines(
+        [
+            "/dev/video* · MJPEG 압축 프레임",
+            "libcamera 스택을 통째로 우회 → 랩탑에서도 동작",
+        ],
+        358,
         396,
         GRAY,
         10.5,
@@ -293,7 +328,7 @@ def draw(pen: Pen) -> None:
     pen.box(V_SRC, BLUE, 1.8, 6, fill=BG)
     pen.text((90, 518), "FrameSource", BLUE, 12, bold=True, mono=True)
     pen.lines(
-        ["Live (picamera2)", "Dir · Bag (결정론적 재생)"], 90, 538, GRAY, 10, lead=14
+        ["Live — picamera2 / UVC", "Dir · Bag (결정론적 재생)"], 90, 538, GRAY, 10, lead=14
     )
 
     pen.box(V_PIPE, BLUE, 1.8, 6, fill=BG)
@@ -519,12 +554,17 @@ def draw(pen: Pen) -> None:
     pen.text((850, 1146), "라이다 (AGL) — 미배선", MUTE, 10.5, bold=True)
 
     # ── 연결선 ──────────────────────────────────────────────────────────────
-    cx = 189  # 좌측 컬럼 중심
-    pen.arrow([(cx, CAM_HW[3]), (cx, CAM0[1])], TEAL, 2.2)
-    pen.text((cx + 12, 194), "MIPI CSI-2 리본 케이블", GRAY, 10.5)
-    pen.arrow([(cx, CAM0[3]), (cx, LIBCAM[1])], GREEN, 2.0)
-    pen.arrow([(cx, LIBCAM[3]), (cx, VISION[1])], GREEN, 2.0)
-    pen.text((cx + 12, 434), "프레임 버퍼", GRAY, 10)
+    cx, ux = 189, 481  # CSI 열 / UVC 열 중심
+    pen.arrow([(cx, CAM_HW[3]), (cx, CAM0[1])], MUTE, 2.2)
+    pen.text((cx + 12, 200), "MIPI CSI-2 리본", MUTE, 10.5)
+    pen.arrow([(cx, CAM0[3]), (cx, LIBCAM[1])], MUTE, 2.0)
+    pen.arrow([(cx, LIBCAM[3]), (cx, VISION[1])], MUTE, 2.0)
+
+    pen.arrow([(ux, UVC_HW[3]), (ux, USBP[1])], TEAL, 2.2)
+    pen.text((ux + 12, 200), "USB 케이블 (UVC)", TEAL, 10.5)
+    pen.arrow([(ux, USBP[3]), (ux, V4L2[1])], GREEN, 2.0)
+    pen.arrow([(ux, V4L2[3]), (ux, VISION[1])], GREEN, 2.0)
+    pen.text((ux + 12, 434), "프레임 버퍼", GRAY, 10)
 
     # vision 내부 파이프라인
     pen.arrow([(V_SRC[2], 543), (V_PIPE[0], 543)], BLUE, 1.8, head=5.5)
@@ -686,8 +726,9 @@ def draw(pen: Pen) -> None:
             "   받는 쪽이 아직 없다.",
             "· 라이다 AGL 미배선 → 이륙지점 기준 평탄지 가정.",
             "· RTL8812AU 영상 다운링크 미장착 (목표 하드웨어).",
-            "· 카메라 모듈은 2026-07-29 물리 고장 — 소프트웨어 스택은",
-            "   유효하고 Pi 쪽 결백은 실측으로 확정됐다.",
+            "· CSI 카메라는 2026-07-29 물리 사망(Pi 쪽 결백 실측 확정).",
+            "   USB 웹캠(UVC)으로 대체 중이나 실물 미검증이다 — 해상도를",
+            "   되읽어 하드 실패시키는 안전장치가 들어가 있다.",
         ],
         1332,
         978,
