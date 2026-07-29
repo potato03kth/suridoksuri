@@ -1,0 +1,37 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-07-29-11-26-28-075414-doksuri-1135
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [telemetry_node-1]: process started with pid [1137]
+[INFO] [offboard_node-2]: process started with pid [1139]
+[offboard_node-2] [INFO] [1785324390.593091451] [offboard_node]: 경로 계획 시작 — planner=eta3 WP 2개 v_cruise=18.0 → 예상 약 0s 블로킹. 이 동안 노드는 응답하지 않는다 — 죽은 것이 아니니 재기동 금지 (재기동하면 중복 인스턴스가 된다).
+[offboard_node-2] [INFO] [1785324390.596872288] [offboard_node]: 경로 계획 완료 — 소요 0.0s (예상 0s), 경로점 81개, 전장 80.0m
+[offboard_node-2] [WARN] [1785324390.715757440] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324390.815755056] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324390.915807266] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324391.015564269] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324391.115739228] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324391.215549625] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324391.315615897] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324391.415500833] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324391.515779349] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324391.615691119] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324391.715665575] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324391.815526362] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324391.915581264] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324392.015709538] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324392.115578887] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324392.215601091] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324392.315732482] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324392.415502070] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324392.515575460] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[telemetry_node-1] [INFO] [1785324392.568458292] [telemetry_node]: pos_ned=[-161.80760193  -84.19424438    1.38264084]  yaw=-0.438  armed=False  vtol=3  batt=15.02V/26%
+[offboard_node-2] [WARN] [1785324392.615444791] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324392.715493217] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324392.815629145] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324392.915599663] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785324393.015723591] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [INFO] [1785324393.117129638] [offboard_node]: ARM 요청
+[offboard_node-2] [INFO] [1785324393.616029224] [offboard_node]: 경로 원점 = 이륙지점 [N=-161.81, E=-84.23, h_up=1.45] 적용 (frame=takeoff) → WP0=[-161.81,-84.23] 순항고도 h_up=21.45
+[offboard_node-2] [INFO] [1785324393.617945384] [offboard_node]: 거리 상한 감시 활성 300m (이륙지점 기준 수평, 경로 최원점 80m)
+[offboard_node-2] [INFO] [1785324393.619747135] [offboard_node]: CommandTOL 이륙 요청 alt=41.9m AMSL (지면 21.9+20.0) -> CLIMBING
+[telemetry_node-1] [INFO] [1785324394.533580220] [telemetry_node]: pos_ned=[-161.83303833  -84.24808502    1.52023506]  yaw=-0.438  armed=True  vtol=3  batt=14.97V/24%
+[telemetry_node-1] [INFO] [1785324396.533627970] [telemetry_node]: pos_ned=[-161.88972473  -84.27430725    1.70559502]  yaw=-0.437  armed=True  vtol=3  batt=14.74V/15%

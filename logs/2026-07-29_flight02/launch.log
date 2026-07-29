@@ -1,0 +1,19 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-07-29-11-08-33-589391-doksuri-320
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [telemetry_node-1]: process started with pid [322]
+[INFO] [offboard_node-2]: process started with pid [324]
+[offboard_node-2] [INFO] [1785323314.222503360] [offboard_node]: 경로 계획 시작 — planner=straight WP 2개 v_cruise=18.0 → 예상 약 0s 블로킹. 이 동안 노드는 응답하지 않는다 — 죽은 것이 아니니 재기동 금지 (재기동하면 중복 인스턴스가 된다).
+[offboard_node-2] [INFO] [1785323314.225284621] [offboard_node]: 경로 계획 완료 — 소요 0.0s (예상 0s), 경로점 69개, 전장 67.1m
+[offboard_node-2] [WARN] [1785323314.348989185] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785323314.448922037] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785323314.549343641] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785323314.649011155] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785323314.748956470] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785323314.848921083] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [INFO] [1785323314.954876633] [offboard_node]: ARM 요청
+[offboard_node-2] [INFO] [1785323315.649426259] [offboard_node]: 경로 원점 = 이륙지점 [N=0.12, E=-1.80, h_up=5.42] 적용 (frame=takeoff) → WP0=[0.12,-1.80] 순항고도 h_up=25.42
+[offboard_node-2] [INFO] [1785323315.650374816] [offboard_node]: 거리 상한 감시 활성 300m (이륙지점 기준 수평, 경로 최원점 67m)
+[offboard_node-2] [INFO] [1785323315.652799125] [offboard_node]: CommandTOL 이륙 요청 alt=45.9m AMSL (지면 25.9+20.0) -> CLIMBING
+[telemetry_node-1] [INFO] [1785323316.156452805] [telemetry_node]: pos_ned=[ 0.12675107 -1.80140626  5.43601799]  yaw=3.009  armed=True  vtol=3  batt=0.00V/100%
+[telemetry_node-1] [INFO] [1785323318.118848943] [telemetry_node]: pos_ned=[ 0.19660415 -1.74592257  5.40364456]  yaw=3.010  armed=True  vtol=3  batt=16.02V/81%
+[telemetry_node-1] [INFO] [1785323320.118834824] [telemetry_node]: pos_ned=[ 0.26783574 -1.75431156  5.4265995 ]  yaw=3.060  armed=True  vtol=3  batt=15.49V/52%

@@ -1,0 +1,15 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-07-29-11-27-22-972966-doksuri-1365
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [telemetry_node-1]: process started with pid [1367]
+[INFO] [offboard_node-2]: process started with pid [1369]
+[offboard_node-2] [INFO] [1785324443.623670014] [offboard_node]: 경로 계획 시작 — planner=eta3 WP 2개 v_cruise=18.0 → 예상 약 0s 블로킹. 이 동안 노드는 응답하지 않는다 — 죽은 것이 아니니 재기동 금지 (재기동하면 중복 인스턴스가 된다).
+[offboard_node-2] [INFO] [1785324443.628226582] [offboard_node]: 경로 계획 완료 — 소요 0.0s (예상 0s), 경로점 81개, 전장 80.0m
+[offboard_node-2] [INFO] [1785324443.769403964] [offboard_node]: ARM 요청
+[offboard_node-2] [WARN] [1785324444.565452421] [offboard_node]: home_position AMSL 미수렴(최근 2개: ['22.9', '22.9'], tol=0.5) — 이륙 보류, 수렴 대기
+[offboard_node-2] [INFO] [1785324444.665388643] [offboard_node]: 경로 원점 = 이륙지점 [N=-161.79, E=-84.10, h_up=2.45] 적용 (frame=takeoff) → WP0=[-161.79,-84.10] 순항고도 h_up=22.45
+[offboard_node-2] [INFO] [1785324444.666574332] [offboard_node]: 거리 상한 감시 활성 300m (이륙지점 기준 수평, 경로 최원점 80m)
+[offboard_node-2] [INFO] [1785324444.668017304] [offboard_node]: CommandTOL 이륙 요청 alt=42.9m AMSL (지면 22.9+20.0) -> CLIMBING
+[telemetry_node-1] [INFO] [1785324445.517700188] [telemetry_node]: pos_ned=[-161.75131226  -84.11798096    2.42300987]  yaw=-0.501  armed=True  vtol=3  batt=14.97V/20%
+[telemetry_node-1] [INFO] [1785324447.480317247] [telemetry_node]: pos_ned=[-161.62991333  -84.18106079    2.3632431 ]  yaw=-0.501  armed=True  vtol=3  batt=14.46V/5%
+[telemetry_node-1] [INFO] [1785324449.480326244] [telemetry_node]: pos_ned=[-161.67456055  -84.20909882    2.38420868]  yaw=-0.392  armed=True  vtol=3  batt=13.37V/0%
+[telemetry_node-1] [INFO] [1785324451.480353174] [telemetry_node]: pos_ned=[-161.52294922  -84.15909576    2.17887688]  yaw=-0.344  armed=True  vtol=3  batt=14.89V/13%
