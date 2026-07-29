@@ -124,6 +124,36 @@ ssh suri@100.67.27.83 'cd ~/drone_ws/src/suridoksuri && git log --oneline -1 && 
 두 md5 가 **일치**해야 한다. 다르면 컨테이너에서 `colcon build --packages-select fc_ros`
 (`--symlink-install` 금지, 절차는 `docs/rpi_deploy.md`).
 
+### 🔴 5-b. `fc_bridge` 는 md5 대조로 안 잡힌다 (2026-07-29 추가)
+
+**`colcon build` 는 `fc_ros` 만 `install/` 로 옮긴다.** `fc_bridge` 는 설치본이 없고
+**운용자가 컨테이너 셸에 손으로 넣는 `PYTHONPATH`** 로 로드된다 — 기본 셸에서는
+`import fc_bridge` 가 `No module named` 로 실패한다(실측). 즉 **어느 경로를 넣느냐가
+곧 어느 코드가 날느냐**이고, §5 의 md5 대조로는 이 stale 을 **원리적으로 못 잡는다.**
+
+2026-07-29 에 `fc_bridge` 로 들어간 핵심 판정: `fw_setpoint_alt`(F-9 천이 고도램프),
+`path_end_passed`(F-10 종점 결승선), `handoff_due(..., alt_tol_m)`(F2-g 인계).
+옛 경로를 물면 **이 셋이 전부 옛 동작으로 돌아간다.**
+
+```bash
+ssh suri@100.67.27.83 'sudo docker exec -e PYTHONPATH=/drone_ws/src/suridoksuri fc \
+  python3 -c "
+import fc_bridge, inspect
+from fc_bridge.execution import state_logic as sl, precision_land as pl
+print(fc_bridge.__file__)
+print(\"fw_setpoint_alt\", hasattr(sl,\"fw_setpoint_alt\"))
+print(\"path_end_passed\", hasattr(sl,\"path_end_passed\"))
+print(\"handoff alt_tol\", \"alt_tol_m\" in inspect.signature(pl.handoff_due).parameters)
+"'
+```
+
+| 기대 | |
+|---|---|
+| `fc_bridge.__file__` | `/drone_ws/src/suridoksuri/fc_bridge/__init__.py` ← **다른 경로면 stale** |
+| 세 항목 | 전부 `True` |
+
+**비행 시 launch 를 띄우는 셸의 `PYTHONPATH` 가 같은 경로인지 반드시 확인할 것.**
+
 ---
 
 ## ⑥ launch 인자 — 손으로 직접 타이핑
@@ -142,7 +172,8 @@ flight01/02 를 날린 원인이다. 문서·채팅에서 복사하면 **U+00A0 
 | ② | 자기계 4방위 | 남쪽 `test_ratio < 1` | ⏸ 미수행 |
 | ③ | RC 링크 | `Invalid CRCs 0` + 스틱 반응 | ✅ 2026-07-29 확인 |
 | ④ | 배터리 | (지표 무시, 설정 변경 금지) | ✅ 결정 완료 |
-| ⑤ | 코드 신선도 | md5 일치 | 비행 당일 재확인 |
+| ⑤ | 코드 신선도 (`fc_ros`) | md5 일치 | 비행 당일 재확인 |
+| ⑤-b | **`fc_bridge` PYTHONPATH** | `fc_bridge.__file__` 이 `/drone_ws/src/suridoksuri/...` | **md5로는 못 잡는다** |
 | ⑥ | launch 인자 | 직접 타이핑 | 현장 |
 
 **①② 중 하나라도 통과하지 못하면 천이·헤딩 정렬이 같은 방식으로 실패한다.**
