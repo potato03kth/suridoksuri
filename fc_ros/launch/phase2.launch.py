@@ -99,6 +99,8 @@ def _make_nodes(context):
                  # SITL-7 R1 — 상태 타임아웃 4종 + 거리 상한 (현장 조정은 여기로만)
                  "climbing_timeout", "transition_fw_timeout",
                  "transition_mc_timeout", "entry_timeout", "range_limit_m",
+                 # SITL-7 R5 — FOLLOWING 체류 상한 (F-10)
+                 "following_timeout",
                  # SITL-7 R5 — 천이 고도 계단 램프 (F-9)
                  "alt_slew_rate"):
         val = _arg(name, context)
@@ -229,6 +231,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "entry_timeout", default_value="",
             description="ENTRY 체류 상한 (s). 0 이하면 비활성. 빈 값(기본)이면 YAML(60.0)"),
+        DeclareLaunchArgument(
+            "following_timeout", default_value="",
+            description="FOLLOWING 체류 상한 (s). 0 이하면 비활성. 빈 값(기본)이면 YAML(240.0). "
+                        "F-10 — 종점 포착 실패 시 469초 무한 선회가 실측됐다"),
         DeclareLaunchArgument(
             "range_limit_m", default_value="",
             description="이륙지점 기준 수평거리 상한 (m). 0 이하면 비활성. "

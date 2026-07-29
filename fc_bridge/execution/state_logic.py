@@ -55,6 +55,69 @@ def trans_mc_trigger(dist_to_end: float, d_end_thresh: float) -> bool:
     return dist_to_end < d_end_thresh
 
 
+def path_end_passed(pos2, end_pt2, end_dir2,
+                    seg_idx: int, last_seg_idx: int) -> bool:
+    """종점 **결승선 통과** 판정 (F-10). 마지막 세그먼트 위에서 종점의
+    수직 반평면을 넘었으면 True.
+
+    **왜 거리 원 하나로는 안 되는가 (SITL-7 F-10, 2026-07-29 실측)**
+
+    종전 유일한 완료 조건은 `trans_mc_trigger` — 종점 중심 반경
+    `d_end_thresh`(기본 10m) 원 안에 들어오는 것뿐이었다. FW 는 종점을
+    지나친 뒤 선회반경 `v²/(g·a_max_g) ≈ 110~140m` 으로 되돌아오므로
+    **그 10m 원을 스치느냐 마느냐가 곧 완주/미완주**가 된다. 즉 완료가
+    제어가 아니라 운에 달려 있었다. C1b(`transition_alt=120`, 경로고도 50)는
+    FOLLOWING 진입 시 고도차 70m 를 안고 들어와 종점 부근에서 선회가 크게
+    벌어지는 최악 조건이라 이 도박이 그대로 드러난다 — 같은 코드가 런마다
+    완주(캠페인 `C1b_pxvehicle`, FOLLOWING 43.5s)와 **469초 미탈출 + 접지**
+    (`logs/2026-07-29_r5_f9/C1b_ramp{on,off}`)를 오갔다.
+
+    결승선 판정은 이 도박을 없앤다. 종점에서 **마지막 세그먼트 방향에
+    수직인 평면**을 세우고, 그 평면을 넘어가면 횡방향으로 얼마나 벌어져
+    있든 "경로를 다 탔다"로 본다. FW 는 종점을 반드시 지나치므로
+    (통과량 실측 ≈ `57 − d_end_thresh` m) 이 조건은 항상 성립한다.
+
+    **`seg_idx` 게이트가 폐회로를 지킨다.** 대회 경로는 폐회로로 확정돼
+    있어(2026-07-27 사용자) 종점이 시작점 바로 옆이다 — `R2_closed` 는
+    FOLLOWING 진입 시점에 종점까지 **12.18m** 뿐이라, 거리 임계를 키우는
+    방식(§4 결정 5 의 `d_end_thresh ≈ 57`)은 출발하자마자 완료로 오판한다.
+    이 함수는 거리를 안 보고 **L1 투영이 마지막 세그먼트에 올라탔는지**를
+    먼저 요구하므로, 한 바퀴를 실제로 돌기 전에는 원리적으로 성립할 수 없다.
+    (`L1Guidance._find_segment()` 의 창 탐색이 인덱스를 경로상 진행도로
+    유지해 주는 것이 전제다 — 2026-07-27 R2.)
+
+    Parameters
+    ----------
+    pos2 : array-like, shape (2,)
+        현재 수평 위치 [N, E].
+    end_pt2 : array-like, shape (2,)
+        경로 마지막 점 [N, E].
+    end_dir2 : array-like, shape (2,)
+        마지막 세그먼트의 진행 방향 **단위벡터**. 영벡터면 판정하지 않는다
+        (퇴화 경로에서 조기 완료를 만들지 않기 위해 False 를 돌려준다).
+    seg_idx : int
+        이번 틱에 L1 이 잡은 세그먼트 인덱스 (`L1Guidance.current_segment`).
+    last_seg_idx : int
+        마지막 세그먼트 인덱스 (`len(path_pts) - 2`).
+
+    Notes
+    -----
+    경계는 strict `> 0` 이다 — 종점 위에 정확히 서 있는 것(=0)은 통과가
+    아니다. `trans_mc_trigger`(strict `<`)·`mc_wp_advance` 와 같은 규약.
+    """
+    if last_seg_idx < 0 or int(seg_idx) < int(last_seg_idx):
+        return False
+    d = np.asarray(end_dir2, dtype=float).reshape(-1)[:2]
+    n = float(np.linalg.norm(d))
+    if not math.isfinite(n) or n < 1e-9:
+        return False
+    p = np.asarray(pos2, dtype=float).reshape(-1)[:2]
+    e = np.asarray(end_pt2, dtype=float).reshape(-1)[:2]
+    if not (np.isfinite(p).all() and np.isfinite(e).all()):
+        return False
+    return float((p - e) @ (d / n)) > 0.0
+
+
 def mc_wp_advance(idx: int, dist_to_wp: float, end_thresh: float,
                    n_points: int, speed: float = 0.0,
                    settle_speed: float = float("inf"),

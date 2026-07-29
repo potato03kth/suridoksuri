@@ -14,6 +14,7 @@ from fc_bridge.execution.state_logic import (
     offboard_reacquire_allowed, state_timeout_due,
     horiz_dist_from_origin, range_limit_exceeded, path_max_range,
     after_streaming_state, slew_setpoint, fw_setpoint_alt,
+    path_end_passed,
 )
 
 
@@ -491,3 +492,96 @@ def test_fw_setpoint_alt_converges_in_expected_time():
         ramp = fw_setpoint_alt(ramp, cruise_alt=50.0, vehicle_alt=20.0,
                                max_step=3.0 * 0.1)
     assert ramp == pytest.approx(50.0)
+
+
+# ── path_end_passed() — F-10 결승선 (2026-07-29 SITL-7 R5) ──────
+#
+# 종전 완료 조건은 종점 반경 `d_end_thresh`(10m) 원 하나뿐이었고, ulog 실측
+# 최근접거리가 5런 전부 7.2~13.8m 대역에 몰려 임계가 그 한복판에 있었다
+# (`fc_ros/test/test_f10_end_capture.py` 표 참조). 아래는 그 원을 대신하는
+# 반평면 판정의 규약을 고정한다.
+
+_EAST = np.array([1.0, 0.0])          # 마지막 세그먼트가 정북(+N)일 때의 방향
+
+
+def test_path_end_passed_before_the_line_is_false():
+    assert path_end_passed(np.array([299.0, 0.0]), np.array([300.0, 0.0]),
+                           _EAST, 299, 299) is False
+
+
+def test_path_end_passed_after_the_line_is_true():
+    assert path_end_passed(np.array([301.0, 0.0]), np.array([300.0, 0.0]),
+                           _EAST, 299, 299) is True
+
+
+def test_path_end_passed_ignores_lateral_offset():
+    """**이 함수의 존재 이유.** 횡방향으로 46m 벌어져도 결승선을 넘었으면 통과다
+    (F-9 `C1b_rampon` 실측 위치 [313.9, −46.0], 종점까지 48.1m)."""
+    assert path_end_passed(np.array([313.9, -46.0]), np.array([300.0, 0.0]),
+                           _EAST, 299, 299) is True
+
+
+def test_path_end_passed_requires_the_last_segment():
+    """폐회로 보호 — 종점 근처를 지나도 마지막 세그먼트를 안 탔으면 False.
+
+    대회 경로는 폐회로라 종점이 출발점 바로 옆이다. 거리만 보는 판정이
+    깨지는 지점이고, 이 게이트가 유일한 방어다.
+    """
+    assert path_end_passed(np.array([301.0, 0.0]), np.array([300.0, 0.0]),
+                           _EAST, 5, 299) is False
+
+
+def test_path_end_passed_boundary_is_strict():
+    """종점 위에 정확히 서 있는 것(along=0)은 통과가 아니다 —
+    `trans_mc_trigger`(strict <)·`mc_wp_advance` 와 같은 규약."""
+    assert path_end_passed(np.array([300.0, 5.0]), np.array([300.0, 0.0]),
+                           _EAST, 299, 299) is False
+
+
+def test_path_end_passed_handles_backward_paths():
+    """B8(초기 헤딩과 180° 반대, 종점 [−300,0])에서 부호가 뒤집히면 안 된다."""
+    west = np.array([-1.0, 0.0])
+    end = np.array([-300.0, 0.0])
+    assert path_end_passed(np.array([-301.0, 20.0]), end, west, 299, 299) is True
+    assert path_end_passed(np.array([-299.0, 20.0]), end, west, 299, 299) is False
+
+
+def test_path_end_passed_accepts_unnormalised_direction():
+    """호출부가 정규화하지 않은 세그먼트 벡터를 그대로 넘겨도 같은 답."""
+    assert path_end_passed(np.array([301.0, 0.0]), np.array([300.0, 0.0]),
+                           np.array([7.3, 0.0]), 299, 299) is True
+
+
+def test_path_end_passed_gives_up_on_degenerate_direction():
+    """방향을 못 잡으면 **False** — 조기 완료보다 미완료가 안전하다."""
+    assert path_end_passed(np.array([999.0, 0.0]), np.array([300.0, 0.0]),
+                           np.array([0.0, 0.0]), 299, 299) is False
+
+
+def test_path_end_passed_rejects_non_finite_inputs():
+    """EKF 이상치가 완료를 만들어내면 안 된다."""
+    nan2 = np.array([float("nan"), 0.0])
+    assert path_end_passed(nan2, np.array([300.0, 0.0]),
+                           _EAST, 299, 299) is False
+    assert path_end_passed(np.array([301.0, 0.0]), nan2,
+                           _EAST, 299, 299) is False
+
+
+def test_path_end_passed_rejects_empty_path():
+    assert path_end_passed(np.array([1.0, 1.0]), np.array([0.0, 0.0]),
+                           _EAST, 0, -1) is False
+
+
+def test_path_end_passed_uses_only_the_first_two_components():
+    """[N, E, h_up] 3성분을 그대로 넘겨도 고도가 판정에 새어들지 않는다."""
+    assert path_end_passed(np.array([301.0, 0.0, 120.0]),
+                           np.array([300.0, 0.0, 50.0]),
+                           np.array([1.0, 0.0, 0.0]), 299, 299) is True
+
+
+def test_path_end_passed_diagonal_leg_normal():
+    """마지막 레그가 대각(45°)이면 결승선도 45° 로 선다."""
+    d = np.array([1.0, 1.0])
+    end = np.array([100.0, 100.0])
+    assert path_end_passed(np.array([105.0, 99.0]), end, d, 9, 9) is True
+    assert path_end_passed(np.array([95.0, 101.0]), end, d, 9, 9) is False

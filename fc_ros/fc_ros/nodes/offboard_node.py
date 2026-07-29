@@ -38,7 +38,7 @@ from fc_ros.adapters.vehicle_state_bridge import (
 from fc_bridge.guidance.l1_guidance import L1Guidance
 from fc_bridge.execution.state_logic import (
     climbing_reached, vtol_is_fw,
-    trans_mc_trigger, mc_wp_advance, vtol_is_mc, landing_done,
+    trans_mc_trigger, path_end_passed, mc_wp_advance, vtol_is_mc, landing_done,
     override_mode, override_reached, override_fallback_due, wp1_land_ready,
     after_climb_state, after_following_state, after_streaming_state,
     takeoff_request_fields,
@@ -116,6 +116,11 @@ _HOLD_STABLE_REQ = 10
 # 그래서 판정은 "경고가 0건인가"가 아니라 **되감김 건수와 Δ의 부호·크기**로 한다.
 _SEG_JUMP_WARN = 20
 
+# F-10 결승선의 법선을 잡을 때 경로 끝에서 되돌아볼 최대 점 수.
+# 플래너 보간점 간격이 ~1m 이므로 5점이면 5m — 방향이 정해지기에 충분하고,
+# 이보다 더 물러나면 폐회로의 마지막 코너를 가로질러 법선이 기울 수 있다.
+_PATH_END_DIR_MAX_BACK = 5
+
 # OVERRIDE: manual 모드 진입 대기 후 AUTO.LOITER 안전 폴백까지의 틱 수 (10Hz → 1s).
 # headless SITL·RC 없음 시 PX4가 MANUAL/POSCTL을 거부하므로 폴백 필수.
 _OVERRIDE_FALLBACK_TICKS = 10
@@ -190,8 +195,9 @@ class OffboardNode(Node):
       transition_fw_timeout  (float,  90.0) — TRANSITION_FW 체류 상한 (s), 〃
       transition_mc_timeout  (float,  30.0) — TRANSITION_MC 체류 상한 (s), 〃
       entry_timeout          (float,  60.0) — ENTRY 체류 상한 (s), 〃
+      following_timeout      (float, 240.0) — FOLLOWING 체류 상한 (s), 〃
       range_limit_m          (float, 300.0) — 이륙지점 기준 수평거리 상한 (m), 〃
-                             위 5개는 전부 0 이하이면 비활성. 초과 시 강제
+                             위 6개는 전부 0 이하이면 비활성. 초과 시 강제
                              진행이 아니라 `_request_override()` 안전 폴백이다.
     """
 
@@ -255,6 +261,10 @@ class OffboardNode(Node):
         self.declare_parameter("transition_fw_timeout",  90.0)
         self.declare_parameter("transition_mc_timeout",  30.0)
         self.declare_parameter("entry_timeout",          60.0)
+        # FOLLOWING 체류 상한 (2026-07-29 SITL-7 R5 F-10). R1 이 4종을 넣을 때
+        # 유일하게 빠져 있던 상태이자, 체류가 가장 길고 기체를 순항속도로
+        # 쥐고 있는 상태다. 값 유도는 fc_ros_params.yaml 주석.
+        self.declare_parameter("following_timeout",     240.0)
         self.declare_parameter("range_limit_m",         300.0)
         # ── 천이 고도 계단 완화 (2026-07-29 SITL-7 R5, F-9) ───────────
         # FW 위치 setpoint 의 고도 성분을 `_cruise_alt` 로 한 틱에 튀기지 않고
@@ -408,6 +418,8 @@ class OffboardNode(Node):
         self._mc_trans_timeout = float(
             self.get_parameter("transition_mc_timeout").value)
         self._entry_timeout = float(self.get_parameter("entry_timeout").value)
+        self._following_timeout = float(
+            self.get_parameter("following_timeout").value)
         self._range_limit_m = float(self.get_parameter("range_limit_m").value)
         self._alt_slew_rate = float(self.get_parameter("alt_slew_rate").value)
 
@@ -885,6 +897,16 @@ class OffboardNode(Node):
                     f"경로 추종 완료 -> {nxt.value}"
                     + (" (MC, 역천이 생략)" if self._is_mc else ""))
                 self._sm = nxt
+            else:
+                # R1 이 타임아웃 4종을 넣을 때 **FOLLOWING 만 빠져 있었다** —
+                # 체류가 가장 길고, 기체를 순항속도로 쥐고 있는 바로 그 상태다.
+                # F-10 실측: 종점 포착에 실패하자 469초 동안 종점 주위를 돌다
+                # 접지했고(min_agl −2.7/−3.6m) 아무것도 개입하지 않았다.
+                # 결승선 판정이 그 원인을 없애지만, 그물은 원인과 별개로 있어야
+                # 한다(같은 실패의 두 번째 형태를 우리는 아직 모른다).
+                self._timeout_fallback(
+                    "FOLLOWING", self._follow_ticks * self._dt,
+                    self._following_timeout)
 
         elif self._sm == _State.TRANSITION_MC:
             self._step_transition_mc(state)
@@ -2116,6 +2138,29 @@ class OffboardNode(Node):
                 throttle_duration_sec=1.0)
         return f" seg={seg}/{n_seg}"
 
+    def _path_end_dir(self) -> np.ndarray:
+        """마지막 세그먼트의 진행 방향 단위벡터 [N, E] (F-10 결승선의 법선).
+
+        플래너 보간점은 ~1m 간격이라 마지막 두 점이 수치적으로 겹칠 수 있다.
+        영벡터를 그대로 넘기면 `path_end_passed()` 가 판정 자체를 포기하므로
+        (조기 완료보다 미완료가 안전하다는 규약), 여기서 **뒤에서부터 유한한
+        길이가 나올 때까지** 물러나 방향을 잡는다. 그래도 못 잡으면 영벡터를
+        돌려주고 판정은 종전 거리 원 하나로 되돌아간다.
+
+        경로 평행이동(`_apply_path_origin`)은 방향을 바꾸지 않으므로 캐시하지
+        않고 매 틱 계산한다 — 최대 몇 점만 보고 끝난다.
+        """
+        pts = self._pts
+        n = len(pts)
+        if n < 2:
+            return np.zeros(2)
+        end = np.asarray(pts[-1], dtype=float)[:2]
+        for i in range(n - 2, max(-1, n - 2 - _PATH_END_DIR_MAX_BACK), -1):
+            d = end - np.asarray(pts[i], dtype=float)[:2]
+            if float(np.linalg.norm(d)) > 1e-6:
+                return d
+        return np.zeros(2)
+
     def _step_following(self, state: VehicleState) -> bool:
         """경로 추종. 경로 끝 도달 시 True.
 
@@ -2203,7 +2248,19 @@ class OffboardNode(Node):
         if not self._is_mc:
             last_pt = self._pts[-1]
             dist_to_end = float(np.linalg.norm(pos[:2] - last_pt))
-            return trans_mc_trigger(dist_to_end, self._d_end_thresh)
+            if trans_mc_trigger(dist_to_end, self._d_end_thresh):
+                return True
+            # 결승선 통과 (F-10). 거리 원 하나로는 FW 가 종점을 포착한다는
+            # 보장이 없다 — 근거·실측은 `path_end_passed()` 독스트링.
+            if path_end_passed(pos[:2], last_pt, self._path_end_dir(),
+                               int(self._guidance.current_segment),
+                               len(self._pts) - 2):
+                self.get_logger().info(
+                    f"종점 결승선 통과 (거리 {dist_to_end:.1f}m > "
+                    f"d_end_thresh {self._d_end_thresh:.1f}m 이지만 "
+                    f"마지막 세그먼트를 다 탔다) — 경로 완료로 판정")
+                return True
+            return False
 
         dist_to_wp = float(np.linalg.norm(pos[:2] - tgt))
         speed = float(np.linalg.norm(state.vel_ned[:2]))
