@@ -314,6 +314,249 @@ class LiveFrameSource:
             frame_id += 1
 
 
+# ---------------------------------------------------------------------------
+# UVC(USB 웹캠) 프레임 소스 — 2026-07-30 CSI 카메라 하드웨어 사망 대응 임시 경로
+#
+# 2026-07-29 CSI 카메라(IMX708)가 I2C 무응답으로 물리적 사망했다(docs/vision_report_video.md
+# §1). 그 대체로 UVC USB 웹캠을 쓴다. **libcamera/picamera2 스택을 통째로 우회한다** —
+# `ipa_rpi_pisp.so` 소스빌드도, `env.sh` source도, picam-venv 분리도, `/dev/mediaN` 번호가
+# 부팅마다 바뀌는 문제도, 카메라 배타성(`Device or resource busy`)도 전부 해당 없다.
+#
+# ⚠️ 이 모듈 docstring의 *"cv2.VideoCapture는 V4L2 raw 경로와 비호환(isOpened()는 되는데
+# read()가 실패)"* 기록은 **CSI 베이어 raw 경로**에 대한 것이고 UVC와는 무관하다. UVC는
+# 드라이버가 이미 디베이어·포맷변환을 끝낸 프레임을 주므로 `cv2.VideoCapture`가 정확히
+# 맞는 API다. 그 전례를 근거로 이 경로를 되돌리지 말 것.
+# ---------------------------------------------------------------------------
+
+_DEFAULT_UVC_RESOLUTION: Tuple[int, int] = (1920, 1080)
+"""웹캠 기본 요청 해상도. 고도별 타겟 픽셀 크기 계산(2026-07-30) 근거로 FHD를 기본으로 둔다 —
+화각 60° 가정에서 40m AGL의 3.0m 초록매트가 VGA 42px / FHD 125px로 3배 차이난다. ArUco(0.5m)는
+FHD로도 40m에서 21px이라 디코드 한계 밑이고, 저고도(10m, 83px)에서만 유효하다."""
+
+_DEFAULT_UVC_FOURCC = "MJPG"
+"""USB 2.0 대역폭에서 FHD 30fps를 내려면 MJPEG 압축이 필수다. 무압축 YUYV로 FHD를 요청하면
+카메라가 조용히 5fps 급으로 떨어뜨린다(싸구려 웹캠 공통 동작)."""
+
+_DEFAULT_UVC_FPS = 30.0
+
+
+def parse_fourcc(code: str) -> int:
+    """4글자 FOURCC 문자열 → cv2 정수 코드. 길이가 4가 아니면 거부한다(조용히 잘리면
+    엉뚱한 포맷이 걸린다)."""
+    if len(code) != 4:
+        raise ValueError(f"FOURCC는 정확히 4글자여야 함: {code!r}")
+    return cv2.VideoWriter_fourcc(*code)
+
+
+class UvcFrameSource:
+    """UVC USB 웹캠 프레임 소스 (`cv2.VideoCapture` + V4L2 백엔드).
+
+    `LiveFrameSource`와 같은 계약을 따른다 — 재시도 후 `ConnectionError`, 컨텍스트 매니저,
+    `FrameRecord` 이터레이터. picamera2/libcamera에 의존하지 않으므로 **랩탑 `.venv`에서도
+    그대로 돈다**(지연 import 불필요).
+
+    device: 카메라 인덱스(int) 또는 장치 경로(str). **경로 문자열을 권장한다** — 이 저장소는
+        이미 `/dev/mediaN` 번호가 재부팅마다 바뀌어 하드코딩이 깨진 전례가 있고
+        (`rpi_capture.py` `_MEDIA_DEVICE`, 2026-07-22d), `/dev/video*` 인덱스도 같은 이유로
+        USB 재연결·부팅 순서에 따라 흔들린다. `/dev/v4l/by-id/usb-...-video-index0` 형태의
+        안정 경로를 쓰면 이 문제가 원천 차단된다.
+
+    resolution: (width, height) 요청값. 🔴 **요청과 실제가 다르면 기본적으로 하드 실패한다**
+        (`allow_resolution_mismatch=False`). 싸구려 웹캠은 지원하지 않는 해상도를 요청받으면
+        에러 대신 **가장 가까운 지원 해상도를 조용히 돌려준다** — 그런데 solvePnP가 쓰는
+        `camera_matrix`는 해상도에 묶여 있어(`_DEFAULT_LIVE_RESOLUTION` 주석의 그 실패 모드),
+        요청 1920 / 실제 640이면 거리·pose가 **소리 없이 3배 틀린다**. 침묵하느니 못 뜨는 게
+        낫다. 실제 해상도로 진행하려면 그 해상도용 `nominal.yaml`을 먼저 만들고
+        `allow_resolution_mismatch=True`를 준다.
+
+    fourcc/fps: 설정 순서가 중요하다 — V4L2에서 FOURCC를 해상도보다 **먼저** 걸어야 한다
+        (나중에 걸면 해상도 설정이 되돌려지는 드라이버가 있다). fps는 카메라가 광고만 하고
+        안 지키는 경우가 흔해 검증하지 않고 실제값을 `actual_fps`에 기록만 한다.
+
+    autofocus/focus: 선택적 초점 제어(**best-effort** — 실패해도 예외를 올리지 않고
+        `control_error`에 사유를 남긴다, `LiveFrameSource._apply_af`와 같은 철학).
+        `autofocus=None`이면 **손대지 않는다**(기본값). 기체는 10~40m를 보므로 초점이
+        무한대 근처에 고정돼야 하는데, 싸구려 웹캠은 대개 고정초점이라 이 컨트롤 자체가
+        없다 — 그래서 실패를 정상 상황으로 취급한다.
+    """
+
+    def __init__(
+        self,
+        device: Union[int, str] = 0,
+        resolution: Tuple[int, int] = _DEFAULT_UVC_RESOLUTION,
+        fps: Optional[float] = _DEFAULT_UVC_FPS,
+        fourcc: Optional[str] = _DEFAULT_UVC_FOURCC,
+        retries: int = 3,
+        retry_delay: float = 1.0,
+        allow_resolution_mismatch: bool = False,
+        autofocus: Optional[bool] = None,
+        focus: Optional[float] = None,
+        backend: Optional[int] = None,
+    ):
+        if retries < 1:
+            raise ValueError("retries는 1 이상이어야 한다")
+        if fourcc is not None and len(fourcc) != 4:
+            raise ValueError(f"FOURCC는 정확히 4글자여야 함: {fourcc!r}")
+        if focus is not None and autofocus is not False:
+            raise ValueError(
+                "focus 값을 주려면 autofocus=False 여야 한다 "
+                "(오토포커스가 켜진 채 수동 초점값을 주면 드라이버가 곧바로 덮어쓴다)"
+            )
+        self.device = device
+        self.resolution = resolution
+        self.fps = fps
+        self.fourcc = fourcc
+        self.retries = retries
+        self.retry_delay = retry_delay
+        self.allow_resolution_mismatch = allow_resolution_mismatch
+        self.autofocus = autofocus
+        self.focus = focus
+        self.backend = cv2.CAP_V4L2 if backend is None else backend
+        self._cap: Optional[Any] = None
+        # 관측성(§7.4) — 실제로 무엇이 걸렸는지. 요청값이 아니라 이 값이 진실이다.
+        self.actual_resolution: Optional[Tuple[int, int]] = None
+        self.actual_fps: Optional[float] = None
+        self.control_error: Optional[str] = None
+
+    def open(self) -> None:
+        """연결 시도. 실패하면 retries회까지 retry_delay초 간격으로 재시도 후 ConnectionError.
+
+        **해상도 불일치는 재시도 대상이 아니다** — 몇 번을 다시 열어도 웹캠이 지원하지 않는
+        해상도는 계속 지원하지 않는다. 즉시 `ValueError`로 올려 사용자가 조치하게 한다.
+        """
+        last_attempt = 0
+        last_error: Optional[BaseException] = None
+        for attempt in range(1, self.retries + 1):
+            last_attempt = attempt
+            cap = None
+            try:
+                cap = cv2.VideoCapture(self.device, self.backend)
+                if not cap.isOpened():
+                    raise IOError(f"VideoCapture.isOpened()가 False — device={self.device!r}")
+                self._configure(cap)
+            except ValueError:
+                # 해상도 불일치(아래 _verify_resolution) — 재시도로 해결되지 않는다.
+                if cap is not None:
+                    cap.release()
+                raise
+            except Exception as exc:
+                last_error = exc
+                if cap is not None:
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+                if attempt < self.retries:
+                    time.sleep(self.retry_delay)
+                continue
+            self._cap = cap
+            return
+        raise ConnectionError(
+            f"UvcFrameSource: 웹캠 연결 실패 (device={self.device!r}), "
+            f"{last_attempt}/{self.retries}회 재시도 후 포기."
+        ) from last_error
+
+    def _configure(self, cap: Any) -> None:
+        """FOURCC → 해상도 → fps 순서로 설정한 뒤 실제 적용값을 검증·기록한다."""
+        if self.fourcc is not None:
+            cap.set(cv2.CAP_PROP_FOURCC, parse_fourcc(self.fourcc))
+        width, height = self.resolution
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if self.fps is not None:
+            cap.set(cv2.CAP_PROP_FPS, float(self.fps))
+        # 지연 최소화 — 파이프라인이 카메라보다 느리면 V4L2 큐에 프레임이 쌓여 낡은 그림을
+        # 보게 된다(움직이는 기체에선 그대로 위치 오차). best-effort: 지원 안 하는 백엔드도
+        # 있어 실패를 무시한다.
+        try:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
+        self._apply_focus(cap)
+        self._verify_resolution(cap)
+        actual_fps = cap.get(cv2.CAP_PROP_FPS)
+        self.actual_fps = float(actual_fps) if actual_fps else None
+
+    def _apply_focus(self, cap: Any) -> None:
+        """초점 컨트롤 best-effort 적용. 실패는 `control_error`에만 남기고 진행한다 —
+        고정초점 웹캠에는 이 컨트롤이 아예 없는 게 정상이다."""
+        if self.autofocus is None:
+            self.control_error = None
+            return
+        try:
+            ok = cap.set(cv2.CAP_PROP_AUTOFOCUS, 0 if self.autofocus is False else 1)
+            if not ok:
+                self.control_error = (
+                    f"CAP_PROP_AUTOFOCUS 설정 거부됨(autofocus={self.autofocus}) — "
+                    "고정초점 웹캠이면 정상이다."
+                )
+                return
+            if self.focus is not None and not cap.set(cv2.CAP_PROP_FOCUS, float(self.focus)):
+                self.control_error = f"CAP_PROP_FOCUS 설정 거부됨(focus={self.focus})"
+                return
+        except Exception as exc:
+            self.control_error = f"{type(exc).__name__}: {exc}"
+            return
+        self.control_error = None
+
+    def _verify_resolution(self, cap: Any) -> None:
+        """🔴 요청 해상도가 실제로 걸렸는지 확인 — 이 클래스의 핵심 안전장치.
+
+        `cap.set()`은 지원하지 않는 값에도 보통 True를 돌려주므로 **되읽어서 비교해야만**
+        알 수 있다. 어긋난 채로 진행하면 캘리브레이션이 조용히 틀어진다(클래스 docstring).
+        """
+        actual = (
+            int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+        )
+        self.actual_resolution = actual
+        if actual == tuple(self.resolution):
+            return
+        message = (
+            f"UvcFrameSource: 요청 해상도 {self.resolution[0]}x{self.resolution[1]} 가 "
+            f"적용되지 않았다 — 실제 {actual[0]}x{actual[1]}. 웹캠이 지원하지 않는 조합이면 "
+            "조용히 다른 해상도를 돌려준다. 이대로 두면 nominal.yaml의 camera_matrix가 "
+            "해상도와 어긋나 거리·pose가 소리 없이 틀린다.\n"
+            "  1) 지원 조합 확인:  v4l2-ctl -d <device> --list-formats-ext\n"
+            f"  2) 그 해상도용 캘리브레이션 생성:  python -m vision.tools.compute_nominal_intrinsics "
+            f"--sensor-width-px {actual[0]} --sensor-height-px {actual[1]} "
+            "--hfov-deg <실측화각> --camera-id <웹캠id>\n"
+            "  3) 그 뒤에 --uvc-allow-resolution-mismatch 로 진행"
+        )
+        if self.allow_resolution_mismatch:
+            return
+        raise ValueError(message)
+
+    def close(self) -> None:
+        if self._cap is not None:
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+            self._cap = None
+
+    def __enter__(self) -> "UvcFrameSource":
+        self.open()
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
+    def __iter__(self) -> Iterator[FrameRecord]:
+        if self._cap is None:
+            self.open()
+        frame_id = 0
+        while True:
+            ok, frame = self._cap.read()
+            if not ok or frame is None:
+                raise ConnectionError(
+                    f"UvcFrameSource: 프레임 읽기 실패 (device={self.device!r}) — "
+                    "USB 연결이 끊겼거나 다른 프로세스가 카메라를 가져갔을 수 있다."
+                )
+            yield FrameRecord(frame_id=frame_id, ts=time.time(), image=frame, telemetry={})
+            frame_id += 1
+
+
 class DirFrameSource:
     """녹화 폴더 재생 (§7.9 (a) 재생 오버레이 뷰어 주력 입력).
 

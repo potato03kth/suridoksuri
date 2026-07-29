@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 import pytest
 
+from vision.utils import frame_source as frame_source_module
 from vision.utils.frame_source import (
     AF_MODES,
     BagFrameSource,
@@ -26,8 +27,10 @@ from vision.utils.frame_source import (
     LENS_POSITION_MAX,
     LENS_POSITION_MIN,
     LiveFrameSource,
+    UvcFrameSource,
     make_af_controls,
     open_dir_or_bag,
+    parse_fourcc,
     validate_af_args,
     validate_lens_position,
 )
@@ -515,3 +518,273 @@ def test_h264_stream_reuses_the_same_af_implementation():
     assert h264.validate_lens_position is validate_lens_position
     assert h264.AF_MODES is AF_MODES
     assert h264.LENS_POSITION_MAX == LENS_POSITION_MAX
+
+
+# ---------- UvcFrameSource — USB 웹캠 (실웹캠 없음, cv2.VideoCapture를 가짜로 몽키패치) ----------
+#
+# 2026-07-30 CSI 카메라 물리적 사망 대응 경로. `LiveFrameSource`와 달리 picamera2/libcamera에
+# 의존하지 않으므로 sys.modules 주입이 아니라 `frame_source.cv2.VideoCapture` 속성을 직접
+# 몽키패치한다(monkeypatch가 테스트 종료 시 원복).
+
+class _FakeCapture:
+    """가짜 cv2.VideoCapture. set/get 호출을 순서까지 기록해 설정 순서 계약을 검증할 수 있다.
+
+    actual: 실제로 적용되는 해상도 — 요청과 다르게 줘서 "싸구려 웹캠이 조용히 다른 해상도를
+        돌려주는" 실제 동작을 재현한다.
+    """
+
+    def __init__(self, *, opened=True, actual=(1920, 1080), fps=30.0, frames=1,
+                 reject_props=()):
+        self.opened = opened
+        self._actual = actual
+        self._fps = fps
+        self._frames_left = frames
+        self._reject_props = set(reject_props)
+        self.set_calls = []          # [(prop, value), ...] 순서 보존
+        self.released = False
+
+    def isOpened(self):
+        return self.opened
+
+    def set(self, prop, value):
+        self.set_calls.append((prop, value))
+        return prop not in self._reject_props
+
+    def get(self, prop):
+        if prop == cv2.CAP_PROP_FRAME_WIDTH:
+            return float(self._actual[0])
+        if prop == cv2.CAP_PROP_FRAME_HEIGHT:
+            return float(self._actual[1])
+        if prop == cv2.CAP_PROP_FPS:
+            return float(self._fps)
+        return 0.0
+
+    def read(self):
+        if self._frames_left <= 0:
+            return False, None
+        self._frames_left -= 1
+        return True, np.zeros((4, 4, 3), dtype=np.uint8)
+
+    def release(self):
+        self.released = True
+
+
+def _patch_videocapture(monkeypatch, cap_or_factory):
+    """`frame_source` 모듈이 보는 cv2.VideoCapture를 교체하고, 생성 인자를 기록해 돌려준다."""
+    created = []
+
+    def _factory(device, backend=None):
+        created.append((device, backend))
+        cap = cap_or_factory(device, backend) if callable(cap_or_factory) else cap_or_factory
+        return cap
+
+    monkeypatch.setattr(frame_source_module.cv2, "VideoCapture", _factory)
+    return created
+
+
+# --- 🔴 핵심 안전장치: 해상도 불일치 ---
+
+def test_uvc_rejects_silent_resolution_fallback(monkeypatch):
+    """요청 1920x1080인데 웹캠이 640x480을 돌려주면 하드 실패해야 한다.
+
+    이대로 통과시키면 nominal.yaml의 camera_matrix가 해상도와 어긋나 solvePnP 거리·pose가
+    소리 없이 3배 틀린다 — 이 클래스가 존재하는 가장 큰 이유다.
+    """
+    cap = _FakeCapture(actual=(640, 480))
+    _patch_videocapture(monkeypatch, cap)
+    src = UvcFrameSource(resolution=(1920, 1080))
+    with pytest.raises(ValueError) as e:
+        src.open()
+    msg = str(e.value)
+    assert "1920x1080" in msg and "640x480" in msg
+    assert cap.released, "실패 시 카메라를 release 해야 한다"
+
+
+def test_uvc_resolution_mismatch_message_gives_the_fix(monkeypatch):
+    """에러가 '뭐가 틀렸다'만 말하고 끝나면 현장에서 못 고친다 — 조치 명령까지 담아야 한다."""
+    _patch_videocapture(monkeypatch, _FakeCapture(actual=(640, 480)))
+    with pytest.raises(ValueError) as e:
+        UvcFrameSource(resolution=(1920, 1080)).open()
+    msg = str(e.value)
+    assert "--list-formats-ext" in msg, "지원 조합 확인 명령이 있어야 한다"
+    assert "compute_nominal_intrinsics" in msg, "캘리브레이션 재생성 명령이 있어야 한다"
+    assert "--uvc-allow-resolution-mismatch" in msg, "진행 방법이 있어야 한다"
+
+
+def test_uvc_resolution_mismatch_is_not_retried(monkeypatch):
+    """몇 번을 다시 열어도 지원 안 하는 해상도는 계속 지원 안 한다 — 재시도는 낭비다."""
+    created = _patch_videocapture(monkeypatch, lambda *_a: _FakeCapture(actual=(640, 480)))
+    with pytest.raises(ValueError):
+        UvcFrameSource(resolution=(1920, 1080), retries=5, retry_delay=0).open()
+    assert len(created) == 1, f"재시도 없이 1회만 열어야 함 (실제 {len(created)}회)"
+
+
+def test_uvc_allow_resolution_mismatch_proceeds_and_records_actual(monkeypatch):
+    """명시적으로 허용하면 진행하되, 실제 해상도를 관측 가능하게 남긴다."""
+    _patch_videocapture(monkeypatch, _FakeCapture(actual=(640, 480)))
+    src = UvcFrameSource(resolution=(1920, 1080), allow_resolution_mismatch=True)
+    src.open()
+    assert src.actual_resolution == (640, 480)
+    src.close()
+
+
+def test_uvc_records_actual_resolution_and_fps_on_success(monkeypatch):
+    _patch_videocapture(monkeypatch, _FakeCapture(actual=(1280, 720), fps=15.0))
+    with UvcFrameSource(resolution=(1280, 720)) as src:
+        assert src.actual_resolution == (1280, 720)
+        assert src.actual_fps == 15.0
+
+
+# --- 설정 순서/내용 ---
+
+def test_uvc_sets_fourcc_before_resolution(monkeypatch):
+    """V4L2는 FOURCC를 해상도보다 먼저 걸어야 한다 — 순서가 뒤집히면 해상도가 되돌려진다."""
+    cap = _FakeCapture()
+    _patch_videocapture(monkeypatch, cap)
+    UvcFrameSource(resolution=(1920, 1080)).open()
+    props = [p for p, _ in cap.set_calls]
+    assert props.index(cv2.CAP_PROP_FOURCC) < props.index(cv2.CAP_PROP_FRAME_WIDTH)
+    assert props.index(cv2.CAP_PROP_FOURCC) < props.index(cv2.CAP_PROP_FRAME_HEIGHT)
+
+
+def test_uvc_defaults_to_mjpg_for_usb2_bandwidth(monkeypatch):
+    """무압축 YUYV로 FHD를 요청하면 카메라가 조용히 5fps급으로 떨어진다 — 기본이 MJPG여야 한다."""
+    cap = _FakeCapture()
+    _patch_videocapture(monkeypatch, cap)
+    UvcFrameSource().open()
+    fourcc_values = [v for p, v in cap.set_calls if p == cv2.CAP_PROP_FOURCC]
+    assert fourcc_values == [parse_fourcc("MJPG")]
+
+
+def test_uvc_requests_buffersize_one_to_avoid_stale_frames(monkeypatch):
+    """파이프라인이 카메라보다 느리면 V4L2 큐에 프레임이 쌓여 낡은 그림을 본다."""
+    cap = _FakeCapture()
+    _patch_videocapture(monkeypatch, cap)
+    UvcFrameSource().open()
+    assert (cv2.CAP_PROP_BUFFERSIZE, 1) in cap.set_calls
+
+
+def test_uvc_buffersize_rejection_does_not_break_open(monkeypatch):
+    """BUFFERSIZE를 지원 안 하는 백엔드에서도 열려야 한다(best-effort)."""
+    _patch_videocapture(monkeypatch, _FakeCapture(reject_props=(cv2.CAP_PROP_BUFFERSIZE,)))
+    with UvcFrameSource() as src:
+        assert src.actual_resolution == (1920, 1080)
+
+
+def test_uvc_uses_v4l2_backend_by_default(monkeypatch):
+    created = _patch_videocapture(monkeypatch, _FakeCapture())
+    UvcFrameSource().open()
+    assert created[0][1] == cv2.CAP_V4L2
+
+
+def test_uvc_accepts_stable_device_path(monkeypatch):
+    """/dev/video* 인덱스는 USB 재연결·부팅 순서에 따라 흔들린다(이 저장소의 /dev/mediaN 전례).
+    by-id 안정 경로를 그대로 받을 수 있어야 한다."""
+    path = "/dev/v4l/by-id/usb-Generic_Webcam-video-index0"
+    created = _patch_videocapture(monkeypatch, _FakeCapture())
+    UvcFrameSource(device=path).open()
+    assert created[0][0] == path
+
+
+# --- 연결/에러 계약 (LiveFrameSource와 동일) ---
+
+def test_uvc_retries_then_raises_connection_error(monkeypatch):
+    created = _patch_videocapture(monkeypatch, lambda *_a: _FakeCapture(opened=False))
+    with pytest.raises(ConnectionError):
+        UvcFrameSource(retries=3, retry_delay=0).open()
+    assert len(created) == 3
+
+
+def test_uvc_read_failure_raises_connection_error(monkeypatch):
+    _patch_videocapture(monkeypatch, _FakeCapture(frames=1))
+    src = UvcFrameSource()
+    it = iter(src)
+    assert isinstance(next(it), FrameRecord)
+    with pytest.raises(ConnectionError):
+        next(it)
+
+
+def test_uvc_yields_frame_records_with_increasing_ids(monkeypatch):
+    _patch_videocapture(monkeypatch, _FakeCapture(frames=3))
+    records = []
+    with UvcFrameSource() as src:
+        for rec in src:
+            records.append(rec)
+            if len(records) == 3:
+                break
+    assert [r.frame_id for r in records] == [0, 1, 2]
+    assert all(r.image.shape == (4, 4, 3) for r in records)
+    assert all(r.telemetry == {} for r in records)
+
+
+def test_uvc_close_releases_capture(monkeypatch):
+    cap = _FakeCapture()
+    _patch_videocapture(monkeypatch, cap)
+    src = UvcFrameSource()
+    src.open()
+    src.close()
+    assert cap.released
+
+
+def test_uvc_context_manager_releases_on_exception(monkeypatch):
+    cap = _FakeCapture(frames=0)
+    _patch_videocapture(monkeypatch, cap)
+    with pytest.raises(ConnectionError):
+        with UvcFrameSource() as src:
+            next(iter(src))
+    assert cap.released
+
+
+# --- 인자 검증 ---
+
+def test_uvc_rejects_invalid_retries():
+    with pytest.raises(ValueError):
+        UvcFrameSource(retries=0)
+
+
+def test_uvc_rejects_bad_fourcc_length():
+    with pytest.raises(ValueError):
+        UvcFrameSource(fourcc="MJP")
+    with pytest.raises(ValueError):
+        parse_fourcc("MJPEG")
+
+
+def test_uvc_focus_requires_autofocus_off():
+    """오토포커스가 켜진 채 수동 초점값을 주면 드라이버가 곧바로 덮어쓴다 — 조용히 무시되는
+    인자를 남기지 않는다(LiveFrameSource의 lens_position 규칙과 같은 철학)."""
+    with pytest.raises(ValueError):
+        UvcFrameSource(focus=0.0)
+    with pytest.raises(ValueError):
+        UvcFrameSource(autofocus=True, focus=0.0)
+    UvcFrameSource(autofocus=False, focus=0.0)  # 이 조합만 허용
+
+
+# --- 초점 컨트롤 best-effort ---
+
+def test_uvc_does_not_touch_focus_by_default(monkeypatch):
+    cap = _FakeCapture()
+    _patch_videocapture(monkeypatch, cap)
+    src = UvcFrameSource()
+    src.open()
+    props = [p for p, _ in cap.set_calls]
+    assert cv2.CAP_PROP_AUTOFOCUS not in props
+    assert src.control_error is None
+
+
+def test_uvc_fixed_focus_webcam_rejection_is_not_fatal(monkeypatch):
+    """싸구려 웹캠은 대개 고정초점이라 이 컨트롤이 아예 없다 — 정상 상황으로 취급해야 한다."""
+    _patch_videocapture(monkeypatch, _FakeCapture(reject_props=(cv2.CAP_PROP_AUTOFOCUS,)))
+    src = UvcFrameSource(autofocus=False)
+    src.open()  # 예외 없이 열려야 한다
+    assert src.control_error is not None
+    assert "고정초점" in src.control_error
+
+
+def test_uvc_applies_autofocus_off_and_focus_value(monkeypatch):
+    cap = _FakeCapture()
+    _patch_videocapture(monkeypatch, cap)
+    src = UvcFrameSource(autofocus=False, focus=0.0)
+    src.open()
+    assert (cv2.CAP_PROP_AUTOFOCUS, 0) in cap.set_calls
+    assert (cv2.CAP_PROP_FOCUS, 0.0) in cap.set_calls
+    assert src.control_error is None

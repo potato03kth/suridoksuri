@@ -45,6 +45,11 @@ basename 지정.
   python -m vision.main live:1 --live-resolution 1920x1080 --output results/live.mp4
   # 정밀착륙 인터페이스 발행 켜기(기본 꺼짐) — 소비자는 nc 127.0.0.1 8091 로 확인
   python -m vision.main live --preset presets/vertiport_fine.yaml --target-sink
+  # USB 웹캠(UVC) 모드 — CSI 카메라 사망 대응 임시 경로. picamera2/libcamera 불필요(랩탑에서도 돈다)
+  python -m vision.main uvc --preset presets/distress_fine.yaml --calib <웹캠용 nominal.yaml>
+  # 안정 장치경로 권장(/dev/video* 인덱스는 USB 재연결·부팅 순서에 따라 흔들린다)
+  python -m vision.main uvc:/dev/v4l/by-id/usb-XXXX-video-index0 --uvc-resolution 1280x720
+  절차 정본: docs/vision_webcam_fallback.md (화각 실측 → nominal.yaml 생성 → 실행)
 """
 import argparse
 import signal
@@ -52,7 +57,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -82,6 +87,7 @@ from vision.utils.frame_source import (
     LENS_POSITION_MAX,
     LENS_POSITION_MIN,
     LiveFrameSource,
+    UvcFrameSource,
 )
 from vision.utils.image_loader import load_image
 from vision.utils.logging import log_provenance_header, setup_dual_sink_logger
@@ -105,6 +111,13 @@ _DEFAULT_CALIB_PATH = str(Path(__file__).parent / "calibration" / "cam109-imx708
 # 라이브 모드(LiveFrameSource 배선) — `input` 위치인자 특수값 접두사. import 자체는 picamera2 없이도
 # 항상 성공한다(LiveFrameSource.open() 내부 지연 import 덕분, vision/CLAUDE.md "frame_source.py" 절).
 _LIVE_INPUT_SPEC = "live"
+# USB 웹캠(UVC) 모드 — `input` 위치인자 특수값 접두사. 2026-07-30 CSI 카메라 하드웨어 사망
+# (docs/vision_report_video.md §1) 대응 임시 경로. `live`와 달리 picamera2/libcamera를 전혀
+# 쓰지 않으므로 랩탑 .venv에서도 그대로 돈다.
+#   uvc            → /dev/video0 (인덱스 0)
+#   uvc:2          → /dev/video2
+#   uvc:/dev/v4l/by-id/usb-...-video-index0  → 안정 경로(권장, 인덱스는 재부팅마다 흔들린다)
+_UVC_INPUT_SPEC = "uvc"
 # --output 지정 시 라이브 모드 VideoWriter가 쓸 fps. VideoReader처럼 소스가 fps를 알려주지 않으므로
 # (무한 실시간 스트림) 고정값을 쓴다 — 정밀한 재생속도가 목적이 아니라 결과 확인용 기록이라 충분.
 #
@@ -589,6 +602,32 @@ def _parse_live_camera_num(input_arg: str) -> Optional[int]:
     return None
 
 
+def _parse_uvc_device(input_arg: str) -> Optional[Union[int, str]]:
+    """`input` 위치인자가 USB 웹캠 스펙(`uvc` / `uvc:<index>` / `uvc:<경로>`)이면 device를
+    반환하고, 아니면 None(다른 분기로 폴백).
+
+    `uvc:` 뒤가 정수면 인덱스, 아니면 장치 경로 문자열로 넘긴다 — `_parse_live_camera_num`은
+    정수만 받지만 여기서는 **경로를 허용해야 한다**. `/dev/video*` 인덱스는 USB 재연결·부팅
+    순서에 따라 흔들리는데(이 저장소의 `/dev/mediaN` 전례, `rpi_capture.py` 2026-07-22d),
+    `/dev/v4l/by-id/...` 안정 경로를 쓰면 그 문제가 원천 차단되기 때문이다.
+    """
+    if input_arg == _UVC_INPUT_SPEC:
+        return 0
+    prefix = _UVC_INPUT_SPEC + ":"
+    if input_arg.startswith(prefix):
+        suffix = input_arg[len(prefix):]
+        if not suffix:
+            raise ValueError(
+                f"잘못된 웹캠 모드 스펙 — {input_arg!r} "
+                f"(예: {_UVC_INPUT_SPEC}, {_UVC_INPUT_SPEC}:2, {_UVC_INPUT_SPEC}:/dev/video2)"
+            )
+        try:
+            return int(suffix)
+        except ValueError:
+            return suffix  # 장치 경로
+    return None
+
+
 def _parse_resolution(value: str) -> Tuple[int, int]:
     """`--live-resolution WxH` 파싱. 잘못된 형식은 argparse가 사용법과 함께 exit(2)하게 둔다."""
     try:
@@ -796,51 +835,44 @@ def _measure_capture_fps(
     return (frame_count - 1) / span
 
 
-def _run_live(
+def _run_source_loop(
     pipeline: Pipeline,
-    camera_num: int,
-    resolution: Optional[Tuple[int, int]],
-    retries: int,
-    retry_delay: float,
+    source_factory,
+    mode_label: str,
+    device_label: str,
     output: str | None,
     display: str,
     logger,
     blackbox: BlackBoxLogger,
-    streamer: MjpegStreamer | None = None,
-    calib: Optional[CameraCalibration] = None,
-    state_machine: Optional[LandingStateMachine] = None,
-    sink: Optional[TargetSink] = None,
-    af_mode: Optional[str] = DEFAULT_AF_MODE,
-    lens_position: Optional[float] = None,
+    streamer: MjpegStreamer | None,
+    calib: Optional[CameraCalibration],
+    state_machine: Optional[LandingStateMachine],
+    sink: Optional[TargetSink],
+    stop_event: threading.Event,
+    on_open=None,
     report_overlay: bool = False,
     output_fps: Optional[float] = None,
 ) -> None:
-    """실카메라 라이브 모드 — `_run_video`와 거의 동일한 프레임 루프(무한 이터레이터라는 점만
-    다름). 헤드리스(`--display none`)에서는 무한정 도는 게 정상 동작이라 Ctrl+C(KeyboardInterrupt)와
-    SIGTERM 둘 다 종료 수단이다 — `with LiveFrameSource(...)`가 예외 전파 중에도 카메라를
-    release하고, 바깥 try/except가 스택트레이스 없이 조용히 종료시킨다(로그만 남김). SIGTERM은
-    비대화형 배포(systemd 등) 표준 종료 신호라 별도로 `stop_event`를 두고 다음 프레임 경계에서
+    """무한 프레임 소스(실카메라 CSI / USB 웹캠) 공용 프레임 루프.
+
+    `_run_video`와 거의 동일하되 소스가 무한 이터레이터라는 점만 다르다. 헤드리스
+    (`--display none`)에서는 무한정 도는 게 정상 동작이라 Ctrl+C(KeyboardInterrupt)와 SIGTERM
+    둘 다 종료 수단이다 — `with source_factory()`가 예외 전파 중에도 카메라를 release하고,
+    바깥 try/except가 스택트레이스 없이 조용히 종료시킨다(로그만 남김). SIGTERM은 비대화형
+    배포(systemd 등) 표준 종료 신호라 호출자가 넘긴 `stop_event`를 다음 프레임 경계에서 확인해
     루프를 빠져나간다(§h264_stream.py와 동일 근거 — SIGINT는 비대화형 자식에서 못 믿음).
 
+    2026-07-30 `_run_live`에서 추출됐다 — CSI 카메라 하드웨어 사망으로 USB 웹캠 경로
+    (`_run_uvc`)가 생기면서, 검증된 이 루프를 복제하는 대신 공유한다. 소스 종류에 따라 다른
+    건 **생성 방법과 열린 직후 로깅뿐**이라 그 둘만 `source_factory`/`on_open`으로 뺐다.
+
     🔴 **`sink.install_signal_handlers()`를 여기서 부르면 안 된다.** `signal.signal`은 신호당
-    핸들러가 **하나**뿐이라, sink 핸들러를 나중에 걸면 바로 위 `_install_sigterm_handler`가
+    핸들러가 **하나**뿐이라, sink 핸들러를 나중에 걸면 호출자의 `_install_sigterm_handler`가
     등록한 핸들러를 **덮어써서** `stop_event`가 영영 세팅되지 않는다 — 실기체에서만 드러났던
     SIGTERM graceful shutdown 버그가 그대로 재발한다. sink 정리는 `main()`의 `finally`에서
-    `sink.close()`로 하면 충분하다(루프를 빠져나오면 반드시 거기로 간다)."""
+    `sink.close()`로 하면 충분하다(루프를 빠져나오면 반드시 거기로 간다).
+    """
     sink = sink if sink is not None else NullSink()
-    live_kwargs: dict = {
-        "camera_num": camera_num,
-        "retries": retries,
-        "retry_delay": retry_delay,
-        "af_mode": af_mode,
-        "lens_position": lens_position,
-    }
-    if resolution is not None:
-        live_kwargs["resolution"] = resolution
-
-    stop_event = threading.Event()
-    _install_sigterm_handler(stop_event)
-
     writer = None
     frame_count = 0
     # mp4에 기록할 fps. `--output-fps` 미지정이면 기존 고정값 그대로(동작 무변경).
@@ -848,21 +880,9 @@ def _run_live(
     first_ts: Optional[float] = None
     last_ts: Optional[float] = None
     try:
-        with LiveFrameSource(**live_kwargs) as source:
-            # AF 적용 결과를 사람로그에 남긴다 — 실패해도 카메라는 드라이버 기본 초점으로 계속
-            # 돌기 때문에(§LiveFrameSource._apply_af), 로그가 없으면 "초점이 왜 이러지"를
-            # 현장에서 추적할 방법이 없다.
-            if source.af_error is not None:
-                logger.warning(
-                    "AF 설정 실패(드라이버 기본 초점으로 계속 진행) af_mode=%s: %s",
-                    af_mode, source.af_error,
-                )
-            elif source.af_applied:
-                logger.info(
-                    "AF 설정 완료 af_mode=%s lens_position=%s", af_mode, lens_position
-                )
-            else:
-                logger.info("AF 미개입(af_mode=None) — 드라이버 기본 동작 유지")
+        with source_factory() as source:
+            if on_open is not None:
+                on_open(source)
             for record in source:
                 if stop_event.is_set():
                     logger.info(
@@ -936,7 +956,7 @@ def _run_live(
                     break
     except KeyboardInterrupt:
         logger.info(
-            "라이브 모드 Ctrl+C로 종료 요청 — %d 프레임 처리 후 정상 종료", frame_count,
+            "%s Ctrl+C로 종료 요청 — %d 프레임 처리 후 정상 종료", mode_label, frame_count,
         )
     finally:
         if writer:
@@ -957,9 +977,143 @@ def _run_live(
                     print(f"WARNING: {msg} → --output-fps {measured:.2f} 권장")
                 else:
                     logger.info("%s (일치)", msg)
-        logger.info("live camera_num=%s 종료: %d 프레임 처리", camera_num, frame_count)
+        logger.info("%s 종료: %d 프레임 처리", device_label, frame_count)
         if display == "window":
             cv2.destroyAllWindows()
+
+
+def _run_live(
+    pipeline: Pipeline,
+    camera_num: int,
+    resolution: Optional[Tuple[int, int]],
+    retries: int,
+    retry_delay: float,
+    output: str | None,
+    display: str,
+    logger,
+    blackbox: BlackBoxLogger,
+    streamer: MjpegStreamer | None = None,
+    calib: Optional[CameraCalibration] = None,
+    state_machine: Optional[LandingStateMachine] = None,
+    sink: Optional[TargetSink] = None,
+    af_mode: Optional[str] = DEFAULT_AF_MODE,
+    lens_position: Optional[float] = None,
+    report_overlay: bool = False,
+    output_fps: Optional[float] = None,
+) -> None:
+    """CSI 실카메라 라이브 모드(picamera2). 프레임 루프는 `_run_source_loop` 공유."""
+    live_kwargs: dict = {
+        "camera_num": camera_num,
+        "retries": retries,
+        "retry_delay": retry_delay,
+        "af_mode": af_mode,
+        "lens_position": lens_position,
+    }
+    if resolution is not None:
+        live_kwargs["resolution"] = resolution
+
+    stop_event = threading.Event()
+    _install_sigterm_handler(stop_event)
+
+    def _log_af(source) -> None:
+        # AF 적용 결과를 사람로그에 남긴다 — 실패해도 카메라는 드라이버 기본 초점으로 계속
+        # 돌기 때문에(§LiveFrameSource._apply_af), 로그가 없으면 "초점이 왜 이러지"를
+        # 현장에서 추적할 방법이 없다.
+        if source.af_error is not None:
+            logger.warning(
+                "AF 설정 실패(드라이버 기본 초점으로 계속 진행) af_mode=%s: %s",
+                af_mode, source.af_error,
+            )
+        elif source.af_applied:
+            logger.info("AF 설정 완료 af_mode=%s lens_position=%s", af_mode, lens_position)
+        else:
+            logger.info("AF 미개입(af_mode=None) — 드라이버 기본 동작 유지")
+
+    _run_source_loop(
+        pipeline,
+        lambda: LiveFrameSource(**live_kwargs),
+        "라이브 모드",
+        f"live camera_num={camera_num}",
+        output, display, logger, blackbox, streamer, calib, state_machine, sink,
+        stop_event,
+        on_open=_log_af,
+        report_overlay=report_overlay,
+        output_fps=output_fps,
+    )
+
+
+def _run_uvc(
+    pipeline: Pipeline,
+    device: Union[int, str],
+    resolution: Optional[Tuple[int, int]],
+    fps: Optional[float],
+    fourcc: Optional[str],
+    retries: int,
+    retry_delay: float,
+    output: str | None,
+    display: str,
+    logger,
+    blackbox: BlackBoxLogger,
+    streamer: MjpegStreamer | None = None,
+    calib: Optional[CameraCalibration] = None,
+    state_machine: Optional[LandingStateMachine] = None,
+    sink: Optional[TargetSink] = None,
+    allow_resolution_mismatch: bool = False,
+    autofocus: Optional[bool] = None,
+    focus: Optional[float] = None,
+    report_overlay: bool = False,
+    output_fps: Optional[float] = None,
+) -> None:
+    """USB 웹캠(UVC) 라이브 모드 — 2026-07-30 CSI 카메라 하드웨어 사망 대응 임시 경로.
+
+    프레임 루프는 `_run_live`와 완전히 동일한 `_run_source_loop`를 쓴다(검증된 루프 재사용).
+    다른 건 소스 생성과 열린 직후 로깅뿐이다.
+    """
+    uvc_kwargs: dict = {
+        "device": device,
+        "retries": retries,
+        "retry_delay": retry_delay,
+        "allow_resolution_mismatch": allow_resolution_mismatch,
+        "autofocus": autofocus,
+        "focus": focus,
+    }
+    if resolution is not None:
+        uvc_kwargs["resolution"] = resolution
+    if fps is not None:
+        uvc_kwargs["fps"] = fps
+    if fourcc is not None:
+        uvc_kwargs["fourcc"] = fourcc
+
+    stop_event = threading.Event()
+    _install_sigterm_handler(stop_event)
+
+    def _log_uvc(source) -> None:
+        # 실제로 무엇이 걸렸는지가 진실이다 — 요청값을 로그에 남기면 현장에서 오독한다.
+        logger.info(
+            "웹캠 열림 device=%s 실제해상도=%s 실제fps=%s fourcc=%s",
+            device, source.actual_resolution, source.actual_fps, fourcc,
+        )
+        if source.actual_resolution != tuple(source.resolution):
+            # allow_resolution_mismatch로 통과한 경우 — 조용히 넘어가면 안 된다.
+            logger.warning(
+                "요청 해상도 %s 와 실제 %s 가 다르다(--uvc-allow-resolution-mismatch로 허용됨) "
+                "— 캘리브레이션이 실제 해상도 기준인지 반드시 확인할 것.",
+                tuple(source.resolution), source.actual_resolution,
+            )
+        if source.control_error is not None:
+            logger.warning("웹캠 초점 컨트롤 미적용(그대로 진행): %s", source.control_error)
+
+    _run_source_loop(
+        pipeline,
+        lambda: UvcFrameSource(**uvc_kwargs),
+        "USB 웹캠 모드",
+        f"uvc device={device}",
+        output, display, logger, blackbox, streamer, calib, state_machine, sink,
+        stop_event,
+        on_open=_log_uvc,
+        report_overlay=report_overlay,
+        output_fps=output_fps,
+    )
 
 
 def _make_target_sink(args, logger) -> TargetSink:
@@ -1035,6 +1189,43 @@ def main() -> None:
     parser.add_argument(
         "--live-retry-delay", type=float, default=1.0,
         help="라이브 모드 카메라 연결 재시도 간격(초, 기본 1.0)",
+    )
+    # USB 웹캠(UVC) 모드 — 2026-07-30 CSI 카메라 하드웨어 사망 대응. `--live-retries`/
+    # `--live-retry-delay`는 의미가 같아 웹캠 모드에서도 그대로 재사용한다(같은 노브를 두 벌로
+    # 나누면 현장에서 어느 쪽이 먹는지 헷갈린다).
+    parser.add_argument(
+        "--uvc-resolution",
+        type=_parse_resolution,
+        default=None,
+        metavar="WxH",
+        help="USB 웹캠 모드(`input`이 uvc/uvc:N/uvc:경로) 해상도. 기본 1920x1080. "
+             "🔴 요청과 실제가 다르면 하드 실패한다(캘리브레이션이 조용히 어긋나는 것 방지) — "
+             "지원 조합은 `v4l2-ctl -d <device> --list-formats-ext`로 확인할 것.",
+    )
+    parser.add_argument(
+        "--uvc-fps", type=float, default=None,
+        help="USB 웹캠 요청 fps (기본 30). 카메라가 광고만 하고 안 지키는 경우가 흔해 "
+             "검증하지 않고 실제값을 로그에 남긴다.",
+    )
+    parser.add_argument(
+        "--uvc-fourcc", default=None, metavar="MJPG",
+        help="USB 웹캠 픽셀 포맷 4글자 코드 (기본 MJPG). USB 2.0에서 FHD 30fps는 MJPEG "
+             "압축이 있어야만 나온다 — 무압축 YUYV면 카메라가 조용히 저fps로 떨어진다.",
+    )
+    parser.add_argument(
+        "--uvc-allow-resolution-mismatch", action="store_true",
+        help="요청 해상도가 안 걸려도 진행한다. 🔴 그 실제 해상도용 nominal.yaml을 먼저 만든 "
+             "뒤에만 쓸 것 — 아니면 solvePnP 거리·pose가 소리 없이 틀린다.",
+    )
+    parser.add_argument(
+        "--uvc-autofocus", choices=["on", "off"], default=None,
+        help="USB 웹캠 오토포커스. 미지정이면 손대지 않는다(기본). 기체는 10~40m를 보므로 "
+             "초점이 무한대 근처에 고정되는 편이 낫지만, 싸구려 웹캠은 대개 고정초점이라 "
+             "이 컨트롤 자체가 없다(그 경우 경고만 남기고 계속 진행).",
+    )
+    parser.add_argument(
+        "--uvc-focus", type=float, default=None,
+        help="수동 초점값, --uvc-autofocus off 전용. 드라이버마다 단위가 달라 실측으로 찾는다.",
     )
     # AF 제어(2026-07-28) — `tools/h264_stream.py`와 같은 인자 이름/의미를 쓴다(현장에서 두
     # 도구를 번갈아 쓰므로 이름이 갈리면 헷갈린다). 🔴 실기체 미검증.
@@ -1116,14 +1307,23 @@ def main() -> None:
         print("Error: --display file 은 --output 경로가 필요합니다.", file=sys.stderr)
         sys.exit(2)
 
+    if args.uvc_focus is not None and args.uvc_autofocus != "off":
+        # 오토포커스가 켜진 채 수동 초점값을 주면 드라이버가 곧바로 덮어쓴다 — 조용히 무시되는
+        # 인자를 남기지 않는다(UvcFrameSource 생성자와 같은 규칙, 여기서 먼저 걸어 CLI 오류로).
+        print(
+            "Error: --uvc-focus 는 --uvc-autofocus off 와 함께 써야 합니다.", file=sys.stderr
+        )
+        sys.exit(2)
+
     try:
         live_camera_num = _parse_live_camera_num(args.input)
+        uvc_device = _parse_uvc_device(args.input)
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(2)
 
     input_path: Optional[Path] = None
-    if live_camera_num is None:
+    if live_camera_num is None and uvc_device is None:
         input_path = Path(args.input)
         if not input_path.exists():
             print(f"Error: input file not found — {input_path}", file=sys.stderr)
@@ -1178,6 +1378,18 @@ def main() -> None:
                 state_machine, sink,
                 af_mode=(None if args.af_mode == "none" else args.af_mode),
                 lens_position=args.lens_position,
+                report_overlay=args.report_overlay,
+                output_fps=args.output_fps,
+            )
+        elif uvc_device is not None:
+            _run_uvc(
+                pipeline, uvc_device, args.uvc_resolution, args.uvc_fps, args.uvc_fourcc,
+                args.live_retries, args.live_retry_delay, args.output, args.display, logger,
+                blackbox, streamer, calib, state_machine, sink,
+                allow_resolution_mismatch=args.uvc_allow_resolution_mismatch,
+                autofocus=(None if args.uvc_autofocus is None
+                           else args.uvc_autofocus == "on"),
+                focus=args.uvc_focus,
                 report_overlay=args.report_overlay,
                 output_fps=args.output_fps,
             )
