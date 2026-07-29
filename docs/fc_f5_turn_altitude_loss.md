@@ -581,8 +581,10 @@ grep -n "state.roll\|\.roll\b\|curvature\|kappa" \
   `PX4_DIR=/root/PX4-vehicle`(`c890d9db0a` + F-17/F-4 워킹트리 패치). `make px4_sitl_default`
   재실행 → `ninja: no work to do` = **바이너리가 패치 반영본**임을 확인하고 시작했다.
 - **코드 변경 0.** PX4 파라미터만 바꿨다. 우리 노드도 `fc_ros_params.yaml` 도 무변경.
-- 회귀 기준선 701건(`fc_bridge/tests` 260 + `vtol_sim` 47 + `fc_ros/test` 394) **전건 통과**
-  (`__pycache__` 선삭제 후 실측).
+- 회귀 기준선 **783건**(`fc_bridge/tests` 260 + `vtol_sim` 47 + `fc_ros/test` 394 +
+  `tools` 82 — CLAUDE.md 기준선, `51b173e` 로 이 세션 도중 명문화됨) **전건 통과**
+  (`__pycache__` 선삭제 후 실측). `tools` 는 이 세션이 `run_scenario.py` 를 고치고
+  `f5_turn_probe.py` 를 추가했으므로 반드시 포함해야 하는 경로다.
 
 ### 12.1 파라미터를 어떻게 넣었나 — `--px4-param` 신설
 
