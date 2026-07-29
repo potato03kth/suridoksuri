@@ -475,10 +475,10 @@ vision 프로세스 **SIGKILL** / 소켓 끊김 / attitude stale / `valid=false`
 **SITL 합성 vision 발행기는 이제 저장소에 있다: `tools/sitl/fake_vision.py`**
 (§6-1 장애주입 6종을 인자로 낼 수 있다). 종전엔 폐기 클론에만 있었다.
 
-### 8-2. 🔴 2026-07-29 후속 결함 6건 — F2 가 "동작한다"와 "믿을 수 있다" 사이
+### 8-2. 🔴 2026-07-29 후속 결함 7건 — F2 가 "동작한다"와 "믿을 수 있다" 사이
 
 `9c5d17f`(블로커 2건 수정)로 F2 는 **동작하게** 됐고, 그 검증(`6e3ea0c`) 과정에서
-아래 6건이 드러났다. 전부 "죽지는 않지만 틀린 판단을 하거나 시간을 태우는" 결함이다.
+아래 7건이 드러났다(g 는 a~f 를 고친 뒤 SITL 에서 새로 드러났다). 전부 "죽지는 않지만 틀린 판단을 하거나 시간을 태우는" 결함이다.
 
 | # | 무엇이 틀렸나 | 지금 |
 |---|---|---|
@@ -487,10 +487,11 @@ vision 프로세스 **SIGKILL** / 소켓 끊김 / attitude stale / `valid=false`
 | **c** | **`_step_precision_land` 가 `link_dead` 를 안 봤다.** `_step_vision_search` 는 즉시 GPS 착륙으로 빠지는데 여기엔 그 분기가 없어 생산자가 죽어도 **전체 시한을 다 채운 뒤에야** 폴백했다 | 같은 판정을 여기에도. 기체는 이미 래치 좌표 위에 있으므로 그 자리 AUTO.LAND 가 최선이다 |
 | **d** | **`_pl_lost_elapsed` 가 죽은 변수였다** — 갱신만 되고 **읽는 곳 0건**. 유도 상실 전용 시한이 사실상 없었다 | `vision_lost_timeout`(5.0s). 🔴 **c 와 한 몸**: shim 자신이 죽으면 status 까지 끊겨 `link_dead` 가 **서지 않으므로**(페일세이프 3분법 §2-3 네 번째 칸) c 의 분기로는 안 잡힌다 — 그 구멍을 d 가 메운다 |
 | **e** | **`_check_path_within_range` 가 탐색 반경을 안 더했다.** `VISION_SEARCH` 는 `_RANGE_GUARDED_STATES` 에 **포함**되는데(D-b) 이륙 전 경고는 `path_max_range(_pts)` 만 봤다. 실제 필요조건은 `range_limit_m > d(WP1) + 탐색반경` 이다 | 경고가 탐색 최원점까지 본다. ⚠️ **기본값 조합이 이미 위반이다**: 300m 경로 + 반경 30m = 330m > 상한 300m. `vision_landing:=true` 로 날리려면 `range_limit_m` 을 같이 키워야 한다(실측 `range_guard.max_horiz_m` 이 역천이 오버슈트만으로 이미 331~344m 였다) |
+| **g** | 🔴 **해피패스의 정상 종료가 타임아웃이었다** (a~f 를 고친 뒤 SITL 에서 **새로 드러난** 7번째). `_step_precision_land` 의 하강 스케줄 하한이 `vision_land_handoff_agl` 과 **정확히 같은 숫자**(3.0m)라, FC 는 목표를 3.0m 에 놓고 기체는 위치제어 정상오차만큼 그 **위에** 정착한다 → `handoff_due` 의 `agl <= 3.0` 단측 판정이 **원리적으로 성립하지 않는다.** 실측 `V2_vision_happy`: AGL 3.4m 까지 정상 하강 후 **3.1m 에서 22초 정지** → 인계 대신 `precision_land_timeout` → GPS 폴백. 검증 세션 `R5` 가 못 본 이유는 `command_hint="land"` 가 42s 에 먼저 구해줬기 때문이다(②번 경로) | 판정을 점이 아닌 **허용대**(±0.5m)로. 새로운 종류의 실수가 아니라 **이 저장소가 이미 한 번 고친 것**이다 — `climbing_reached()` 가 "AGL >= transition_alt" 단측 판정으로 CLIMBING 무한대기를 겪고 `alt_tol` 구간으로 바꿨다. 허용대 0.5m 도 그쪽 기본값과 같은 숫자다. 인계가 3.0 → 3.5m 로 **높아지는** 방향이라 안전측이다 |
 | **f** | **HOLD 타임아웃으로 나오면 align 이 같은 조건에 다시 막혔다.** align 통과조건의 수평 항이 `dist(WP1) < wp1_land_radius(3.0m)` 라 **HOLD 를 타임아웃시킨 바로 그 조건**이다 → dwell/나선에 한 번도 못 들어간 채 120s × 2회차 = **240s** 를 태우고 GPS 폴백 | `vision_align_timeout`(30.0s) 초과 시 **dwell 을 건너뛰고 나선 강제 진행**. dwell 까지 태우면 30+3+89 = 122s 로 회차 상한 120s 를 넘긴다 — 건너뛰어야 119s 로 들어간다 |
 
-> **회귀 그물:** `fc_bridge/tests/test_precision_land.py`(순수 판정 12건 추가) +
-> `fc_ros/test/test_offboard_f2_state.py`(노드 전이 40건 추가). 파괴검증 9종
+> **회귀 그물:** `fc_bridge/tests/test_precision_land.py`(순수 판정 17건 추가) +
+> `fc_ros/test/test_offboard_f2_state.py`(노드 전이 43건 추가). 파괴검증 11종
 > 전부 red→green 확인. `test_offboard_f2_state.py` 에 **가짜 단조시계**
 > (`fake_clock()`)를 들였다 — `_step_precision_land` 가 `time.monotonic()` 을
 > 직접 부르므로 벽시계로는 "유도가 3초 끊겼다"를 **원리적으로 재현할 수 없고**,

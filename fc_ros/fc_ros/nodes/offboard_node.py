@@ -56,6 +56,7 @@ from fc_bridge.execution.search_pattern import (
 from fc_bridge.execution.precision_land import (
     latch_candidate, descend_allowed, handoff_due, search_pass_next,
     latch_altitude_ok, precision_land_deadline_s, descent_budget_s,
+    HANDOFF_ALT_TOL_M,
 )
 from fc_ros.adapters.vision_target_bridge import (
     VisionTargetBridge, subscribe as subscribe_vision,
@@ -1957,8 +1958,9 @@ class OffboardNode(Node):
         #    `closed_loop_floor_agl_m` = vision의 `terminal_agl_m` = 3.0m라
         #    계약상 이미 "3m부터 AUTO.LAND 인계"다.
         if handoff_due(agl, self._vs_handoff_agl, vt.land_handoff_hint):
-            why = (f"인계고도 도달 ({agl:.1f}m AGL)"
-                   if agl <= self._vs_handoff_agl
+            why = (f"인계고도 도달 ({agl:.1f}m AGL, 목표 "
+                   f"{self._vs_handoff_agl:.1f}m±{HANDOFF_ALT_TOL_M:.1f})"
+                   if agl <= self._vs_handoff_agl + HANDOFF_ALT_TOL_M
                    else f"vision land 인계 힌트 (state={vt.state})")
             self.get_logger().info(f"{why} → LANDING (AUTO.LAND)")
             self._sm = _State.LANDING

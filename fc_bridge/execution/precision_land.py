@@ -156,21 +156,50 @@ def descend_allowed(guided: bool,
         float(horiz_err_m) < float(align_tol_m)
 
 
+#: 인계고도 판정 허용대(m). `state_logic.climbing_reached()` 의 `alt_tol` 기본값과
+#: **같은 숫자이고 같은 이유**다 — 고도 도달을 점으로 판정하면 기체가 목표 바로
+#: 옆(±0.1m)에 정착했을 때 영영 성립하지 않는다.
+HANDOFF_ALT_TOL_M = 0.5
+
+
 def handoff_due(agl_m: float,
                 handoff_agl_m: float,
-                land_hint: bool) -> bool:
+                land_hint: bool,
+                alt_tol_m: float = HANDOFF_ALT_TOL_M) -> bool:
     """AUTO.LAND 로 인계할 시점인가.
 
     두 경로다:
-      ① `agl <= handoff_agl_m` — 계약상 바닥(`closed_loop_floor_agl_m` =
-         vision 의 `terminal_agl_m` = 3.0m). 그 밑은 비전 폐루프의 몫이 아니다.
+      ① `agl <= handoff_agl_m + alt_tol_m` — 계약상 바닥
+         (`closed_loop_floor_agl_m` = vision 의 `terminal_agl_m` = 3.0m).
+         그 밑은 비전 폐루프의 몫이 아니다.
+
+         🔴 **허용대가 왜 필요한가 (2026-07-29 SITL 실측, F2-g).** 종전 판정은
+         `agl <= handoff_agl_m` 단측이었는데, `_step_precision_land` 의 하강
+         스케줄이 **정확히 같은 고도**(`_takeoff_ground_h + handoff_agl`)를
+         하한으로 쓴다. 즉 FC 는 목표를 3.0m 에 놓고, 기체는 위치제어 정상
+         오차만큼 그 **위에** 정착한다 → 조건이 원리적으로 성립하지 않는다.
+         실측 `V2_vision_happy`: AGL 3.4m 까지 정상 하강한 뒤 **3.1m 에서
+         22초간 정지**했고, 인계 대신 `precision_land_timeout` 이 걸려 GPS
+         폴백으로 끝났다. 즉 해피패스의 정상 종료가 타임아웃이었다.
+         (2026-07-29 검증 세션 `R5` 가 이걸 못 본 이유는 vision 의
+         `command_hint="land"` 가 42s 에 먼저 구해줬기 때문이다 — ②번 경로.)
+
+         이건 새로운 종류의 실수가 아니라 **이 저장소가 이미 한 번 고친 것**이다:
+         `climbing_reached()` 가 "AGL >= transition_alt" 단측 판정으로 목표고도
+         바로 아래에 정착해 CLIMBING 이 무한 대기하던 문제를 겪고 목표고도를
+         점이 아닌 반경 `alt_tol` 구간으로 바꿨다. 기본값 0.5m 도 그쪽과 같다.
+
+         ⚠️ 허용대는 인계를 **더 높은 고도에서** 일으킨다(3.0 → 3.5m). 그쪽이
+         안전 방향이다 — 폐루프를 더 일찍 놓는 것이고, 캘리브레이션이
+         `not_for_closed_loop_30cm` 인 현 상태에서 저고도 폐루프는 이득이 없다.
       ② vision 의 `command_hint == "land"` — TERMINAL 에서 블라인드가 2초를
          넘었다는 뜻이다. advisory 지만 **무시하면 설계 의도와 반대로 간다**:
          2초째 못 보는 추정으로 횡방향을 계속 물고 늘어지는 것은 오차를
          **키우는** 모드이고, 접지 순간의 횡속도가 0.105m 라이즈드 매트
          가장자리 전복으로 직결된다.
     """
-    return float(agl_m) <= float(handoff_agl_m) or bool(land_hint)
+    return float(agl_m) <= float(handoff_agl_m) + float(alt_tol_m) \
+        or bool(land_hint)
 
 
 def search_pass_next(pass_idx: int, max_passes: int = 2) -> Optional[int]:

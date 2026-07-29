@@ -1055,3 +1055,63 @@ def test_hold_timeout_path_reaches_the_spiral_end_to_end():
         else:
             break
     assert n._sm == _State.VISION_SEARCH and n._vs_phase == "spiral"
+
+
+# ══════════════════════════════════════════════════════════════════
+# F2-g — 해피패스의 정상 종료가 타임아웃이었다 (2026-07-29 SITL 실측)
+# ══════════════════════════════════════════════════════════════════
+#
+# 🔴 `V2_vision_happy` 실측: AGL 32.8m 래치 → 38초에 걸쳐 3.4m 까지 정상 하강
+#   → **3.1m 에서 22초 정지** → `precision_land_timeout` → GPS 폴백.
+#   `_pl_alt` 하한이 `_takeoff_ground_h + vision_land_handoff_agl` 라 FC 는
+#   목표를 3.0m 에 놓고, 기체는 위치제어 정상오차만큼 그 위에 정착한다.
+#   즉 `agl <= 3.0` 은 원리적으로 성립할 수 없었다.
+
+
+def test_precision_land_hands_over_at_the_settling_altitude():
+    """🔴 핵심 회귀. 실측 정착 고도 3.1m 에서 AUTO.LAND 로 인계해야 한다."""
+    n = make_node()
+    _enter_pl_at(n, 25.0)
+    feed_frame(n, WP1[0], WP1[1], 0.0)
+    n._step_precision_land(at_wp1(alt=GROUND_H + 3.1))
+    assert n._sm == _State.LANDING, (
+        "AGL 3.1m 에서 인계가 안 섭니다 — 하강 스케줄이 3.0m 에서 멈추므로 "
+        "기체는 영영 그 아래로 안 갑니다 (V2 실측 22초 정지 후 타임아웃)")
+
+
+def test_precision_land_does_not_time_out_on_the_happy_path():
+    """🔴 통합 회귀 — 해피패스가 타임아웃으로 끝나면 안 된다.
+
+    V2 실측 궤적(래치 32.8m → 0.775 m/s 하강 → 3.1m 정착)을 그대로 재생한다.
+    종전 코드는 여기서 `_pl_elapsed` 가 시한을 채울 때까지 3.1m 를 맴돌았다."""
+    with fake_clock() as clk:
+        n = make_node()
+        _enter_pl_at(n, 32.8)
+        agl = 32.8
+        for _ in range(1200):                       # 120s 치 — 시한(60s)의 2배
+            if n._sm != _State.PRECISION_LAND:
+                break
+            feed_frame(n, WP1[0], WP1[1], 0.0, t=clk.monotonic())
+            n._step_precision_land(at_wp1(alt=GROUND_H + agl))
+            clk.advance(n._dt)
+            agl = max(3.1, agl - 0.775 * n._dt)     # 3.1m 에서 정착(실측)
+        assert n._sm == _State.LANDING
+        assert n._pl_elapsed < n._pl_deadline, (
+            f"시한 {n._pl_deadline:.0f}s 를 다 쓰고 폴백했습니다 "
+            f"(t={n._pl_elapsed:.1f}s) — 해피패스가 타임아웃으로 끝납니다")
+        assert any("인계고도 도달" in ln for ln in n.log.lines), \
+            f"인계가 아니라 다른 경로로 나갔습니다: {n.log.lines[-3:]}"
+
+
+def test_precision_land_does_not_hand_over_above_the_tolerance_band():
+    """🔴 반대 방향 — 허용대가 폐루프 구간을 삼키면 안 된다.
+
+    인계고도의 **2배**(6.0m)에서 본다. 25m 같은 순항고도로 시험하면 허용대를
+    3.0m 로 잘못 키워도 통과해 그물이 되지 않는다(실측: 그 형태의 파괴가
+    green 이었다). 6.0m 는 아직 비전 폐루프가 일하는 고도다."""
+    n = make_node()
+    _enter_pl_at(n, 25.0)
+    feed_frame(n, WP1[0], WP1[1], 0.0)
+    n._step_precision_land(at_wp1(alt=GROUND_H + 2.0 * n._vs_handoff_agl))
+    assert n._sm == _State.PRECISION_LAND, \
+        "인계고도 2배에서 손을 뗐습니다 — 허용대가 폐루프 구간을 삼켰습니다"

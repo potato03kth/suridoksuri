@@ -11,6 +11,7 @@ import pytest
 from fc_bridge.execution.precision_land import (
     latch_candidate, descend_allowed, handoff_due, search_pass_next,
     latch_altitude_ok, descent_budget_s, precision_land_deadline_s,
+    HANDOFF_ALT_TOL_M,
 )
 
 
@@ -98,9 +99,21 @@ def test_descend_boundary_strict():
 # ── handoff_due ─────────────────────────────────────────────
 
 def test_handoff_on_floor_altitude():
+    """계약상 바닥(3.0m)과 그 아래는 당연히 인계다.
+
+    🔴 **2026-07-29 변경(F2-g):** 이 테스트에는 원래
+    `assert handoff_due(3.1, 3.0, False) is False` 가 있었고, 그 한 줄이
+    **결함을 계약으로 고정하고 있었다.** `_step_precision_land` 의 하강 스케줄
+    하한이 `handoff_agl` 과 같은 숫자라 기체는 위치제어 정상오차만큼 그 위에
+    정착한다 — 즉 3.1m 는 "아직 멀었다"가 아니라 **정상 하강이 끝난 상태**다.
+    SITL 실측(`V2_vision_happy`)에서 기체가 정확히 3.1m 에서 22초간 멈춰 있다가
+    인계 대신 타임아웃으로 GPS 폴백했다. 지금은 허용대 0.5m 안이면 인계한다
+    (아래 `test_handoff_fires_at_the_measured_settling_altitude`).
+    """
     assert handoff_due(3.0, 3.0, False) is True
     assert handoff_due(2.9, 3.0, False) is True
-    assert handoff_due(3.1, 3.0, False) is False
+    # 허용대 밖은 종전과 같이 인계하지 않는다.
+    assert handoff_due(3.0 + HANDOFF_ALT_TOL_M + 0.01, 3.0, False) is False
 
 
 def test_handoff_on_land_hint_at_any_altitude():
@@ -223,3 +236,47 @@ def test_deadline_preserves_disabled_convention():
     비활성이 조용히 활성으로 뒤집혀, 끄려던 시한이 되레 걸린다."""
     assert precision_land_deadline_s(50.0, 3.0, 0.8, 0.0) == 0.0
     assert precision_land_deadline_s(50.0, 3.0, 0.8, -1.0) == -1.0
+
+
+# ══════════════════════════════════════════════════════════════
+# F2-g — 인계고도 판정이 원리적으로 성립하지 않았다 (2026-07-29 SITL 실측)
+# ══════════════════════════════════════════════════════════════
+#
+# 🔴 `_step_precision_land` 의 하강 스케줄 하한이 `handoff_agl` 과 **같은 숫자**라,
+#   FC 는 목표를 3.0m 에 놓고 기체는 위치제어 정상오차만큼 그 위에 정착한다.
+#   단측 판정(`agl <= 3.0`)은 그래서 영영 참이 되지 않는다.
+#   실측(`logs/2026-07-29_f2_followup/V2_vision_happy`): AGL 3.4m 까지 정상
+#   하강한 뒤 **3.1m 에서 22초 정지**, 인계 대신 타임아웃 → GPS 폴백.
+
+
+def test_handoff_fires_at_the_measured_settling_altitude():
+    """🔴 핵심 회귀. 실측 정착 고도 3.1m 에서 인계가 서야 한다."""
+    assert handoff_due(3.1, 3.0, False) is True, (
+        "AGL 3.1m 에서 인계가 안 섭니다 — 하강 스케줄 하한이 3.0m 라 "
+        "기체는 영영 3.0 아래로 내려가지 않습니다 (V2 실측 22초 정지)")
+
+
+def test_handoff_tolerance_matches_the_climbing_precedent():
+    """같은 실패 모드를 이 저장소는 `climbing_reached()` 에서 이미 한 번 고쳤다 —
+    허용대 숫자를 그쪽과 맞춰 둔다(두 곳이 갈라지면 근거가 사라진다)."""
+    import inspect
+    from fc_bridge.execution import state_logic
+    climb_tol = inspect.signature(
+        state_logic.climbing_reached).parameters["alt_tol"].default
+    assert HANDOFF_ALT_TOL_M == pytest.approx(climb_tol)
+
+
+def test_handoff_still_refuses_well_above_the_floor():
+    """허용대가 인계를 아무 고도에서나 일으키면 안 된다 — 폐루프 구간이 사라진다."""
+    assert handoff_due(4.0, 3.0, False) is False
+    assert handoff_due(20.0, 3.0, False) is False
+
+
+def test_handoff_tolerance_is_smaller_than_the_floor_itself():
+    """🔴 허용대가 인계고도만큼 커지면 `agl <= 2*floor` 가 되어 6m 에서 손을 뗀다."""
+    assert HANDOFF_ALT_TOL_M < 3.0
+
+
+def test_land_hint_still_wins_regardless_of_altitude():
+    """②번 경로는 그대로다 — advisory 힌트는 고도와 무관하게 인계를 일으킨다."""
+    assert handoff_due(25.0, 3.0, True) is True
