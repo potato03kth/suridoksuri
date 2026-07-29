@@ -684,6 +684,40 @@ def snapshot_ulogs() -> set[Path]:
     return set(PX4_LOG_DIR.rglob("*.ulg"))
 
 
+def _kill_own_gz(procs) -> None:
+    """**이 런이 띄운** 프로세스 그룹의 `gz sim` 만 정리한다.
+
+    `Proc` 는 `start_new_session=True` 로 띄우므로 자식이 세션·그룹 리더가 되어
+    **pgid == pid** 다. `gz sim` 은 px4 가 spawn 하므로 그 그룹을 물려받는다.
+    따라서 `ps` 의 pgid 가 우리 자식 pid 집합에 드는 것만 죽이면 남의 런은 건드리지 않는다.
+
+    (종전 `pkill -f "gz sim"` 은 시스템 전역이라 병렬 세션의 gz 를 같이 죽였다.)
+    """
+    own = {p.p.pid for p in procs}
+    if not own:
+        return
+    try:
+        out = subprocess.run(["ps", "-eo", "pid=,pgid=,args="],
+                             capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3 or "gz sim" not in parts[2]:
+            continue
+        try:
+            pid, pgid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        if pgid not in own:
+            continue          # 남의 런 — 건드리지 않는다
+        try:
+            os.kill(pid, signal.SIGKILL)
+            log(f"gz 정리 pid={pid} (pgid={pgid})")
+        except (ProcessLookupError, PermissionError):
+            continue
+
+
 def collect_ulogs(before: set[Path], outdir: Path) -> list[str]:
     after = snapshot_ulogs()
     new = sorted(after - before, key=lambda p: p.stat().st_mtime)
@@ -968,10 +1002,16 @@ def main() -> int:
         # 역순 정리: launch → mavros → px4 (PX4 는 마지막에 SIGINT 로 ulog flush)
         for p in reversed(procs):
             p.stop()
-        # gz 잔류 청소 — 이것만으로는 부족할 수 있다(wsl --terminate 권장)
-        subprocess.run(["pkill", "-f", "gz sim"],
-                       stdin=subprocess.DEVNULL,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # gz 잔류 청소 — **이 런이 띄운 프로세스 트리에 한정한다.**
+        #
+        # 🔴 2026-07-29: 종전에는 `pkill -f "gz sim"` 을 시스템 전역으로 불렀다.
+        # 세션이 하나뿐이던 시절 코드이고, 서브에이전트를 병렬로 굴리면
+        # **내 런이 끝날 때마다 남의 gz 가 같이 죽는다.** 실제로 그날 다른 세션의
+        # SITL 런 3~4건이 이 한 줄로 날아갔다(F2 후속·C1b 세션 양쪽에서 보고).
+        # (같은 배포판의 SITL 은 px4/mavros 포트 14540/14580 고정이라 애초에
+        #  단일 테넌트다 — 동시 실행 자체를 피하는 것이 상책이고, 이 정리는
+        #  그럼에도 남의 런을 죽이지 않기 위한 안전장치다.)
+        _kill_own_gz(procs)
         time.sleep(2.0)
         meta["ulogs"] = collect_ulogs(ulogs_before, outdir)
         trim_file(outdir / "mavros.log")
