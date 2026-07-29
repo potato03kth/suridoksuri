@@ -231,6 +231,9 @@ def wait_mavros_connected(timeout_s: float) -> tuple[bool, str]:
 
 
 RE_PARAM_VALUE = re.compile(r"value is:\s*(-?\d+)")
+# `ros2 param get` 은 타입에 따라 "Integer value is: 5" / "Double value is: 0.5"
+# 를 낸다. 정수 전용 RE_PARAM_VALUE 로는 float 파라미터를 못 읽는다(FW_T_*).
+RE_PARAM_NUM = re.compile(r"value is:\s*(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)")
 
 
 def _param_get(name: str) -> int | None:
@@ -239,6 +242,14 @@ def _param_get(name: str) -> int | None:
         return None
     m = RE_PARAM_VALUE.search(out)
     return int(m.group(1)) if m else None
+
+
+def _param_get_num(name: str) -> float | None:
+    rc, out = sh(["ros2", "param", "get", "/mavros/param", name], timeout=20)
+    if rc != 0:
+        return None
+    m = RE_PARAM_NUM.search(out)
+    return float(m.group(1)) if m else None
 
 
 def set_preflight_bypass(timeout_s: float = 180.0) -> dict:
@@ -273,6 +284,65 @@ def set_preflight_bypass(timeout_s: float = 180.0) -> dict:
         results[name] = {"ok": verified, "want": value, "readback": cur,
                          "output": out.strip()[-200:]}
         log(f"파라미터 {name}={value} → "
+            f"{'검증됨' if verified else f'검증 실패(readback={cur})'}")
+    return results
+
+
+def set_px4_params(specs: list[str], timeout_s: float = 120.0) -> dict:
+    """`--px4-param NAME=VALUE` 로 받은 **PX4 기체 파라미터**를 설정 + 되읽기 검증.
+
+    왜 별도 경로인가 — `--launch-arg` 는 **우리 노드**(`phase2.launch.py`)의 인자다.
+    `FW_T_SPDWEIGHT` 같은 것은 PX4 안의 값이라 그쪽으로는 절대 닿지 않는다.
+    `fc_ros_params.yaml` 을 고치는 것도 답이 아니다(우리 노드 파라미터가 아니다).
+
+    ⚠️ **PX4 는 파라미터를 저장한다** — SITL rootfs 에 남아 다음 런까지 따라온다.
+    그래서 "기준선 런에서는 아무것도 주지 않는다"는 방식은 위험하다. 직전 런의
+    값이 그대로 살아 있을 수 있다. **기준값도 매 런 명시적으로 준다**(예:
+    `--px4-param FW_T_SPDWEIGHT=1.0`).
+
+    ⚠️ MAVROS 파라미터 동기가 끝나기 전에는 `set` 이 성공을 돌려주고도 버려진다
+    (`set_preflight_bypass()` 주석 참조) → 여기서도 반드시 `get` 으로 되읽는다.
+    결과는 `meta.json` 의 `px4_params` 에 남고, 실제로 먹었는지는 ulog 의
+    `initial_parameters` 로 **2차 확인**할 수 있다(ARM 전에 설정되므로).
+    """
+    results: dict[str, dict] = {}
+    for spec in specs:
+        if "=" not in spec:
+            log(f"⚠️ --px4-param 형식 오류(무시): {spec!r} — NAME=VALUE 여야 한다")
+            continue
+        name, raw = spec.split("=", 1)
+        name, raw = name.strip(), raw.strip()
+        try:
+            want = float(raw)
+        except ValueError:
+            log(f"⚠️ --px4-param 값이 수치가 아니다(무시): {spec!r}")
+            continue
+        is_int = ("." not in raw and "e" not in raw.lower())
+        # `ros2 param set` 은 문자열에서 타입을 추론한다. PX4 FLOAT 파라미터에
+        # 정수 리터럴을 주면 타입 불일치로 거부되므로 소수점을 유지한다.
+        sent = raw
+        tol = 1e-6 if is_int else 1e-4
+        verified, out, cur = False, "", None
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout_s:
+            cur = _param_get_num(name)
+            if cur is None:                 # MAVROS 가 아직 이 파라미터를 모른다
+                time.sleep(3.0)
+                continue
+            if abs(cur - want) <= tol:
+                verified = True
+                break
+            rc, out = sh(["ros2", "param", "set", "/mavros/param",
+                          name, sent], timeout=25)
+            time.sleep(2.0)
+            cur = _param_get_num(name)
+            if cur is not None and abs(cur - want) <= tol:
+                verified = True
+                break
+            time.sleep(2.0)
+        results[name] = {"ok": verified, "want": want, "readback": cur,
+                         "output": out.strip()[-200:]}
+        log(f"PX4 파라미터 {name}={want} → "
             f"{'검증됨' if verified else f'검증 실패(readback={cur})'}")
     return results
 
@@ -780,6 +850,14 @@ def main() -> int:
                          "fc_ros_params.yaml 을 고치지 말고 이 옵션으로만 줄 것 "
                          "(예: --launch-arg range_limit_m=1200.0). "
                          "적용된 값은 meta.json 의 launch_args/launch_argv 에 그대로 남는다")
+    ap.add_argument("--px4-param", action="append", default=[], metavar="NAME=VALUE",
+                    help="**PX4 기체 파라미터**를 MAVROS 로 설정한다 (반복 지정 가능). "
+                         "--launch-arg 는 우리 노드 인자라 PX4 안까지 닿지 않는다 "
+                         "(예: --px4-param FW_T_SPDWEIGHT=0.5). "
+                         "⚠️ PX4 는 파라미터를 저장하므로 직전 런의 값이 따라온다 — "
+                         "비교군의 기준값도 매 런 명시할 것. 되읽기 검증 결과는 "
+                         "meta.json 의 px4_params 에 남고, ulog 의 initial_parameters "
+                         "로 2차 확인 가능하다")
     args = ap.parse_args()
 
     sc = load_scenario(args.scenario_id)
@@ -813,6 +891,7 @@ def main() -> int:
         "launch_args": effective_launch_args,
         "launch_args_scenario": sc.get("launch_args") or {},
         "launch_args_cli": list(args.launch_arg),
+        "px4_params_cli": list(args.px4_param),
         "launch_argv": ["ros2", "launch", "fc_ros", "phase2.launch.py", *launch_args],
         "home": sc.get("home"),
         "timeout_s": float(sc.get("timeout_s", 420)),
@@ -893,6 +972,15 @@ def main() -> int:
         if bad:
             log(f"경고: 프리플라이트 우회 파라미터 검증 실패 {bad} — "
                 f"ARM 이 거부될 수 있다 (meta.json preflight_bypass 확인)")
+
+        # 3b) PX4 기체 파라미터 주입 (--px4-param). ARM 전에 끝나므로 ulog 의
+        #     initial_parameters 에 그대로 실린다 = 사후 2차 검증 가능.
+        if args.px4_param:
+            meta["px4_params"] = set_px4_params(args.px4_param)
+            bad2 = [k for k, v in meta["px4_params"].items() if not v["ok"]]
+            if bad2:
+                log(f"⚠️ PX4 파라미터 검증 실패 {bad2} — 이 런의 결과는 "
+                    f"의도한 파라미터의 결과가 아니다 (meta.json px4_params 확인)")
 
         # 4) 미션 launch
         node_log_path = outdir / "node.log"

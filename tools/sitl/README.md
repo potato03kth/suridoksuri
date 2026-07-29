@@ -55,6 +55,26 @@ python3 tools/sitl/run_scenario.py C2 \
   검증 목적일 때만 이 옵션으로 키운다.
 - `--outdir`/`--run-id` 로 기존 캠페인 산출물을 덮어쓰지 않게 분리한다.
 
+### PX4 기체 파라미터는 `--px4-param` 으로 (F-5 검증에서 신설)
+
+`FW_T_SPDWEIGHT` 처럼 **PX4 안**의 값은 `--launch-arg` 로 닿지 않는다(그건 우리 노드
+인자다). `fc_ros_params.yaml` 도 아니다. MAVROS 파라미터 서비스로 넣는다:
+
+```bash
+python3 tools/sitl/run_scenario.py B4 --run-id B4_spd05 \
+  --px4-param FW_T_SPDWEIGHT=0.5 --px4-param FW_T_ALT_TC=5.0
+```
+
+- 프리플라이트 우회 직후 · **ARM 전**에 설정된다 → ulog 의 `initial_parameters` 에
+  그대로 실려 **사후 2차 검증**이 된다(`f5_turn_probe.py` 가 자동으로 확인한다).
+- `set` 뒤 반드시 `get` 으로 되읽고 결과를 `meta.json` 의 `px4_params` 에 남긴다
+  (동기 완료 전 `set` 이 성공을 반환하고도 버려지는 함정은 프리플라이트와 동일).
+- 🔴 **PX4 는 파라미터를 저장한다 — 직전 런의 값이 다음 런까지 따라온다.**
+  그래서 **기준선 런에도 기준값을 명시**해야 한다(`--px4-param FW_T_SPDWEIGHT=1.0`).
+  "아무것도 안 주면 기본값"이 아니다.
+- 값에 소수점을 유지할 것(`0.5`, `5.0`). PX4 FLOAT 파라미터에 정수 리터럴을 주면
+  `ros2 param set` 이 int 로 추론해 타입 불일치가 난다.
+
 ## 파일
 
 | 파일 | 역할 |
