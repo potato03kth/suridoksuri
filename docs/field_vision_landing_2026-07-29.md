@@ -37,15 +37,46 @@ last_updated: 2026-07-29
 
 ```bash
 ssh suri@100.67.27.83
+source /home/suri/local-libcamera/env.sh
 cd ~/drone_ws/src/suridoksuri
-/home/suri/local-libcamera-src/picam-venv/bin/python3 -m vision.main live \
+$PICAM_PYTHON -m vision.main live \
   --preset vision/presets/vertiport_fine.yaml --target-sink
 ```
+
+🔴 **`source /home/suri/local-libcamera/env.sh` 가 없으면 즉사한다** (2026-07-29 실기체에서
+재현). picam-venv 인터프리터를 직접 부르면 `ModuleNotFoundError: No module named 'libcamera'`
+다 — libcamera 는 시스템 패키지가 아니라 **로컬 prefix 소스빌드**라서(Ubuntu 24.04 의
+`libcamera-ipa` 에 RPi5 용 `ipa_rpi_pisp.so` 가 없다) `LD_LIBRARY_PATH`·
+`LIBCAMERA_IPA_MODULE_PATH`·`LIBCAMERA_IPA_PROXY_PATH`·`PYTHONPATH` 를 그 스크립트가 깔아준다.
+`$PICAM_PYTHON` 도 거기서 나온다(= `/home/suri/local-libcamera-src/picam-venv/bin/python3`).
 
 🔴 **`--preset` 은 `vision/presets/…` 다** (2026-07-29 실기체에서 확인). `main.py` 는
 `Pipeline.from_config(args.preset)` 로 **cwd 기준 상대경로**를 그대로 연다 — 위 `cd` 가
 저장소 루트라 `presets/vertiport_fine.yaml` 는 `FileNotFoundError` 로 즉사한다
 (`vision/main.py` docstring 의 예시는 `vision/` 안에서 실행하는 경우다).
+
+🔴 **§0 이 "✅ 호스트 vision 런타임"이라고 적은 것은 파이썬 런타임뿐이고 카메라가 아니다.**
+2026-07-29 재점검에서 **카메라가 0 대로 잡히는 것이 확인됐다** — 아래 §1-1.
+
+### 1-1. 🔴 카메라 사전 확인 (현장 도착 즉시, vision 3터미널보다 먼저)
+
+```bash
+source /home/suri/local-libcamera/env.sh && cam -l
+```
+
+`Available cameras:` 뒤에 **아무것도 없으면 vision 은 못 쓴다.** 커널 쪽 확인:
+
+```bash
+sudo dmesg | grep -i imx708 | tail -4
+```
+
+| 보이는 것 | 뜻 |
+|---|---|
+| `failed to read chip id 708, with error -5` | **I2C 로 센서가 응답하지 않는다 = 물리 결선.** 리본을 양끝(카메라 보드·RPi CSI) 다시 앉히고 래치·방향 확인 |
+| 아무 에러 없음 + `cam -l` 에 카메라 1대 | 정상 |
+
+⚠️ **드라이버 재바인드(`modprobe -r imx708 && modprobe imx708`)로는 안 고쳐진다** — 실측으로
+같은 `-5` 가 그대로 재현됐다. 소프트웨어 상태 문제가 아니다.
 
 - 포트 **8091** 에 TCP 서버가 뜬다. 이미 점유돼 있으면 **종료코드 3** 으로 즉사한다
   (`ss -ltnp | grep 8091` 로 확인).
