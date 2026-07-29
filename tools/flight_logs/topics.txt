@@ -10,3 +10,11 @@
 /mavros/imu/data
 /fc_ros/override
 /rosout
+# 비전 정밀착륙(F2) — shim_node 가 내는 3종. `vision_landing:=false` 로 날면
+# 애초에 안 생기지만, rosbag2 는 **목록에 있고 없는 토픽에 죽지 않고**(실기체 확인,
+# 2026-07-29) 나중에 생기면 그때 구독한다 — 즉 켜든 끄든 이 목록은 그대로 두면 된다.
+# 이게 없으면 F2 비행에서 shim 이 실제로 무엇을 발행했는지 ROS 쪽 기록이 남지 않는다
+# (호스트 vision 의 JSONL 블랙박스는 소켓 앞단이라 shim 의 좌표변환 결과가 안 들어간다).
+/vision/landing_setpoint
+/vision/target_pose
+/vision/target_status
