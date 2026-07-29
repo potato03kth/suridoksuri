@@ -19,6 +19,90 @@ from typing import Optional, Sequence
 
 import numpy as np
 
+#: 🔴 정밀착륙 시한을 **래치 고도에 맞춰 늘릴 때**의 여유 배수(F2-b).
+#:
+#: `precision_land_timeout` 은 원래 "25m 탐색고도에서 래치한다"를 암묵적으로
+#: 가정한 상수였다 — 그 경우 하강만 (25−3)/0.8 = 27.5s 라 60s 안에 정렬 여유가
+#: 32.5s 남는다. 그런데 래치는 탐색고도 도달 **전**(HOLD 고도)에도 설 수 있고,
+#: 2026-07-29 검증 R5 는 실제로 **AGL 50.0m 에서 래치**했다. 거기서는 하강만
+#: (49.6−3.0)/0.8 = 58.3s 라 60s 를 정렬 몇 초로 넘겨 GPS 폴백이 된다
+#: (R5 는 vision 의 `command_hint="land"` 가 42s 에 구해줬을 뿐이다).
+#:
+#: 배수 1.6 의 근거는 **같은 R5 런의 실측 하강 이력**이다:
+#:   * 명목 0.8 m/s 스케줄 대비 진입~인계 전 구간 평균 **0.72 m/s**
+#:     (AGL 50.0m@t=2s → 22.7m@t=38s), 즉 이상적 하강시간의 **1.11배**.
+#:   * 그 1.11 배 위에 정렬 대기·유도 끊김의 여유로 약 44% 를 더 얹은 값이다.
+#: 이 배수를 낮추면 "정상적으로 잘 내려오고 있는데 시계가 먼저 끝나" GPS 로
+#: 떨어지는, F2 의 존재 이유를 무효화하는 실패 모드가 돌아온다.
+DESCENT_BUDGET_FACTOR = 1.6
+
+
+def latch_altitude_ok(agl_m: float, max_latch_agl_m: float) -> bool:
+    """그 고도에서 잡은 좌표로 하강을 시작해도 되는가 (F2-a).
+
+    🔴 **래치는 "여기로 내려간다"는 되돌릴 수 없는 결정이다.** 검출 신뢰구간
+    밖(`search_pattern.max_detection_altitude_m()` = 기본 33.57m)에서 온
+    setpoint 는 ①타겟이 `min_area` 미달이라 애초에 나올 수 없는 검출이거나
+    ②오탐이다. 어느 쪽이든 그 좌표로 하강을 시작하면 엉뚱한 곳에 내린다.
+    2026-07-29 검증 R5 가 **AGL 49.6m**(상한 33.57m 초과)에서 래치했다.
+
+    래치를 막아도 손해가 없다는 것이 이 게이트의 핵심이다 — 탐색은 어차피
+    탐색고도(25m)로 내려가는 중이고, 낮을수록 검출은 쉬워진다. 거른 프레임은
+    "버린 기회"가 아니라 "몇 초 뒤 더 좋은 조건에서 다시 오는 것"이다.
+
+    `max_latch_agl_m <= 0` 이면 상한 없음(비활성) — 이 저장소의 타임아웃·거리
+    상한과 같은 규약이다. 호출부가 파라미터 0(=자동 산출)을 먼저 해석해
+    양수로 바꿔 넘기므로, 여기서 0 을 보는 것은 **명시적 비활성**뿐이다.
+    """
+    lim = float(max_latch_agl_m)
+    if lim <= 0.0:
+        return True
+    return float(agl_m) <= lim
+
+
+def descent_budget_s(agl_m: float, handoff_agl_m: float,
+                     descend_speed_mps: float) -> float:
+    """래치 고도에서 인계고도까지 **이상적으로** 걸리는 하강시간 (s).
+
+    "이상적"은 매 틱 정렬이 서서 `descend_allowed()` 가 항상 참인 경우다.
+    실제로는 정렬 대기·유도 끊김으로 늘어나며, 그 여유는
+    `DESCENT_BUDGET_FACTOR` 가 담당한다.
+
+    `descend_speed_mps <= 0` 이면 하강이 성립하지 않으므로 0.0 을 준다 —
+    0 나눗셈으로 `inf` 를 시한에 심는 것보다 **시한이 짧아지는 쪽**이 안전측이다
+    (그 설정은 애초에 내려갈 수 없어 어차피 시한으로 끝나야 한다).
+    """
+    v = float(descend_speed_mps)
+    if v <= 0.0:
+        return 0.0
+    drop = float(agl_m) - float(handoff_agl_m)
+    return max(0.0, drop) / v
+
+
+def precision_land_deadline_s(agl_latch_m: float, handoff_agl_m: float,
+                              descend_speed_mps: float,
+                              base_timeout_s: float,
+                              factor: float = DESCENT_BUDGET_FACTOR) -> float:
+    """이번 정밀착륙의 실제 시한 (s) — `precision_land_timeout` 을 **하한**으로 쓴다.
+
+        시한 = max(base_timeout_s, factor × 이상적 하강시간)
+
+    `base_timeout_s` 의 의미는 바뀌지 않는다(여전히 "정밀착륙 체류 상한"이고,
+    낮은 고도에서 래치하는 정상 경로에서는 그 값이 그대로 쓰인다). 달라지는
+    것은 **높은 고도에서 래치했을 때 시한이 같이 늘어난다**는 것뿐이다 —
+    파라미터 하나를 새로 만들지 않고 F2-b 를 닫기 위해 이 형태를 골랐다.
+
+    `base_timeout_s <= 0` 이면 비활성 규약이므로 **0 이하를 그대로 돌려준다**
+    (호출부가 "0 이하 = 시한 없음"으로 읽는다). 여기서 배수 항을 살려버리면
+    비활성이 조용히 활성으로 뒤집힌다.
+    """
+    base = float(base_timeout_s)
+    if base <= 0.0:
+        return base
+    need = float(factor) * descent_budget_s(
+        agl_latch_m, handoff_agl_m, descend_speed_mps)
+    return max(base, need)
+
 
 def latch_candidate(buf: Sequence,
                     min_ticks: int,

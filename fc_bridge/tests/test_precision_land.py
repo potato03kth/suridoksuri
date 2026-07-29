@@ -10,6 +10,7 @@ import pytest
 
 from fc_bridge.execution.precision_land import (
     latch_candidate, descend_allowed, handoff_due, search_pass_next,
+    latch_altitude_ok, descent_budget_s, precision_land_deadline_s,
 )
 
 
@@ -126,3 +127,99 @@ def test_search_pass_stops_after_max():
 def test_search_pass_respects_custom_max():
     assert search_pass_next(1, max_passes=3) == 2
     assert search_pass_next(2, max_passes=3) is None
+
+
+# ══════════════════════════════════════════════════════════════
+# F2-a — 래치 고도 게이트 (2026-07-29)
+# ══════════════════════════════════════════════════════════════
+#
+# 🔴 실측 근거: 검증 세션 R5(`logs/2026-07-29_f2_verify/R5_patched_handoff`)가
+#   HOLD 고도 **AGL 49.6m** 에서 래치했다 — 검출 상한 33.57m 를 16m 초과한
+#   고도의 좌표로 하강을 시작한 것이다.
+
+
+def test_latch_altitude_gate_rejects_above_ceiling():
+    """검출 상한 위에서는 래치를 허가하지 않는다 — R5 가 정확히 이 경우다."""
+    assert latch_altitude_ok(49.6, 33.57) is False
+
+
+def test_latch_altitude_gate_allows_search_altitude():
+    """정상 경로는 막히지 않는다 — 기본 탐색고도 25m 는 상한 안이다."""
+    assert latch_altitude_ok(25.0, 33.57) is True
+
+
+def test_latch_altitude_gate_is_inclusive_at_the_boundary():
+    """경계는 포함이다(`<=`) — 상한과 정확히 같은 고도에서 거절하면
+    `max_detection_altitude_m()` 의 정의("이 값까지 검출 가능")와 어긋난다."""
+    assert latch_altitude_ok(33.57, 33.57) is True
+
+
+def test_latch_altitude_gate_disabled_by_non_positive_limit():
+    """0 이하 = 비활성. 이 저장소의 타임아웃·거리 상한과 같은 규약이다."""
+    assert latch_altitude_ok(1000.0, 0.0) is True
+    assert latch_altitude_ok(1000.0, -1.0) is True
+
+
+def test_latch_altitude_gate_matches_detection_ceiling():
+    """게이트의 자동 기본값은 탐색 기하가 주는 검출 상한 그 자체다 —
+    두 숫자가 갈라지면 "검출은 되는데 래치는 안 되는" 고도대가 생긴다."""
+    from fc_bridge.execution.search_pattern import (
+        max_detection_altitude_m, detection_altitude_ok as det_ok,
+    )
+    ceiling = max_detection_altitude_m()
+    for agl in (10.0, 25.0, 33.0, 34.0, 40.0, 50.0):
+        assert latch_altitude_ok(agl, ceiling) is det_ok(agl), agl
+
+
+# ══════════════════════════════════════════════════════════════
+# F2-b — 시한이 래치 고도와 정합해야 한다
+# ══════════════════════════════════════════════════════════════
+
+
+def test_descent_budget_is_the_plain_quotient():
+    """(고도 − 인계고도) / 하강률. R5 조건 그대로."""
+    assert descent_budget_s(49.6, 3.0, 0.8) == pytest.approx(58.25)
+
+
+def test_descent_budget_is_zero_below_handoff():
+    """인계고도 아래면 하강할 것이 없다 — 음수 예산을 만들지 않는다."""
+    assert descent_budget_s(2.0, 3.0, 0.8) == 0.0
+
+
+def test_descent_budget_zero_speed_does_not_produce_inf():
+    """하강률 0 은 설정 오류다. `inf` 를 시한에 심으면 그 런은 영영 안 끝난다 —
+    0.0 을 주어 파라미터 하한이 그대로 시한이 되게 한다(짧은 쪽 = 안전측)."""
+    assert descent_budget_s(50.0, 3.0, 0.0) == 0.0
+
+
+def test_deadline_covers_high_latch():
+    """🔴 핵심 회귀. 49.6m 래치는 하강만 58.3s 라 60s 시한을 정렬 몇 초로
+    넘긴다 — 시한이 하강예산보다 커야 한다."""
+    d = precision_land_deadline_s(49.6, 3.0, 0.8, 60.0)
+    assert d > descent_budget_s(49.6, 3.0, 0.8), \
+        "시한이 이상적 하강시간보다 짧습니다 — 정상 하강 중에 GPS 폴백됩니다"
+    assert d == pytest.approx(58.25 * 1.6)
+
+
+def test_deadline_keeps_parameter_as_floor_at_low_latch():
+    """정상 경로(탐색고도 25m 래치)에서는 파라미터 값이 그대로 쓰인다 —
+    이 함수는 시한을 **늘리기만** 하고 줄이지 않는다."""
+    assert precision_land_deadline_s(25.0, 3.0, 0.8, 60.0) == 60.0
+
+
+def test_deadline_at_detection_ceiling_fits_measured_descent_rate():
+    """F2-a 게이트를 켠 뒤의 최악 래치 고도(=검출 상한)에서도 시한이
+    **실측 하강률**(R5: 0.72 m/s 평균)로 완주할 시간을 준다."""
+    from fc_bridge.execution.search_pattern import max_detection_altitude_m
+    ceiling = max_detection_altitude_m()
+    d = precision_land_deadline_s(ceiling, 3.0, 0.8, 60.0)
+    measured_s = (ceiling - 3.0) / 0.72        # R5 실측 평균 하강률
+    assert d > measured_s, (
+        f"시한 {d:.1f}s 가 실측 하강률 기준 소요 {measured_s:.1f}s 보다 짧습니다")
+
+
+def test_deadline_preserves_disabled_convention():
+    """🔴 `precision_land_timeout <= 0` 은 "시한 없음"이다. 배수 항이 살아나면
+    비활성이 조용히 활성으로 뒤집혀, 끄려던 시한이 되레 걸린다."""
+    assert precision_land_deadline_s(50.0, 3.0, 0.8, 0.0) == 0.0
+    assert precision_land_deadline_s(50.0, 3.0, 0.8, -1.0) == -1.0

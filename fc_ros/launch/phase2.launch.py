@@ -70,7 +70,9 @@ _VISION_FLOAT_ARGS = (
     "vision_search_alt", "vision_search_radius", "vision_search_spacing",
     "vision_search_speed", "vision_search_dwell", "vision_search_timeout",
     "vision_retry_alt", "vision_retry_radius", "vision_latch_spread_m",
+    "vision_latch_max_agl",
     "vision_stale_timeout", "vision_link_timeout", "vision_veto_timeout",
+    "vision_lost_timeout", "vision_align_timeout",
     "vision_align_tol", "vision_descend_speed", "vision_land_handoff_agl",
     "precision_land_timeout",
 )
@@ -282,6 +284,11 @@ def generate_launch_description():
             "vision_latch_spread_m", default_value="",
             description="래치 좌표 수평 산포 상한 (m). 빈 값(기본)이면 YAML(3.0)"),
         DeclareLaunchArgument(
+            "vision_latch_max_agl", default_value="",
+            description="래치 허용 최대 AGL (m). 빈 값(기본)이면 YAML(0.0) = "
+                        "검출 상한 33.57m 자동. 🔴 F2-a — 검출 신뢰구간 밖에서 "
+                        "잡은 좌표로 하강을 시작하지 않기 위한 게이트"),
+        DeclareLaunchArgument(
             "vision_stale_timeout", default_value="",
             description="setpoint stale 판정 (s). 빈 값(기본)이면 YAML(1.0). "
                         "⚠️ 실측 발행 4.4Hz — 0.5s 로 잡으면 헛경보"),
@@ -292,6 +299,14 @@ def generate_launch_description():
             "vision_veto_timeout", default_value="",
             description="vision 거부권 지속 시 GPS 착륙 폴백까지 (s). "
                         "빈 값(기본)이면 YAML(10.0)"),
+        DeclareLaunchArgument(
+            "vision_lost_timeout", default_value="",
+            description="PRECISION_LAND 유도 상실 지속 시 GPS 착륙 폴백까지 (s). "
+                        "빈 값(기본)이면 YAML(5.0). 0 이하 = 비활성"),
+        DeclareLaunchArgument(
+            "vision_align_timeout", default_value="",
+            description="VISION_SEARCH align 단계 상한 (s), 초과 시 나선 강제 진행. "
+                        "빈 값(기본)이면 YAML(30.0). 0 이하 = 비활성"),
         DeclareLaunchArgument(
             "vision_align_tol", default_value="",
             description="하강 허가 수평 정렬 허용오차 (m). 빈 값(기본)이면 YAML(1.0)"),
@@ -304,7 +319,9 @@ def generate_launch_description():
                         "🔴 vision 의 terminal_agl_m 과 같은 숫자여야 한다"),
         DeclareLaunchArgument(
             "precision_land_timeout", default_value="",
-            description="PRECISION_LAND 체류 상한 (s). 빈 값(기본)이면 YAML(60.0)"),
+            description="PRECISION_LAND 체류 상한 (s) — **하한**이다. 실제 시한은 "
+                        "래치 고도에서 max(이 값, 1.6×이상적 하강시간)으로 다시 "
+                        "계산된다(F2-b). 빈 값(기본)이면 YAML(60.0)"),
     ]
 
     # 선언 목록이 곧 검사 기준이다 — 인자를 추가해도 여기 손댈 필요가 없다.

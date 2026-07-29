@@ -51,10 +51,11 @@ from fc_bridge.execution.state_logic import (
 from fc_bridge.execution.search_pattern import (
     SpiralState, spiral_advance, spiral_point_ne, spiral_complete,
     camera_footprint_m, ring_spacing_from_footprint, max_turn_speed,
-    detection_altitude_ok,
+    detection_altitude_ok, max_detection_altitude_m,
 )
 from fc_bridge.execution.precision_land import (
     latch_candidate, descend_allowed, handoff_due, search_pass_next,
+    latch_altitude_ok, precision_land_deadline_s, descent_budget_s,
 )
 from fc_ros.adapters.vision_target_bridge import (
     VisionTargetBridge, subscribe as subscribe_vision,
@@ -308,6 +309,13 @@ class OffboardNode(Node):
         # 증거가 늘었고 래치 지연은 0.4s 미만 증가한다.
         self.declare_parameter("vision_latch_frames",       3)
         self.declare_parameter("vision_latch_spread_m",   3.0)
+        # 🔴 F2-a: 래치를 허용하는 **최대 AGL**(m). 검출 신뢰구간 밖에서 잡은
+        # 좌표로 하강을 시작하지 않기 위한 게이트다 — 2026-07-29 검증 R5 가
+        # HOLD 고도 **49.6m**(검출 상한 33.57m 초과)에서 래치했다.
+        # **0 이하면 검출 상한에서 자동 산출**한다(`max_detection_altitude_m()`
+        # = 33.570m) — `vision_search_spacing`/`_speed` 와 같은 "0 = 자동 산출"
+        # 규약이다. 게이트를 정말로 끄고 싶으면 큰 값을 명시하라(예: 1000.0).
+        self.declare_parameter("vision_latch_max_agl",     0.0)
         # 🔴 stale 판정 1.0s — 실측 발행 주파수가 **4.4Hz**(median 0.221s /
         # p95 0.310s)다. 10Hz를 가정해 0.5s로 잡으면 정상 지터와 여유가
         # 1.6배뿐이라 헛경보가 난다(인수인계 문서 §7).
@@ -317,12 +325,34 @@ class OffboardNode(Node):
         # **일부러 만들지 않았다** — `FailsafeContract`가 "FC가 자기 제어틱에서
         # 재는 값"으로 못박았다. 없으면 무한 호버링이다(실측 확인).
         self.declare_parameter("vision_veto_timeout",    10.0)
+        # 🔴 F2-d: PRECISION_LAND 에서 **유도가 끊긴 채** 버티는 시한(s).
+        # 유도 상실은 거부권과 다르다 — veto 는 vision 이 "지금은 내리지 마라"를
+        # 적극적으로 말한 것이고, 상실은 **아무것도 모르는 상태**다. 그래서
+        # veto(10s)보다 짧게 잡는다. 기체는 이미 래치 좌표 위에 정렬돼 있으므로
+        # 이 시한이 지나면 그 자리에서 AUTO.LAND 로 인계하는 것이 최선이다.
+        # 5.0s = stale 창(1.0s)의 5배 = 실측 4.4Hz 에서 약 22프레임 연속 누락.
+        # 0 이하 = 비활성(타임아웃 4종과 같은 규약).
+        self.declare_parameter("vision_lost_timeout",     5.0)
+        # 🔴 F2-f: VISION_SEARCH `align` 단계 상한(s). 초과하면 **강제로 나선**
+        # 으로 진행한다(`mc_wp_timeout` 의 "초과 시 강제 진행"과 같은 규약).
+        # 없으면 HOLD 를 타임아웃시킨 바로 그 조건(WP1 반경 3.0m 이내)이 align
+        # 통과조건과 같아 **두 회차 240s 를 통째로 태우고** GPS 폴백이 된다.
+        # 30.0s 근거: 순항 50m → 탐색 25m 하강이 PX4 MC 하강률(약 1.5m/s)에서
+        # 약 17s 이고 수평 복귀가 겹친다. 나선(실측 89s)과 더해도 119s 로
+        # `vision_search_timeout`(120s) 안에 들어간다 — 그래서 align 타임아웃 시
+        # dwell(3s)을 **건너뛰고** 곧장 나선으로 간다. 0 이하 = 비활성.
+        self.declare_parameter("vision_align_timeout",   30.0)
         # 정렬 허용오차(m). 이 안에 들어와야 하강한다 — 수평/수직 분리의 핵심.
         self.declare_parameter("vision_align_tol",        1.0)
         self.declare_parameter("vision_descend_speed",    0.8)   # m/s
         # AUTO.LAND 인계 고도(AGL, m). vision의 `terminal_agl_m`과 같은 숫자여야
         # 한다 — 계약상 "3m부터 AUTO.LAND 인계"다.
         self.declare_parameter("vision_land_handoff_agl", 3.0)
+        # 🔴 F2-b: 정밀착륙 체류 상한(s) — 다만 **하한**이다. 실제 시한은
+        # `precision_land_deadline_s()` 가 래치 고도에서 다시 계산한다
+        # (= max(이 값, 1.6 × 이상적 하강시간)). 이 값 하나로 고정하면 높은
+        # 고도에서 래치했을 때 **하강만으로 시한을 넘긴다** — 50m 래치면
+        # (49.6−3.0)/0.8 = 58.3s 라 60s 를 정렬 몇 초로 초과한다(R5 실측).
         self.declare_parameter("precision_land_timeout", 60.0)
 
         control_hz = self.get_parameter("control_hz").value
@@ -402,12 +432,25 @@ class OffboardNode(Node):
             self.get_parameter("vision_latch_frames").value)
         self._vs_latch_spread = float(
             self.get_parameter("vision_latch_spread_m").value)
+        # 🔴 F2-a 게이트. 0 이하면 **검출 상한에서 자동 산출**한다
+        # (`vision_search_spacing`/`_speed` 와 같은 "0 = 자동" 규약).
+        # 자동값은 `distress_coarse.yaml` min_area 와 넓은 화각 가정에서 나온
+        # 33.570m 이고, 그 유도는 `search_pattern.py` docstring 에 있다.
+        _latch_max_agl_param = float(
+            self.get_parameter("vision_latch_max_agl").value)
+        self._vs_latch_max_agl = (_latch_max_agl_param
+                                  if _latch_max_agl_param > 0.0
+                                  else max_detection_altitude_m())
         self._vs_stale_timeout = float(
             self.get_parameter("vision_stale_timeout").value)
         self._vs_link_timeout = float(
             self.get_parameter("vision_link_timeout").value)
         self._vs_veto_timeout = float(
             self.get_parameter("vision_veto_timeout").value)
+        self._vs_lost_timeout = float(
+            self.get_parameter("vision_lost_timeout").value)
+        self._vs_align_timeout = float(
+            self.get_parameter("vision_align_timeout").value)
         self._vs_align_tol = float(
             self.get_parameter("vision_align_tol").value)
         self._vs_descend_speed = float(
@@ -581,6 +624,9 @@ class OffboardNode(Node):
         self._pl_lost_elapsed = 0.0
         self._pl_target_ne = None      # 최신 수평 목표 (NED [N, E])
         self._pl_alt = None            # FC가 스케줄하는 목표 고도 (h_up)
+        # 🔴 이번 회차의 실제 시한(s). `_pl_timeout`(파라미터)이 아니라 **래치
+        # 고도에서 다시 계산한 값**을 쓴다(F2-b). 진입 전에는 파라미터값.
+        self._pl_deadline = self._pl_timeout
         # OVERRIDE (긴급 수동 전환) 플래그
         self._override_target = "MANUAL"
         self._override_ticks = 0
@@ -604,7 +650,9 @@ class OffboardNode(Node):
             self.get_logger().info(
                 f"비전 정밀착륙 활성 — 탐색고도 {self._vs_alt:.0f}m "
                 f"반경 {self._vs_radius:.0f}m / 재탐색 {self._vs_retry_alt:.0f}m "
-                f"반경 {self._vs_retry_radius:.0f}m")
+                f"반경 {self._vs_retry_radius:.0f}m / "
+                f"래치 상한 {self._vs_latch_max_agl:.1f}m AGL"
+                + ("" if _latch_max_agl_param > 0.0 else " (검출 상한 자동)"))
             # 탐색고도가 검출 상한을 넘으면 나선을 아무리 예쁘게 그려도
             # 검출이 0건이다. 비행 중이 아니라 기동 시점에 알린다.
             if not detection_altitude_ok(self._vs_alt):
@@ -988,6 +1036,16 @@ class OffboardNode(Node):
         ⚠️ 판정하지 않고 경고만 한다. 이륙을 막지 않는 이유: 상한은 현장에서
         launch 인자로 조정하는 값이고, 여기서 이륙을 거부하면 "왜 안 뜨지"가
         되어 현장에서 더 위험한 우회(감시 자체를 끄기)를 유도한다.
+
+        🔴 **비전 착륙이 켜져 있으면 탐색 반경까지 더해서 본다(F2-e, 2026-07-29).**
+        `VISION_SEARCH` 는 `_RANGE_GUARDED_STATES` 에 **포함**되는데(D-b: 점점
+        커지는 원은 스스로 멈출 조건이 없어 거리 상한이 유일한 기하학적
+        제동장치다), 종전 경고는 `path_max_range(_pts)` 만 봐서 나선이 WP1
+        바깥으로 나가는 몫을 통째로 빠뜨렸다. 실제 필요조건은
+        `range_limit_m > d(WP1) + 탐색반경` 이다 — 그래서 300m 경로 + 반경 30m
+        면 상한 300m 로는 **탐색이 시작되자마자 OVERRIDE** 가 걸린다
+        (2026-07-29 실측 `range_guard.max_horiz_m` 이 이미 331~344m 였다:
+        역천이 오버슈트분만으로도 넘는다).
         """
         if self._range_limit_m <= 0:
             self.get_logger().warn(
@@ -995,16 +1053,28 @@ class OffboardNode(Node):
                 "이륙지점 기준 이탈 제동장치가 없다")
             return
         far = path_max_range(self._pts, self._takeoff_pos_ned)
-        if far > self._range_limit_m:
+        need = far
+        why = f"경로 최원점 {far:.0f}m"
+        if self._vision_landing and len(self._pts):
+            # 나선 중심은 WP1(`_exit_hold`)이고 반경은 회차별 최대값이다.
+            wp1_d = float(np.linalg.norm(
+                np.asarray(self._pts[-1], dtype=float)[:2]
+                - np.asarray(self._takeoff_pos_ned, dtype=float)[:2]))
+            r_search = max(self._vs_radius, self._vs_retry_radius)
+            need = max(far, wp1_d + r_search)
+            why = (f"경로 최원점 {far:.0f}m, 탐색 최원점 "
+                   f"{wp1_d + r_search:.0f}m (=WP1 {wp1_d:.0f}m + 반경 "
+                   f"{r_search:.0f}m)")
+        if need > self._range_limit_m:
             self.get_logger().warn(
-                f"⚠️ 계획 경로가 거리 상한 밖이다 — 경로 최원점 {far:.0f}m > "
+                f"⚠️ 계획 경로가 거리 상한 밖이다 — {why} > "
                 f"상한 {self._range_limit_m:.0f}m. 그대로 날면 종점 부근에서 "
                 f"안전 폴백(OVERRIDE)이 걸린다. "
                 f"range_limit_m 을 키우거나 경로를 줄일 것")
         else:
             self.get_logger().info(
                 f"거리 상한 감시 활성 {self._range_limit_m:.0f}m "
-                f"(이륙지점 기준 수평, 경로 최원점 {far:.0f}m)")
+                f"(이륙지점 기준 수평, {why})")
 
     # ── CLIMBING ─────────────────────────────────────────────
 
@@ -1634,8 +1704,14 @@ class OffboardNode(Node):
 
     # ── VISION_SEARCH (WP1 중심 나선 탐색) ─────────────────────
 
-    def _vision_latch_update(self, vt) -> bool:
+    def _vision_latch_update(self, vt, agl_m: float) -> bool:
         """**서로 다른 vision 프레임**을 연속으로 모아 산포를 본다. 래치가 서면 True.
+
+        🔴 **검출 상한 위에서는 래치하지 않는다(F2-a, 2026-07-29).** `agl_m` 이
+        `vision_latch_max_agl`(기본 = 검출 상한 33.57m 자동)을 넘으면 프레임을
+        증거로 세지 않는다. 래치는 "여기로 내려간다"는 되돌릴 수 없는 결정인데,
+        검출 신뢰구간 밖의 setpoint 는 나올 수 없는 검출이거나 오탐이다.
+        검증 세션 R5 가 **AGL 49.6m 에서 래치**해 그대로 하강을 시작했다.
 
         🔴 **단발 검출로 탐색을 멈추지 않는다.** 탐색 중에는 기체가 계속 움직여
         타겟이 화각을 스쳐 지나가므로, 한 프레임짜리 오탐 하나로 나선을 버리고
@@ -1659,6 +1735,20 @@ class OffboardNode(Node):
         if not (vt.valid and vt.pos_ned is not None and not vt.veto):
             self._vs_latch_buf = []
             self._vs_latch_rx = rx
+            return False
+
+        # 🔴 F2-a 고도 게이트. 버퍼를 **비운다** — 상한 위에서 모은 프레임과
+        # 아래에서 모은 프레임을 섞어 평균 내면 그 창의 절반이 신뢰구간 밖이다.
+        # 거른 것은 잃은 기회가 아니다: 탐색은 어차피 탐색고도로 내려가는 중이고
+        # 낮을수록 검출이 쉬우므로, 같은 타겟이 곧 더 좋은 조건에서 다시 온다.
+        if not latch_altitude_ok(agl_m, self._vs_latch_max_agl):
+            self._vs_latch_buf = []
+            self._vs_latch_rx = rx
+            self.get_logger().warn(
+                f"래치 보류 — AGL {agl_m:.1f}m 가 래치 상한 "
+                f"{self._vs_latch_max_agl:.1f}m 초과 (검출 신뢰구간 밖의 "
+                f"좌표로는 하강을 시작하지 않는다)",
+                throttle_duration_sec=5.0)
             return False
 
         # 새 프레임이 아직 안 왔다 — 같은 메시지를 다시 세지 않는다.
@@ -1692,7 +1782,8 @@ class OffboardNode(Node):
         vt = self._vision.snapshot(time.monotonic())
 
         # ① 래치 — 어느 단계에 있든 본다(고도 정렬 중에 보여도 잡는다).
-        if self._vision_latch_update(vt):
+        #    단 **검출 상한 위에서는 세지 않는다**(F2-a) — 그래서 AGL 을 넘긴다.
+        if self._vision_latch_update(vt, self._agl(state)):
             self.get_logger().info(
                 f"타겟 래치 (연속 {self._vs_latch_frames}프레임, "
                 f"N={self._vs_latched[0]:.1f} E={self._vs_latched[1]:.1f}) "
@@ -1720,6 +1811,25 @@ class OffboardNode(Node):
                 self.get_logger().info(
                     f"탐색고도 도달 ({self._agl(state):.1f}m AGL) → 제자리 확인 "
                     f"{self._vs_dwell:.0f}s")
+            elif (self._vs_align_timeout > 0.0
+                    and self._vs_elapsed > self._vs_align_timeout):
+                # 🔴 F2-f (2026-07-29). align 통과조건의 수평 항이
+                # `dist(WP1) < wp1_land_radius` 라 **HOLD 타임아웃 조건과 같다** —
+                # HOLD 가 그 반경을 못 채워 타임아웃했다면 align 도 못 선다.
+                # 그러면 dwell·나선에 한 번도 못 들어간 채 회차 타임아웃(120s)을
+                # 두 번 태우고(240s) GPS 폴백이 된다. 시한이 지나면 **강제로
+                # 나선**으로 간다(`mc_wp_timeout` 의 "초과 시 강제 진행" 규약).
+                # dwell 은 건너뛴다: ①제자리 확인은 "WP1 위에 있다"가 전제인데
+                # 그게 성립 안 해서 여기 온 것이고 ②나선 첫 점이 중심에서
+                # 링 간격 절반(≈6m)이라 어차피 중심부를 다시 훑는다
+                # ③30s + 나선 89s = 119s 로 회차 상한 120s 에 겨우 들어간다.
+                self._vs_phase = "spiral"
+                self.get_logger().warn(
+                    f"탐색고도 정렬 타임아웃 {self._vs_align_timeout:.0f}s 초과 "
+                    f"(AGL {self._agl(state):.1f}m/{self._vs_search_alt():.0f}m, "
+                    f"WP1 거리 "
+                    f"{float(np.linalg.norm(state.pos_ned[:2] - center)):.1f}m) "
+                    f"→ 나선 강제 진행")
         elif self._vs_phase == "dwell":
             raw = np.array([center[0], center[1], alt_target])
             self._vs_dwell_elapsed += self._dt
@@ -1789,6 +1899,21 @@ class OffboardNode(Node):
         self._pl_alt = float(state.pos_ned[2])
         self._pl_ramp = np.array(state.pos_ned, dtype=float)
 
+        # 🔴 F2-b: 시한을 **래치 고도에서 다시 잰다.** `precision_land_timeout`
+        # 하나로 고정하면 높은 고도에서 래치했을 때 하강만으로 시한을 넘겨,
+        # 정상적으로 잘 내려오는 중에 GPS 폴백으로 떨어진다(R5 실측: 49.6m
+        # 래치 → 하강만 58.3s > 60s). 파라미터는 하한으로 남는다.
+        agl_latch = self._agl(state)
+        self._pl_deadline = precision_land_deadline_s(
+            agl_latch, self._vs_handoff_agl, self._vs_descend_speed,
+            self._pl_timeout)
+        descent_s = descent_budget_s(
+            agl_latch, self._vs_handoff_agl, self._vs_descend_speed)
+        self.get_logger().info(
+            f"정밀착륙 진입 — 래치 AGL {agl_latch:.1f}m, "
+            f"하강예산 {descent_s:.0f}s → 시한 {self._pl_deadline:.0f}s "
+            f"(하한 {self._pl_timeout:.0f}s)")
+
     def _step_precision_land(self, state: VehicleState) -> None:
         """수평은 vision, **수직은 FC**. 정렬이 서야 내려간다.
 
@@ -1817,6 +1942,20 @@ class OffboardNode(Node):
             self._sm = _State.LANDING
             return
 
+        # ①-b 생산자 사망 — F2-c (2026-07-29). `_step_vision_search` ②번 분기와
+        #    **같은 판정을 여기에도** 둔다. 종전엔 이 분기가 없어서, 유도가
+        #    영원히 안 올 것이 이미 확정된 상황에서도 전체 시한(60s)을 다 채운
+        #    뒤에야 폴백했다 — 임무 끝단에서 60초를 호버로 태우는 것이다.
+        #    기체는 이미 래치 좌표 위에 있으므로 그 자리 AUTO.LAND 가 최선이다.
+        #    ⚠️ shim 자신이 죽으면 status 까지 끊겨 `link_dead` 가 서지 않는다
+        #    (페일세이프 3분법) — 그 경우는 아래 ③-b 유도 상실이 잡는다.
+        if vt.link_dead:
+            self.get_logger().error(
+                f"vision 생산자 사망(link ERROR) — AGL {agl:.1f}m "
+                f"→ GPS 착륙 폴백")
+            self._sm = _State.LANDING
+            return
+
         # ② 거부권 — D-a. vision이 HOLD/ABORT_ASCEND로 빠진 채 시한을 넘기면
         #    무한 호버링을 끊는다.
         if vt.veto:
@@ -1839,6 +1978,22 @@ class OffboardNode(Node):
             self._pl_lost_elapsed = 0.0
         else:
             self._pl_lost_elapsed += self._dt
+
+        # ③-b 유도 상실 시한 — F2-d (2026-07-29). `_pl_lost_elapsed` 는 종전에
+        #    **갱신만 되고 읽는 곳이 0건인 죽은 변수**였다. 그래서 유도가 끊긴
+        #    채 버티는 시간을 재는 전용 시한이 사실상 없었고, ④의 고도 붙들기와
+        #    합쳐지면 "아무것도 모르는 채 전체 시한까지 호버"가 됐다.
+        #    거부권(10s)보다 짧게 잡는 이유: veto 는 vision 이 "지금은 내리지
+        #    마라"를 **적극적으로 말한 것**이라 곧 풀릴 수 있지만, 상실은 아무
+        #    정보가 없는 상태다. shim 사망(status 까지 침묵)도 여기서 잡힌다.
+        if (self._vs_lost_timeout > 0.0
+                and self._pl_lost_elapsed > self._vs_lost_timeout):
+            self.get_logger().warn(
+                f"vision 유도 상실 {self._vs_lost_timeout:.0f}s 지속 "
+                f"(setpoint age={vt.age_s:.1f}s status age="
+                f"{vt.status_age_s:.1f}s, AGL {agl:.1f}m) → GPS 착륙 폴백")
+            self._sm = _State.LANDING
+            return
 
         err = float(np.linalg.norm(state.pos_ned[:2] - self._pl_target_ne))
         # ④ 수직 스케줄 — 정렬됐고 **그 틱에** 신선한 유도가 있을 때만 내려간다.
@@ -1867,13 +2022,15 @@ class OffboardNode(Node):
                 f"정밀착륙 AGL={agl:.1f}m 수평오차={err:.2f}m "
                 f"{'하강' if aligned else '정렬대기'} "
                 f"state={vt.state} age={vt.age_s:.2f}s "
-                f"t={self._pl_elapsed:.0f}/{self._pl_timeout:.0f}s")
+                f"t={self._pl_elapsed:.0f}/{self._pl_deadline:.0f}s")
 
-        # ⑤ 전체 타임아웃 — 정렬이 영영 안 서는 경우.
-        if self._pl_elapsed > self._pl_timeout:
+        # ⑤ 전체 타임아웃 — 정렬이 영영 안 서는 경우. 🔴 파라미터가 아니라
+        #    `_enter_precision_land` 가 래치 고도에서 계산한 `_pl_deadline` 이다
+        #    (F2-b). 0 이하면 비활성 — 타임아웃 4종과 같은 규약.
+        if self._pl_deadline > 0.0 and self._pl_elapsed > self._pl_deadline:
             self.get_logger().warn(
-                f"정밀착륙 타임아웃 {self._pl_timeout:.0f}s 초과 "
-                f"(수평오차 {err:.2f}m) → GPS 착륙 폴백")
+                f"정밀착륙 타임아웃 {self._pl_deadline:.0f}s 초과 "
+                f"(수평오차 {err:.2f}m, AGL {agl:.1f}m) → GPS 착륙 폴백")
             self._sm = _State.LANDING
 
     # ── LANDING ───────────────────────────────────────────────

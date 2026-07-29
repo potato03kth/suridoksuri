@@ -283,15 +283,37 @@ offboard_node:
     # 세어 setpoint 1건으로 래치가 서 버렸다.
     vision_latch_frames:         3
     vision_latch_spread_m:     3.0   # 래치 좌표들의 수평 산포 상한(m)
+    # 🔴 F2-a (2026-07-29). 래치를 허용하는 최대 AGL(m). **0 이하면 검출 상한에서
+    # 자동 산출**한다(= 33.570m, `search_pattern.max_detection_altitude_m()`).
+    # 래치는 "여기로 내려간다"는 되돌릴 수 없는 결정인데 종전엔 어느 고도에서든
+    # 섰다 — 검증 R5 가 HOLD 고도 **49.6m**(상한 33.57m 초과)에서 래치해 그
+    # 좌표로 하강을 시작했다. 게이트를 끄려면 큰 값을 명시하라(예: 1000.0).
+    vision_latch_max_agl:      0.0
     # 🔴 실측 발행 4.4Hz(median 0.221s / p95 0.310s) 기준. 0.5s 로 잡으면 헛경보.
     vision_stale_timeout:      1.0
     vision_link_timeout:       3.0   # link ERROR 유효기간(하트비트 1Hz × 3)
     vision_veto_timeout:      10.0   # D-a. veto 지속 시 GPS 착륙 폴백까지의 시한(s)
+    # 🔴 F2-d (2026-07-29). PRECISION_LAND 에서 **유도가 끊긴 채** 버티는 시한(s).
+    # veto(10s)보다 짧다 — veto 는 vision 이 "지금은 내리지 마라"를 적극적으로
+    # 말한 것이고 상실은 아무것도 모르는 상태다. shim 사망(status 까지 침묵)도
+    # 이 시한이 잡는다. 종전엔 `_pl_lost_elapsed` 가 갱신만 되고 읽히지 않았다.
+    vision_lost_timeout:       5.0
+    # 🔴 F2-f (2026-07-29). VISION_SEARCH align 단계 상한(s). 초과 시 dwell 을
+    # 건너뛰고 **강제로 나선**에 진입한다. align 통과조건의 수평 항이 HOLD
+    # 타임아웃 조건과 같아(`dist(WP1) < wp1_land_radius`), 없으면 두 회차
+    # 240s 를 통째로 태우고 GPS 폴백이 된다. 30s + 나선 89s = 119s 로
+    # vision_search_timeout(120s) 안에 들어간다.
+    vision_align_timeout:     30.0
     vision_align_tol:          1.0   # 이 안에 들어와야 하강한다(수평/수직 분리의 핵심)
     vision_descend_speed:      0.8   # 정렬 후 하강률(m/s)
     # 🔴 vision 의 `terminal_agl_m` 과 **같은 숫자여야 한다** — 계약상 3m 부터 AUTO.LAND.
     vision_land_handoff_agl:   3.0
-    precision_land_timeout:   60.0   # 정렬이 영영 안 설 때의 상한(s)
+    # 🔴 F2-b (2026-07-29). 정밀착륙 체류 상한(s) — 다만 **하한**이다. 실제 시한은
+    # 래치 고도에서 max(이 값, 1.6 × 이상적 하강시간)으로 다시 계산된다
+    # (`precision_land.precision_land_deadline_s`). 이 값 하나로 고정하면 높은
+    # 고도에서 래치했을 때 하강만으로 시한을 넘긴다 — R5 는 49.6m 에서 래치해
+    # 하강만 58.3s 가 필요했고, vision 의 land 힌트가 42s 에 구해줬을 뿐이다.
+    precision_land_timeout:   60.0
 
 mission_node:
   ros__parameters:

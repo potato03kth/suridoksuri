@@ -33,6 +33,7 @@
 아니다**(그쪽은 `test_params.py` 가 YAML↔declare↔launch 3중으로 고정한다).
 여기서 보는 것은 오직 전이 로직이다.
 """
+import contextlib
 import sys
 import time
 import types
@@ -95,8 +96,17 @@ from fc_ros.nodes import offboard_node as ON          # noqa: E402
 from fc_ros.adapters.vision_target_bridge import (    # noqa: E402
     VisionTargetBridge,
 )
+from fc_bridge.execution.search_pattern import (      # noqa: E402
+    max_detection_altitude_m,
+)
 
 _State = ON._State
+
+#: 검출 상한(m). F2-a 게이트의 자동 기본값이다 — 33.570m.
+DETECTION_CEILING_M = max_detection_altitude_m()
+#: 래치가 허용되는 AGL. 게이트 도입 **전** 테스트들이 암묵적으로 가정하던
+#: 정상 탐색고도이며, 그 테스트들이 계속 같은 것을 보게 하려고 명시한다.
+LATCH_OK_AGL = 25.0
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -127,7 +137,8 @@ GROUND_H = 0.0
 
 
 def make_node(*, vision_landing=True, latch_frames=3, latch_spread=3.0,
-              stale_timeout=1.0):
+              stale_timeout=1.0, latch_max_agl=None, lost_timeout=5.0,
+              align_timeout=30.0, range_limit=300.0):
     """상태머신이 읽는 속성만 채운 `OffboardNode` 껍데기."""
     n = ON.OffboardNode.__new__(ON.OffboardNode)
 
@@ -184,12 +195,22 @@ def make_node(*, vision_landing=True, latch_frames=3, latch_spread=3.0,
     n._vs_latched = None
     n._vs_latch_frames = int(latch_frames)
     n._vs_latch_spread = float(latch_spread)
+    # 🔴 F2-a. 노드 `__init__` 은 파라미터 0 을 검출 상한으로 해석한다 —
+    # 여기서도 **해석 결과**(양수)를 넣어 같은 것을 본다.
+    n._vs_latch_max_agl = float(DETECTION_CEILING_M if latch_max_agl is None
+                                else latch_max_agl)
     n._vs_stale_timeout = float(stale_timeout)
     n._vs_link_timeout = 3.0
     n._vs_veto_timeout = 10.0
+    n._vs_lost_timeout = float(lost_timeout)      # F2-d
+    n._vs_align_timeout = float(align_timeout)    # F2-f
     n._vs_align_tol = 1.0
     n._vs_descend_speed = 0.8
     n._vs_handoff_agl = 3.0
+
+    # 거리 상한 (F2-e — `_check_path_within_range`)
+    n._range_limit_m = float(range_limit)
+    n._takeoff_pos_ned = np.array([0.0, 0.0, GROUND_H], dtype=float)
 
     # PRECISION_LAND
     n._pl_ramp = None
@@ -199,6 +220,7 @@ def make_node(*, vision_landing=True, latch_frames=3, latch_spread=3.0,
     n._pl_target_ne = None
     n._pl_alt = None
     n._pl_timeout = 60.0
+    n._pl_deadline = 60.0
 
     n._vision = VisionTargetBridge(stale_timeout_s=float(stale_timeout),
                                    link_timeout_s=3.0)
@@ -220,10 +242,47 @@ def _setpoint_msg(n_ned, e_ned, h_up):
             orientation=types.SimpleNamespace(w=1.0, x=0.0, y=0.0, z=0.0)))
 
 
-def feed_frame(node, n_ned, e_ned, h_up=0.0):
-    """vision 프레임 1건 도착 — 실제 콜백과 같은 경로를 탄다."""
+def feed_frame(node, n_ned, e_ned, h_up=0.0, t=None):
+    """vision 프레임 1건 도착 — 실제 콜백과 같은 경로를 탄다.
+
+    `t` 는 **수신 시각**(단조 클록)이다. 기본은 실제 `time.monotonic()` 이고,
+    `fake_clock()` 안에서는 그 시계의 현재값을 넘겨야 한다.
+    """
     node._vision.update_from_setpoint(
-        _setpoint_msg(n_ned, e_ned, h_up), time.monotonic())
+        _setpoint_msg(n_ned, e_ned, h_up),
+        time.monotonic() if t is None else float(t))
+
+
+class _Clock:
+    """`offboard_node` 가 보는 단조 시계 — 테스트가 손으로 돌린다.
+
+    🔴 `_step_precision_land` 는 `time.monotonic()` 을 직접 부른다. 그래서
+    벽시계로는 "유도가 3초 끊겼다" 같은 시나리오를 **원리적으로 재현할 수 없다**
+    — 제어틱 100회가 수십 μs 안에 끝나므로 setpoint 는 언제나 신선하고,
+    stale 경로를 지나가는 테스트는 전부 조용히 무의미해진다(그 상태로도
+    green 이라 더 위험하다).
+    """
+
+    def __init__(self, t0=1000.0):
+        self.t = float(t0)
+
+    def monotonic(self):
+        return self.t
+
+    def advance(self, dt):
+        self.t += float(dt)
+
+
+@contextlib.contextmanager
+def fake_clock(t0=1000.0):
+    """모듈 전역 `time` 만 잠깐 바꿔치기한다 — stdlib `time` 은 건드리지 않는다."""
+    clk = _Clock(t0)
+    real = ON.time
+    ON.time = clk
+    try:
+        yield clk
+    finally:
+        ON.time = real
 
 
 def at_wp1(alt=CRUISE_ALT):
@@ -339,7 +398,8 @@ def test_every_enter_helper_assigns_state():
 def _latch_ticks(node, ticks):
     """제어틱을 `ticks` 번 돌리며 래치 성립 여부를 돌려준다(프레임 주입 없음)."""
     for _ in range(ticks):
-        if node._vision_latch_update(node._vision.snapshot(time.monotonic())):
+        if node._vision_latch_update(
+                node._vision.snapshot(time.monotonic()), LATCH_OK_AGL):
             return True
     return False
 
@@ -376,7 +436,8 @@ def test_three_distinct_frames_latch():
     got = False
     for i, (nn, ee) in enumerate([(100.0, 50.0), (100.3, 50.2), (99.8, 49.9)]):
         feed_frame(n, nn, ee, 2.0)
-        got = n._vision_latch_update(n._vision.snapshot(time.monotonic()))
+        got = n._vision_latch_update(
+            n._vision.snapshot(time.monotonic()), LATCH_OK_AGL)
     assert got is True
     assert n._vs_latched is not None
     assert n._vs_latched[0] == pytest.approx(100.03, abs=0.05)
@@ -388,7 +449,8 @@ def test_spread_filter_still_rejects_scattered_frames():
     got = False
     for nn, ee in [(100.0, 50.0), (120.0, 50.0), (80.0, 50.0)]:
         feed_frame(n, nn, ee, 2.0)
-        got = n._vision_latch_update(n._vision.snapshot(time.monotonic()))
+        got = n._vision_latch_update(
+            n._vision.snapshot(time.monotonic()), LATCH_OK_AGL)
     assert got is False
 
 
@@ -397,10 +459,12 @@ def test_invalid_snapshot_clears_the_buffer():
     좌표가 나온다."""
     n = make_node(latch_frames=3)
     feed_frame(n, 100.0, 50.0, 2.0)
-    n._vision_latch_update(n._vision.snapshot(time.monotonic()))
+    n._vision_latch_update(
+        n._vision.snapshot(time.monotonic()), LATCH_OK_AGL)
     assert len(n._vs_latch_buf) == 1
     # setpoint 가 stale 로 떨어진 상황 = `valid=False`
-    n._vision_latch_update(n._vision.snapshot(time.monotonic() + 5.0))
+    n._vision_latch_update(
+        n._vision.snapshot(time.monotonic() + 5.0), LATCH_OK_AGL)
     assert n._vs_latch_buf == []
 
 
@@ -416,7 +480,7 @@ def test_veto_frames_never_enter_the_buffer():
     for _ in range(5):
         feed_frame(n, 100.0, 50.0, 2.0)
         vt = _with_veto(n._vision.snapshot(time.monotonic()))
-        assert n._vision_latch_update(vt) is False
+        assert n._vision_latch_update(vt, LATCH_OK_AGL) is False
     assert n._vs_latch_buf == []
 
 
@@ -424,7 +488,8 @@ def test_latch_counter_resets_on_search_entry():
     """재탐색으로 다시 들어오면 이전 회차의 프레임 계수를 물려받지 않는다."""
     n = make_node(latch_frames=3)
     feed_frame(n, 100.0, 50.0, 2.0)
-    n._vision_latch_update(n._vision.snapshot(time.monotonic()))
+    n._vision_latch_update(
+        n._vision.snapshot(time.monotonic()), LATCH_OK_AGL)
     assert n._vs_latch_rx is not None
     n._vs_center = np.array(WP1, dtype=float)
     n._enter_vision_search(at_wp1(), pass_idx=1)
@@ -617,3 +682,376 @@ def test_two_harness_pattern_tables_agree():
     a = {s for s, _ in run.STATE_ENTRY_PATTERNS}
     b = {s for s, _ in analyze.STATE_ENTRY_PATTERNS}
     assert b - a == {"ENTRY"}, f"두 표가 갈라졌습니다: run-only={a - b}, analyze-only={b - a}"
+
+
+# ══════════════════════════════════════════════════════════════════
+# F2-a — 래치에 고도 게이트가 없었다
+# ══════════════════════════════════════════════════════════════════
+#
+# 🔴 실측(검증 세션 R5, `logs/2026-07-29_f2_verify/R5_patched_handoff/node.log`):
+#     "타겟 래치 (연속 3틱, N=302.1 E=6.1) → PRECISION_LAND"   t=180.63
+#     "정밀착륙 AGL=50.0m …"                                    t=182.63
+#   검출 상한 33.57m 를 16m 넘는 고도에서 잡은 좌표로 하강을 시작했다.
+#   `detection_altitude_ok()` 는 기동 시 경고에만 쓰이고 있었다.
+
+
+def test_latch_is_refused_above_detection_ceiling():
+    """🔴 핵심 회귀. 검출 상한 위에서는 프레임이 아무리 일관돼도 래치가 서지
+    않는다 — 게이트를 지우면 R5 처럼 49.6m 에서 하강이 시작된다."""
+    n = make_node(latch_frames=3)
+    for nn, ee in [(100.0, 50.0), (100.1, 50.1), (99.9, 49.9)]:
+        feed_frame(n, nn, ee, 2.0)
+        got = n._vision_latch_update(
+            n._vision.snapshot(time.monotonic()), 49.6)
+        assert got is False, "검출 상한(33.57m) 위 AGL 49.6m 에서 래치했습니다"
+    assert n._vs_latched is None
+    assert n._vs_latch_buf == [], "상한 위 프레임이 증거로 남았습니다"
+
+
+def test_latch_gate_does_not_block_the_normal_search_altitude():
+    """반대 방향 — 정상 탐색고도(25m)에서는 종전과 똑같이 래치가 선다.
+    게이트를 너무 낮게 잡아 F2 자체를 막는 회귀를 잡는다."""
+    n = make_node(latch_frames=3)
+    got = False
+    for nn, ee in [(100.0, 50.0), (100.1, 50.1), (99.9, 49.9)]:
+        feed_frame(n, nn, ee, 2.0)
+        got = n._vision_latch_update(
+            n._vision.snapshot(time.monotonic()), LATCH_OK_AGL)
+    assert got is True
+
+
+def test_latch_gate_default_equals_detection_ceiling():
+    """자동 기본값이 검출 상한과 다른 숫자가 되면 "검출은 되는데 래치는 안 되는"
+    (또는 그 반대의) 고도대가 조용히 생긴다."""
+    n = make_node()
+    assert n._vs_latch_max_agl == pytest.approx(DETECTION_CEILING_M)
+    assert DETECTION_CEILING_M == pytest.approx(33.570, abs=0.01)
+
+
+def test_search_does_not_hand_over_while_still_descending_to_search_alt():
+    """상태 층에서 본 같은 계약 — HOLD 고도(50m)에서 유도가 계속 와도
+    `VISION_SEARCH` 를 떠나지 않는다. R5 는 여기서 떠났다."""
+    n = make_node(vision_landing=True, latch_frames=3)
+    n._exit_hold(at_wp1(), "테스트")
+    st = at_wp1(alt=CRUISE_ALT)          # AGL 50m — 아직 탐색고도가 아니다
+    for _ in range(12):
+        feed_frame(n, WP1[0], WP1[1], 0.0)
+        n._step_vision_search(st)
+    assert n._sm == _State.VISION_SEARCH, \
+        "검출 상한 위에서 PRECISION_LAND 로 넘어갔습니다"
+
+
+def test_latch_gate_can_be_disabled_explicitly():
+    """0 이하 = 비활성 규약. 게이트를 끄는 길이 남아 있어야 현장에서
+    감시 자체를 우회하는 더 위험한 선택을 하지 않는다."""
+    n = make_node(latch_frames=3, latch_max_agl=0.0)
+    got = False
+    for nn, ee in [(100.0, 50.0), (100.1, 50.1), (99.9, 49.9)]:
+        feed_frame(n, nn, ee, 2.0)
+        got = n._vision_latch_update(
+            n._vision.snapshot(time.monotonic()), 200.0)
+    assert got is True
+
+
+# ══════════════════════════════════════════════════════════════════
+# F2-b — 시한이 래치 고도와 정합해야 한다
+# ══════════════════════════════════════════════════════════════════
+
+
+def _enter_pl_at(node, agl):
+    node._vs_latched = np.array([WP1[0], WP1[1], GROUND_H])
+    node._enter_precision_land(at_wp1(alt=GROUND_H + agl))
+    return node._pl_deadline
+
+
+def test_precision_land_deadline_scales_with_latch_altitude():
+    """🔴 핵심 회귀. 49.6m 래치는 하강만 58.3s 인데 종전 시한은 60s 고정이라
+    정렬 몇 초로 초과했다(R5 는 vision 의 land 힌트가 42s 에 구해줬을 뿐이다)."""
+    n = make_node()
+    d = _enter_pl_at(n, 49.6)
+    ideal = (49.6 - n._vs_handoff_agl) / n._vs_descend_speed
+    assert d > ideal, (
+        f"시한 {d:.1f}s 가 이상적 하강시간 {ideal:.1f}s 보다 짧습니다 — "
+        f"정상 하강 중에 GPS 폴백됩니다")
+    assert d > n._pl_timeout
+
+
+def test_precision_land_deadline_is_the_parameter_at_search_altitude():
+    """정상 경로는 종전과 같다 — 시한은 늘어나기만 하고 줄지 않는다."""
+    n = make_node()
+    assert _enter_pl_at(n, 25.0) == pytest.approx(60.0)
+
+
+def test_precision_land_uses_deadline_not_the_raw_parameter():
+    """🔴 진짜 그물. `_enter_precision_land` 가 시한을 계산해도
+    `_step_precision_land` 가 `_pl_timeout` 을 그대로 보면 아무 소용이 없다.
+    파라미터 시한(60s)은 지났지만 계산된 시한(93.2s)은 안 지난 지점에서
+    상태가 유지되는지 본다."""
+    n = make_node()
+    _enter_pl_at(n, 49.6)
+    assert n._pl_deadline > 70.0
+    feed_frame(n, WP1[0], WP1[1], 0.0)
+    n._pl_elapsed = 65.0                 # 파라미터 60s 는 이미 초과
+    n._step_precision_land(at_wp1(alt=GROUND_H + 20.0))
+    assert n._sm == _State.PRECISION_LAND, \
+        "계산된 시한 대신 precision_land_timeout 파라미터를 보고 있습니다"
+
+
+def test_precision_land_still_times_out_at_the_computed_deadline():
+    """반대 방향 — 시한이 없어진 것이 아니다. 계산된 시한을 넘기면 폴백한다."""
+    n = make_node()
+    _enter_pl_at(n, 49.6)
+    feed_frame(n, WP1[0], WP1[1], 0.0)
+    n._pl_elapsed = n._pl_deadline + 1.0
+    n._step_precision_land(at_wp1(alt=GROUND_H + 20.0))
+    assert n._sm == _State.LANDING
+
+
+# ══════════════════════════════════════════════════════════════════
+# F2-c — `_step_precision_land` 가 `link_dead` 를 안 봤다
+# ══════════════════════════════════════════════════════════════════
+
+
+def feed_link(node, level, t=None):
+    """`/vision/target_status` 의 `vision/link` 항목만 실린 하트비트 1건.
+
+    🔴 `level` 은 **1바이트 `bytes`** 로 넣는다 — msg 상 타입이 `byte` 라
+    rclpy 도 shim(`shim_node.py:221`)도 그 형식을 쓴다. int 로 넣으면
+    `level_to_int()` 를 우회해 계약과 다른 것을 시험하게 된다."""
+    status = types.SimpleNamespace(
+        name="vision/link", level=bytes([int(level)]),
+        message="", values=[])
+    node._vision.update_from_status(
+        types.SimpleNamespace(status=[status]),
+        time.monotonic() if t is None else float(t))
+
+
+def test_precision_land_falls_back_immediately_on_producer_death():
+    """🔴 핵심 회귀. `_step_vision_search` 는 `link_dead` 에 즉시 빠지는데
+    여기엔 그 분기가 없어 **전체 시한(60s)을 다 채운 뒤에야** 폴백했다.
+    임무 끝단에서 60초 호버다."""
+    n = make_node()
+    _enter_pl_at(n, 25.0)
+    feed_link(n, 2)                       # ERROR = 생산자 사망
+    n._step_precision_land(at_wp1(alt=GROUND_H + 20.0))
+    assert n._sm == _State.LANDING, "생산자 사망을 보고도 정밀착륙을 계속합니다"
+    assert n._pl_elapsed < 1.0, "시한을 다 채운 뒤에 빠졌습니다"
+
+
+def test_precision_land_ignores_healthy_link():
+    """대조군 — link OK 면 아무 일도 없다(하트비트가 폴백을 트리거하면 안 된다)."""
+    n = make_node()
+    _enter_pl_at(n, 25.0)
+    feed_link(n, 0)
+    feed_frame(n, WP1[0], WP1[1], 0.0)
+    n._step_precision_land(at_wp1(alt=GROUND_H + 20.0))
+    assert n._sm == _State.PRECISION_LAND
+
+
+# ══════════════════════════════════════════════════════════════════
+# F2-d — `_pl_lost_elapsed` 가 죽은 변수였다
+# ══════════════════════════════════════════════════════════════════
+
+
+def _run_pl_ticks(node, clk, seconds, agl=20.0):
+    """`seconds` 만큼 제어틱을 돌린다 — **시계도 같이 간다**(침묵 재현의 전제)."""
+    for _ in range(int(round(seconds / node._dt))):
+        if node._sm != _State.PRECISION_LAND:
+            return
+        node._step_precision_land(at_wp1(alt=GROUND_H + agl))
+        clk.advance(node._dt)
+
+
+def test_guidance_loss_has_its_own_deadline():
+    """🔴 핵심 회귀. `_pl_lost_elapsed` 는 갱신만 되고 읽는 곳이 0건이었다 —
+    유도 상실 전용 시한이 사실상 없었다. 유도 없이 `vision_lost_timeout` 을
+    넘기면 그 자리에서 AUTO.LAND 로 인계한다."""
+    with fake_clock() as clk:
+        n = make_node(lost_timeout=5.0)
+        _enter_pl_at(n, 25.0)
+        feed_frame(n, WP1[0], WP1[1], 0.0, t=clk.monotonic())   # 이후 침묵
+        _run_pl_ticks(n, clk, 10.0)
+        assert n._sm == _State.LANDING, \
+            "유도가 끊긴 채 lost_timeout 을 넘겼는데 그대로 있습니다"
+        assert n._pl_elapsed < 20.0, "전체 시한을 다 채우고서야 빠졌습니다"
+
+
+def test_guidance_loss_timer_resets_on_fresh_guidance():
+    """짧은 끊김은 폴백 사유가 아니다 — 유도가 돌아오면 타이머가 0으로 간다.
+
+    3s 간격으로 프레임이 오는 상황(= stale 1.0s 를 매번 넘긴다)을 12회
+    반복한다. 누적된다면 총 36s 로 5s 시한을 한참 전에 넘겼을 것이다."""
+    with fake_clock() as clk:
+        n = make_node(lost_timeout=5.0)
+        _enter_pl_at(n, 25.0)
+        for _ in range(12):
+            feed_frame(n, WP1[0], WP1[1], 0.0, t=clk.monotonic())
+            _run_pl_ticks(n, clk, 3.0)
+            if n._sm != _State.PRECISION_LAND:
+                break
+        assert n._sm == _State.PRECISION_LAND, \
+            "3s 끊김이 반복될 때마다 타이머가 누적되고 있습니다"
+
+
+def test_guidance_loss_timeout_can_be_disabled():
+    """0 이하 = 비활성 (타임아웃 4종과 같은 규약). 이때는 종전처럼 전체 시한이
+    유일한 제동장치다."""
+    with fake_clock() as clk:
+        n = make_node(lost_timeout=0.0)
+        _enter_pl_at(n, 25.0)
+        feed_frame(n, WP1[0], WP1[1], 0.0, t=clk.monotonic())
+        _run_pl_ticks(n, clk, 10.0)
+        assert n._sm == _State.PRECISION_LAND
+
+
+def test_shim_death_is_caught_by_guidance_loss_not_link_dead():
+    """🔴 페일세이프 3분법의 네 번째 칸(§6-1 #4). shim 자신이 죽으면 status 까지
+    끊겨 `link_dead` 가 **서지 않는다** — F2-c 의 분기로는 안 잡힌다.
+    그 구멍을 F2-d 의 유도 상실 시한이 메운다."""
+    with fake_clock() as clk:
+        n = make_node(lost_timeout=5.0)
+        _enter_pl_at(n, 25.0)
+        feed_frame(n, WP1[0], WP1[1], 0.0, t=clk.monotonic())
+        feed_link(n, 0, t=clk.monotonic())       # 마지막 하트비트는 정상
+        _run_pl_ticks(n, clk, 10.0)              # 그 뒤 두 토픽 모두 침묵
+        assert n._vision.snapshot(clk.monotonic()).link_dead is False, \
+            "shim 사망인데 link_dead 가 섰습니다 — 3분법이 무너졌습니다"
+        assert n._sm == _State.LANDING
+
+
+def test_pl_lost_elapsed_is_actually_read():
+    """일반화된 그물 — 갱신만 되고 읽히지 않는 상태변수는 **없는 것과 같다**.
+    이번 결함이 정확히 그 형태였으므로 AST 로 고정한다."""
+    import ast
+    from pathlib import Path
+    tree = ast.parse(Path(ON.__file__).read_text(encoding="utf-8"))
+    loads = [nd for nd in ast.walk(tree)
+             if isinstance(nd, ast.Attribute) and nd.attr == "_pl_lost_elapsed"
+             and isinstance(nd.ctx, ast.Load)]
+    assert loads, "_pl_lost_elapsed 를 읽는 곳이 0건입니다 (죽은 변수)"
+
+
+# ══════════════════════════════════════════════════════════════════
+# F2-e — 거리 상한 경고가 탐색 반경을 안 더했다
+# ══════════════════════════════════════════════════════════════════
+
+
+def _range_warned(node):
+    node._check_path_within_range()
+    return any("거리 상한 밖" in ln for ln in node.log.lines)
+
+
+def test_range_warning_accounts_for_search_radius():
+    """🔴 핵심 회귀. `VISION_SEARCH` 는 `_RANGE_GUARDED_STATES` 에 포함되므로
+    실제 필요조건은 `range_limit_m > d(WP1) + 탐색반경` 이다. WP1 이 300m 고
+    반경이 30m 면 상한 300m 로는 탐색이 시작되자마자 OVERRIDE 가 걸린다 —
+    경로 최원점(300m)만 보면 이 상황이 통과해 버린다."""
+    n = make_node(vision_landing=True, range_limit=300.0)
+    assert _range_warned(n) is True, \
+        "탐색 반경을 더하지 않아 상한 밖 설정을 통과시켰습니다"
+    assert any("탐색 최원점" in ln for ln in n.log.lines)
+
+
+def test_range_warning_silent_when_limit_covers_search():
+    """반대 방향 — 상한이 탐색까지 덮으면 경고하지 않는다(헛경보 금지)."""
+    n = make_node(vision_landing=True, range_limit=400.0)
+    assert _range_warned(n) is False
+
+
+def test_range_warning_uses_the_larger_of_both_passes():
+    """회차별 반경이 다르다(30m / 18m). 큰 쪽을 써야 한다."""
+    n = make_node(vision_landing=True, range_limit=325.0)
+    n._vs_radius = 30.0
+    n._vs_retry_radius = 18.0
+    assert _range_warned(n) is True       # 300 + 30 = 330 > 325
+
+
+def test_range_warning_unchanged_when_vision_landing_off():
+    """🔴 계약: `vision_landing=false` 는 종전과 100% 동일하다. 탐색을 안 하는데
+    반경을 더해 경고하면 기존 임무에 없던 헛경보가 생긴다."""
+    n = make_node(vision_landing=False, range_limit=300.0)
+    assert _range_warned(n) is False
+    assert not any("탐색 최원점" in ln for ln in n.log.lines)
+
+
+# ══════════════════════════════════════════════════════════════════
+# F2-f — HOLD 타임아웃으로 나오면 align 이 같은 조건에 다시 막힌다
+# ══════════════════════════════════════════════════════════════════
+#
+# align 통과조건의 수평 항이 `dist(WP1) < wp1_land_radius` 라, HOLD 가 그
+# 반경을 못 채워 타임아웃했다면 align 도 못 선다 → dwell·나선에 한 번도 못
+# 들어간 채 회차 타임아웃 120s 를 두 번(240s) 태우고 GPS 폴백이 된다.
+
+
+def _stuck_far_from_wp1():
+    """WP1 에서 20m 떨어진 채 탐색고도에 있는 기체 — align 수평 조건 불만족."""
+    return _vehicle_state((WP1[0] - 20.0, WP1[1], GROUND_H + 25.0))
+
+
+def test_align_timeout_forces_the_spiral():
+    """🔴 핵심 회귀. align 이 시한을 넘기면 강제로 나선에 진입한다."""
+    n = make_node(vision_landing=True, align_timeout=30.0)
+    n._exit_hold(at_wp1(), "홀드 타임아웃")
+    st = _stuck_far_from_wp1()
+    for _ in range(400):                  # 40s 치
+        n._step_vision_search(st)
+        if n._vs_phase == "spiral":
+            break
+    assert n._vs_phase == "spiral", \
+        "align 에 갇혔습니다 — 두 회차 240s 를 태우고 GPS 폴백합니다"
+    assert n._sm == _State.VISION_SEARCH
+    assert n._vs_elapsed < n._vs_timeout
+
+
+def test_align_timeout_skips_dwell_to_fit_the_pass_budget():
+    """dwell(3s)까지 태우면 30 + 3 + 나선 89 = 122s 로 회차 상한 120s 를
+    넘긴다 — 강제 진행은 dwell 을 건너뛴다."""
+    n = make_node(vision_landing=True, align_timeout=30.0)
+    n._exit_hold(at_wp1(), "홀드 타임아웃")
+    st = _stuck_far_from_wp1()
+    for _ in range(400):
+        n._step_vision_search(st)
+        if n._vs_phase != "align":
+            break
+    assert n._vs_phase == "spiral", f"dwell 을 거쳤습니다 (phase={n._vs_phase})"
+    assert n._vs_dwell_elapsed == 0.0
+
+
+def test_align_completes_normally_before_the_timeout():
+    """반대 방향 — 정상 정렬은 타임아웃을 기다리지 않고 dwell 로 간다."""
+    n = make_node(vision_landing=True, align_timeout=30.0)
+    n._exit_hold(at_wp1(), "테스트")
+    st = at_wp1(alt=GROUND_H + 25.0)      # WP1 위 · 탐색고도
+    n._step_vision_search(st)
+    assert n._vs_phase == "dwell"
+
+
+def test_align_timeout_can_be_disabled():
+    """0 이하 = 비활성 — 종전 동작(무한 align)으로 되돌리는 길."""
+    n = make_node(vision_landing=True, align_timeout=0.0)
+    n._exit_hold(at_wp1(), "홀드 타임아웃")
+    st = _stuck_far_from_wp1()
+    for _ in range(400):
+        n._step_vision_search(st)
+        if n._sm != _State.VISION_SEARCH:
+            break
+    assert n._vs_phase == "align"
+
+
+def test_hold_timeout_path_reaches_the_spiral_end_to_end():
+    """🔴 통합 회귀 — HOLD 타임아웃부터 나선 진입까지 한 줄로 본다.
+    이 경로가 F2-f 가 실제로 관측된 형태다."""
+    n = make_node(vision_landing=True, align_timeout=30.0)
+    n._hold_timeout = 1.0
+    far = _vehicle_state((WP1[0] - 20.0, WP1[1], CRUISE_ALT),
+                         vel_ned=(3.0, 0.0, 0.0))
+    for _ in range(500):
+        if n._sm == _State.HOLD:
+            n._step_hold(far)
+        elif n._sm == _State.VISION_SEARCH:
+            n._step_vision_search(_stuck_far_from_wp1())
+            if n._vs_phase == "spiral":
+                break
+        else:
+            break
+    assert n._sm == _State.VISION_SEARCH and n._vs_phase == "spiral"

@@ -288,9 +288,12 @@ _VISION_PARAMS = {
     "vision_retry_radius":      18.0,
     "vision_latch_frames":         3,
     "vision_latch_spread_m":     3.0,
+    "vision_latch_max_agl":      0.0,   # F2-a. 0 = 검출 상한에서 자동 산출
     "vision_stale_timeout":      1.0,
     "vision_link_timeout":       3.0,
     "vision_veto_timeout":      10.0,
+    "vision_lost_timeout":       5.0,   # F2-d. 유도 상실 전용 시한
+    "vision_align_timeout":     30.0,   # F2-f. align 상한, 초과 시 나선 강제
     "vision_align_tol":          1.0,
     "vision_descend_speed":      0.8,
     "vision_land_handoff_agl":   3.0,
