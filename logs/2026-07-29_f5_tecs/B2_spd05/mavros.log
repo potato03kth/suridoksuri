@@ -1,0 +1,266 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-07-29-13-46-29-521473-DESKTOP-Kilogram-47830
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [mavros_node-1]: process started with pid [47880]
+[mavros_node-1] [INFO] [1785300389.712895419] [mavros.mavros_node]: Starting mavros_node container
+[mavros_node-1] [INFO] [1785300389.713016316] [mavros.mavros_node]: FCU URL: udp://:14540@localhost:14580
+[mavros_node-1] [INFO] [1785300389.713027487] [mavros.mavros_node]: GCS URL: 
+[mavros_node-1] [INFO] [1785300389.713033334] [mavros.mavros_node]: UAS Prefix: /uas1
+[mavros_node-1] [INFO] [1785300389.713038794] [mavros.mavros_node]: Starting mavros router node
+[mavros_node-1] [INFO] [1785300389.721794441] [mavros.mavros_router]: Built-in SIMD instructions: SSE, SSE2
+[mavros_node-1] [INFO] [1785300389.721847730] [mavros.mavros_router]: Built-in MAVLink package version: 2026.6.6
+[mavros_node-1] [INFO] [1785300389.721859894] [mavros.mavros_router]: Known MAVLink dialects: common ardupilotmega ASLUAV AVSSUAS all csAirLink cubepilot development icarous loweheiser marsh matrixpilot paparazzi standard stemstudios storm32 uAvionix ualberta
+[mavros_node-1] [INFO] [1785300389.721865638] [mavros.mavros_router]: MAVROS Router started
+[mavros_node-1] [INFO] [1785300389.721897825] [mavros.mavros_node]: Starting mavros uas node
+[mavros_node-1] [INFO] [1785300389.745250592] [mavros.mavros_router]: Requested to add endpoint: type: 0, url: udp://:14540@localhost:14580
+[mavros_node-1] [INFO] [1785300389.745303922] [mavros.mavros_router]: Endpoint link[1000] created
+[mavros_node-1] [INFO] [1785300389.745624888] [mavros.mavros_router]: link[1000] opened successfully
+[mavros_node-1] [INFO] [1785300389.745643245] [mavros.mavros_router]: Requested to add endpoint: type: 2, url: /uas1
+[mavros_node-1] [INFO] [1785300389.745660409] [mavros.mavros_router]: Endpoint link[1001] created
+[mavros_node-1] [INFO] [1785300389.746980690] [mavros.mavros_router]: link[1001] opened successfully
+[mavros_node-1] [INFO] [1785300389.754992417] [mavros.mavros]: UAS Executor started, threads: 8
+[mavros_node-1] [INFO] [1785300389.769070230] [mavros.mavros]: Plugin actuator_control created
+[mavros_node-1] [INFO] [1785300389.769140283] [mavros.mavros]: Plugin actuator_control initialized
+[mavros_node-1] [INFO] [1785300389.792183261] [mavros.mavros]: Plugin adsb created
+[mavros_node-1] [INFO] [1785300389.792270237] [mavros.mavros]: Plugin adsb initialized
+[mavros_node-1] [INFO] [1785300389.799441863] [mavros.mavros]: Plugin altitude created
+[mavros_node-1] [INFO] [1785300389.799499847] [mavros.mavros]: Plugin altitude initialized
+[mavros_node-1] [INFO] [1785300389.805547420] [mavros.mavros]: Plugin cam_imu_sync created
+[mavros_node-1] [INFO] [1785300389.805611170] [mavros.mavros]: Plugin cam_imu_sync initialized
+[mavros_node-1] [INFO] [1785300389.811813894] [mavros.mavros]: Plugin camera created
+[mavros_node-1] [INFO] [1785300389.811880293] [mavros.mavros]: Plugin camera initialized
+[mavros_node-1] [INFO] [1785300389.817959121] [mavros.mavros]: Plugin cellular_status created
+[mavros_node-1] [INFO] [1785300389.818020436] [mavros.mavros]: Plugin cellular_status initialized
+[mavros_node-1] [INFO] [1785300389.829077065] [mavros.mavros]: Plugin command created
+[mavros_node-1] [INFO] [1785300389.829160090] [mavros.mavros]: Plugin command initialized
+[mavros_node-1] [INFO] [1785300389.837014920] [mavros.mavros]: Plugin companion_process_status created
+[mavros_node-1] [INFO] [1785300389.837097710] [mavros.mavros]: Plugin companion_process_status initialized
+[mavros_node-1] [INFO] [1785300389.847063678] [mavros.mavros]: Plugin debug_value created
+[mavros_node-1] [INFO] [1785300389.847152023] [mavros.mavros]: Plugin debug_value initialized
+[mavros_node-1] [INFO] [1785300389.847164174] [mavros.mavros]: Plugin distance_sensor ignored
+[mavros_node-1] [INFO] [1785300389.854329785] [mavros.mavros]: Plugin esc_status created
+[mavros_node-1] [INFO] [1785300389.854398320] [mavros.mavros]: Plugin esc_status initialized
+[mavros_node-1] [INFO] [1785300389.861122094] [mavros.mavros]: Plugin esc_telemetry created
+[mavros_node-1] [INFO] [1785300389.861198267] [mavros.mavros]: Plugin esc_telemetry initialized
+[mavros_node-1] [INFO] [1785300389.868897849] [mavros.mavros]: Plugin fake_gps created
+[mavros_node-1] [INFO] [1785300389.868951085] [mavros.mavros]: Plugin fake_gps initialized
+[mavros_node-1] [INFO] [1785300389.883697930] [mavros.mavros]: Plugin ftp created
+[mavros_node-1] [INFO] [1785300389.883778457] [mavros.mavros]: Plugin ftp initialized
+[mavros_node-1] [INFO] [1785300389.892994476] [mavros.mavros]: Plugin geofence created
+[mavros_node-1] [INFO] [1785300389.893070623] [mavros.mavros]: Plugin geofence initialized
+[mavros_node-1] [INFO] [1785300389.907005396] [mavros.mavros]: Plugin gimbal_control created
+[mavros_node-1] [INFO] [1785300389.907087114] [mavros.mavros]: Plugin gimbal_control initialized
+[mavros_node-1] [INFO] [1785300389.922305668] [mavros.mavros]: Plugin global_position created
+[mavros_node-1] [INFO] [1785300389.922407248] [mavros.mavros]: Plugin global_position initialized
+[mavros_node-1] [INFO] [1785300389.933704113] [mavros.mavros]: Plugin gps_input created
+[mavros_node-1] [INFO] [1785300389.933813510] [mavros.mavros]: Plugin gps_input initialized
+[mavros_node-1] [INFO] [1785300389.943469609] [mavros.mavros]: Plugin gps_rtk created
+[mavros_node-1] [INFO] [1785300389.943558573] [mavros.mavros]: Plugin gps_rtk initialized
+[mavros_node-1] [INFO] [1785300389.956093381] [mavros.mavros]: Plugin gps_status created
+[mavros_node-1] [INFO] [1785300389.956177180] [mavros.mavros]: Plugin gps_status initialized
+[mavros_node-1] [INFO] [1785300389.965213948] [mavros.mavros]: Plugin guided_target created
+[mavros_node-1] [INFO] [1785300389.965276705] [mavros.mavros]: Plugin guided_target initialized
+[mavros_node-1] [INFO] [1785300389.977109573] [mavros.mavros]: Plugin hil created
+[mavros_node-1] [INFO] [1785300389.977178543] [mavros.mavros]: Plugin hil initialized
+[mavros_node-1] [INFO] [1785300389.987058074] [mavros.mavros]: Plugin home_position created
+[mavros_node-1] [INFO] [1785300389.987134617] [mavros.mavros]: Plugin home_position initialized
+[mavros_node-1] [INFO] [1785300390.001239991] [mavros.mavros]: Plugin imu created
+[mavros_node-1] [INFO] [1785300390.001315924] [mavros.mavros]: Plugin imu initialized
+[mavros_node-1] [INFO] [1785300390.014980120] [mavros.mavros]: Plugin landing_target created
+[mavros_node-1] [INFO] [1785300390.015043900] [mavros.mavros]: Plugin landing_target initialized
+[mavros_node-1] [INFO] [1785300390.029814707] [mavros.mavros]: Plugin local_position created
+[mavros_node-1] [INFO] [1785300390.029913075] [mavros.mavros]: Plugin local_position initialized
+[mavros_node-1] [INFO] [1785300390.044301485] [mavros.mavros]: Plugin log_transfer created
+[mavros_node-1] [INFO] [1785300390.044388985] [mavros.mavros]: Plugin log_transfer initialized
+[mavros_node-1] [INFO] [1785300390.054509704] [mavros.mavros]: Plugin mag_calibration_status created
+[mavros_node-1] [INFO] [1785300390.054576170] [mavros.mavros]: Plugin mag_calibration_status initialized
+[mavros_node-1] [INFO] [1785300390.065780942] [mavros.mavros]: Plugin manual_control created
+[mavros_node-1] [INFO] [1785300390.065865626] [mavros.mavros]: Plugin manual_control initialized
+[mavros_node-1] [INFO] [1785300390.076901099] [mavros.mavros]: Plugin mocap_pose_estimate created
+[mavros_node-1] [INFO] [1785300390.076959486] [mavros.mavros]: Plugin mocap_pose_estimate initialized
+[mavros_node-1] [INFO] [1785300390.093060918] [mavros.mavros]: Plugin mount_control created
+[mavros_node-1] [INFO] [1785300390.093235825] [mavros.mavros]: Plugin mount_control initialized
+[mavros_node-1] [INFO] [1785300390.106572656] [mavros.mavros]: Plugin nav_controller_output created
+[mavros_node-1] [INFO] [1785300390.106644336] [mavros.mavros]: Plugin nav_controller_output initialized
+[mavros_node-1] [INFO] [1785300390.121260144] [mavros.mavros]: Plugin obstacle_distance created
+[mavros_node-1] [INFO] [1785300390.121324013] [mavros.mavros]: Plugin obstacle_distance initialized
+[mavros_node-1] [INFO] [1785300390.136150058] [mavros.mavros]: Plugin obstacle_distance_3d created
+[mavros_node-1] [INFO] [1785300390.136218968] [mavros.mavros]: Plugin obstacle_distance_3d initialized
+[mavros_node-1] [INFO] [1785300390.151718799] [mavros.mavros]: Plugin odometry created
+[mavros_node-1] [INFO] [1785300390.151790109] [mavros.mavros]: Plugin odometry initialized
+[mavros_node-1] [INFO] [1785300390.165347962] [mavros.mavros]: Plugin onboard_computer_status created
+[mavros_node-1] [INFO] [1785300390.165439243] [mavros.mavros]: Plugin onboard_computer_status initialized
+[mavros_node-1] [INFO] [1785300390.183085808] [mavros.mavros]: Plugin open_drone_id created
+[mavros_node-1] [INFO] [1785300390.183138051] [mavros.mavros]: Plugin open_drone_id initialized
+[mavros_node-1] [INFO] [1785300390.200495804] [mavros.mavros]: Plugin optical_flow created
+[mavros_node-1] [INFO] [1785300390.200546036] [mavros.mavros]: Plugin optical_flow initialized
+[mavros_node-1] [INFO] [1785300390.215353154] [mavros.mavros]: Plugin param created
+[mavros_node-1] [INFO] [1785300390.215425581] [mavros.mavros]: Plugin param initialized
+[mavros_node-1] [INFO] [1785300390.231308828] [mavros.mavros]: Plugin play_tune created
+[mavros_node-1] [INFO] [1785300390.231430719] [mavros.mavros]: Plugin play_tune initialized
+[mavros_node-1] [INFO] [1785300390.253032300] [mavros.mavros]: Plugin px4flow created
+[mavros_node-1] [INFO] [1785300390.253134747] [mavros.mavros]: Plugin px4flow initialized
+[mavros_node-1] [INFO] [1785300390.271188509] [mavros.mavros]: Plugin rallypoint created
+[mavros_node-1] [INFO] [1785300390.271269791] [mavros.mavros]: Plugin rallypoint initialized
+[mavros_node-1] [INFO] [1785300390.271282379] [mavros.mavros]: Plugin rangefinder ignored
+[mavros_node-1] [INFO] [1785300390.288953461] [mavros.mavros]: Plugin rc_io created
+[mavros_node-1] [INFO] [1785300390.289027281] [mavros.mavros]: Plugin rc_io initialized
+[mavros_node-1] [INFO] [1785300390.305520135] [mavros.mavros]: Plugin setpoint_accel created
+[mavros_node-1] [INFO] [1785300390.305584202] [mavros.mavros]: Plugin setpoint_accel initialized
+[mavros_node-1] [INFO] [1785300390.325108493] [mavros.mavros]: Plugin setpoint_attitude created
+[mavros_node-1] [INFO] [1785300390.325253690] [mavros.mavros]: Plugin setpoint_attitude initialized
+[mavros_node-1] [INFO] [1785300390.355504325] [mavros.mavros]: Plugin setpoint_position created
+[mavros_node-1] [INFO] [1785300390.355585465] [mavros.mavros]: Plugin setpoint_position initialized
+[mavros_node-1] [INFO] [1785300390.379108416] [mavros.mavros]: Plugin setpoint_raw created
+[mavros_node-1] [INFO] [1785300390.379279280] [mavros.mavros]: Plugin setpoint_raw initialized
+[mavros_node-1] [INFO] [1785300390.409221855] [mavros.mavros]: Plugin setpoint_trajectory created
+[mavros_node-1] [INFO] [1785300390.409293719] [mavros.mavros]: Plugin setpoint_trajectory initialized
+[mavros_node-1] [INFO] [1785300390.430789359] [mavros.mavros]: Plugin setpoint_velocity created
+[mavros_node-1] [INFO] [1785300390.430859508] [mavros.mavros]: Plugin setpoint_velocity initialized
+[mavros_node-1] [INFO] [1785300390.452832144] [mavros.mavros]: Plugin sim_state created
+[mavros_node-1] [INFO] [1785300390.452928184] [mavros.mavros]: Plugin sim_state initialized
+[mavros_node-1] [INFO] [1785300390.487900959] [mavros.mavros]: Plugin sys_status created
+[mavros_node-1] [INFO] [1785300390.488001568] [mavros.mavros]: Plugin sys_status initialized
+[mavros_node-1] [INFO] [1785300390.509687340] [mavros.time]: TM: Timesync mode: MAVLINK
+[mavros_node-1] [INFO] [1785300390.516025557] [mavros.mavros]: Plugin sys_time created
+[mavros_node-1] [INFO] [1785300390.516102377] [mavros.mavros]: Plugin sys_time initialized
+[mavros_node-1] [INFO] [1785300390.539608763] [mavros.mavros]: Plugin tdr_radio created
+[mavros_node-1] [INFO] [1785300390.539677573] [mavros.mavros]: Plugin tdr_radio initialized
+[mavros_node-1] [INFO] [1785300390.565688374] [mavros.mavros]: Plugin terrain created
+[mavros_node-1] [INFO] [1785300390.565754881] [mavros.mavros]: Plugin terrain initialized
+[mavros_node-1] [INFO] [1785300390.589854166] [mavros.mavros]: Plugin trajectory created
+[mavros_node-1] [INFO] [1785300390.589962235] [mavros.mavros]: Plugin trajectory initialized
+[mavros_node-1] [INFO] [1785300390.612142664] [mavros.mavros]: Plugin tunnel created
+[mavros_node-1] [INFO] [1785300390.612222060] [mavros.mavros]: Plugin tunnel initialized
+[mavros_node-1] [INFO] [1785300390.633159026] [mavros.mavros]: Plugin vfr_hud created
+[mavros_node-1] [INFO] [1785300390.633229429] [mavros.mavros]: Plugin vfr_hud initialized
+[mavros_node-1] [INFO] [1785300390.633237619] [mavros.mavros]: Plugin vibration ignored
+[mavros_node-1] [INFO] [1785300390.657154852] [mavros.mavros]: Plugin vision_pose created
+[mavros_node-1] [INFO] [1785300390.657262541] [mavros.mavros]: Plugin vision_pose initialized
+[mavros_node-1] [INFO] [1785300390.681492505] [mavros.mavros]: Plugin vision_speed created
+[mavros_node-1] [INFO] [1785300390.681565624] [mavros.mavros]: Plugin vision_speed initialized
+[mavros_node-1] [INFO] [1785300390.715676293] [mavros.mavros]: Plugin waypoint created
+[mavros_node-1] [INFO] [1785300390.715771554] [mavros.mavros]: Plugin waypoint initialized
+[mavros_node-1] [INFO] [1785300390.715782867] [mavros.mavros]: Plugin wheel_odometry ignored
+[mavros_node-1] [INFO] [1785300390.741393406] [mavros.mavros]: Plugin wind_estimation created
+[mavros_node-1] [INFO] [1785300390.741508768] [mavros.mavros]: Plugin wind_estimation initialized
+[mavros_node-1] [INFO] [1785300390.743510295] [mavros.mavros]: Built-in SIMD instructions: SSE, SSE2
+[mavros_node-1] [INFO] [1785300390.743555872] [mavros.mavros]: Built-in MAVLink package version: 2026.6.6
+[mavros_node-1] [INFO] [1785300390.743562313] [mavros.mavros]: Known MAVLink dialects: common ardupilotmega ASLUAV AVSSUAS all csAirLink cubepilot development icarous loweheiser marsh matrixpilot paparazzi standard stemstudios storm32 uAvionix ualberta
+[mavros_node-1] [INFO] [1785300390.743567206] [mavros.mavros]: MAVROS UAS via /uas1 started. MY ID 1.191, TARGET ID 1.1
+[mavros_node-1] [INFO] [1785300390.781655221] [mavros.mavros_router]: link[1001] detected remote address 1.191
+[mavros_node-1] [WARN] [1785300392.297987862] [mavros.sys]: VER: broadcast request timeout, retries left 4
+[mavros_node-1] [WARN] [1785300393.194943148] [mavros.sys]: VER: broadcast request timeout, retries left 3
+[mavros_node-1] [WARN] [1785300394.097693613] [mavros.sys]: VER: unicast request timeout, retries left 2
+[mavros_node-1] [WARN] [1785300394.999832257] [mavros.sys]: VER: unicast request timeout, retries left 1
+[mavros_node-1] [INFO] [1785300395.522104080] [mavros.mavros_router]: link[1000] detected remote address 1.1
+[mavros_node-1] [INFO] [1785300395.538154180] [mavros.imu]: IMU: High resolution IMU detected!
+[mavros_node-1] [INFO] [1785300395.666499724] [mavros.imu]: IMU: Attitude quaternion IMU detected!
+[mavros_node-1] [INFO] [1785300395.694521818] [mavros.sys]: FCU: EVENT 1203183 with args -234-7-7-29-4-46-35-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [ERROR] [1785300395.820154532] [mavros.sys]: FCU: EVENT 7791755 with args -255-1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [WARN] [1785300395.898301553] [mavros.sys]: VER: unicast request timeout, retries left 0
+[mavros_node-1] [WARN] [1785300395.906110409] [mavros.cmd]: CMD: Unexpected command 520, result 3
+[mavros_node-1] [INFO] [1785300396.518387994] [mavros.mavros]: CON: Got HEARTBEAT, connected. FCU: PX4 Autopilot
+[mavros_node-1] [INFO] [1785300396.518709716] [mavros.mission]: WP: detected enable_partial_push: 0
+[mavros_node-1] [INFO] [1785300396.519198226] [mavros.imu]: IMU: High resolution IMU detected!
+[mavros_node-1] [INFO] [1785300396.526484493] [mavros.imu]: IMU: Attitude quaternion IMU detected!
+[mavros_node-1] [WARN] [1785300396.894389153] [mavros.sys]: FCU: UNK(8): EVENT 11047904 with args -0-0-16-18-1-128-0-0-0-0-0-0-0-0-58-1-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [ERROR] [1785300396.895441003] [mavros.sys]: FCU: EVENT 11464574 with args -0-64-0-0-20-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [ERROR] [1785300396.895859934] [mavros.sys]: FCU: EVENT 13835193 with args -252-0-126-0-17-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [ERROR] [1785300396.896013393] [mavros.sys]: FCU: EVENT 10011251 with args -56-0-0-0-24-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [INFO] [1785300396.896268116] [mavros.sys]: FCU: EVENT 377561 with args -8-0-0-0-20-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [WARN] [1785300396.896414116] [mavros.sys]: FCU: EVENT 453929 with args -255-255-255-255-7-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [ERROR] [1785300396.896665879] [mavros.sys]: FCU: EVENT 6801787 with args -255-255-255-255-12-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [WARN] [1785300396.896858818] [mavros.sys]: FCU: UNK(8): EVENT 1914663 with args -0-14-13-2-56-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [WARN] [1785300398.392190252] [mavros.sys]: VER: broadcast request timeout, retries left 4
+[mavros_node-1] [WARN] [1785300398.960829013] [mavros.sys]: FCU: UNK(8): EVENT 11047904 with args -0-0-16-16-0-128-0-0-0-0-0-0-0-176-58-127-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [ERROR] [1785300398.961307354] [mavros.sys]: FCU: EVENT 11464574 with args -0-64-0-0-20-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [INFO] [1785300398.961721592] [mavros.sys]: FCU: EVENT 377561 with args -8-0-0-0-20-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [WARN] [1785300398.962038105] [mavros.sys]: FCU: EVENT 453929 with args -255-255-255-255-7-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [ERROR] [1785300398.962359212] [mavros.sys]: FCU: EVENT 6801787 with args -255-255-255-255-12-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [WARN] [1785300398.962661244] [mavros.sys]: FCU: UNK(8): EVENT 1914663 with args -0-14-13-2-56-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [WARN] [1785300399.234745900] [mavros.sys]: VER: broadcast request timeout, retries left 3
+[mavros_node-1] [ERROR] [1785300400.146202377] [mavros.sys]: VER: command plugin service call failed!
+[mavros_node-1] [WARN] [1785300400.146346864] [mavros.sys]: VER: unicast request timeout, retries left 2
+[mavros_node-1] [ERROR] [1785300401.057046307] [mavros.sys]: VER: command plugin service call failed!
+[mavros_node-1] [WARN] [1785300401.057247806] [mavros.sys]: VER: unicast request timeout, retries left 1
+[mavros_node-1] [ERROR] [1785300401.993961938] [mavros.sys]: VER: command plugin service call failed!
+[mavros_node-1] [WARN] [1785300401.994109162] [mavros.sys]: VER: unicast request timeout, retries left 0
+[mavros_node-1] [ERROR] [1785300402.938753013] [mavros.sys]: VER: command plugin service call failed!
+[mavros_node-1] [WARN] [1785300402.938923559] [mavros.sys]: VER: your FCU don't support AUTOPILOT_VERSION, switched to default capabilities
+[mavros_node-1] [WARN] [1785300408.870019829] [mavros.time]: TM: RTT too high for timesync: 2012.32 ms.
+[mavros_node-1] [WARN] [1785300409.153682420] [mavros.time]: TM: RTT too high for timesync: 1247.92 ms.
+[mavros_node-1] [WARN] [1785300409.225033037] [mavros.sys]: FCU: UNK(8): EVENT 11047904 with args -0-0-16-16-0-128-0-0-0-0-0-0-0-176-58-127-128-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [ERROR] [1785300409.225467295] [mavros.sys]: FCU: EVENT 11464574 with args -0-64-0-0-20-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [INFO] [1785300409.225691117] [mavros.sys]: FCU: EVENT 377561 with args -8-0-0-0-20-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [WARN] [1785300409.225796240] [mavros.sys]: FCU: EVENT 453929 with args -255-255-255-255-7-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [ERROR] [1785300409.225880293] [mavros.sys]: FCU: EVENT 6801787 with args -255-255-255-255-12-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [WARN] [1785300409.225981334] [mavros.sys]: FCU: UNK(8): EVENT 1914663 with args -0-14-5-2-56-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [WARN] [1785300409.259492405] [mavros.time]: TM: RTT too high for timesync: 307.66 ms.
+[mavros_node-1] [INFO] [1785300412.906797844] [mavros.mission]: WP: mission received
+[mavros_node-1] [WARN] [1785300417.084281080] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [INFO] [1785300417.785740669] [mavros.rallypoint]: RP: mission received
+[mavros_node-1] [WARN] [1785300421.276552628] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [INFO] [1785300422.424130750] [mavros.geofence]: GF: mission received
+[mavros_node-1] [WARN] [1785300426.466264155] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300430.726865263] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300434.860758034] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300438.945067076] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300442.999186175] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300449.537731132] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [ERROR] [1785300451.496097935] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [WARN] [1785300453.789001586] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300458.523500441] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300462.672894377] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300466.761609304] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300470.823896019] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300475.511585031] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300481.917343668] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300486.040904653] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300490.038751988] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300494.129589711] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300498.763788128] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [ERROR] [1785300501.101637887] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [WARN] [1785300502.826236417] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300506.901237058] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300511.521035000] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300519.700730260] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300524.284619626] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300528.335330845] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300532.931041569] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300537.522900388] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300541.573365145] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300546.899857820] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [ERROR] [1785300553.548243993] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [WARN] [1785300553.950714278] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300558.572312836] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300562.677119818] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300566.729566721] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300570.795865741] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300575.858608288] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300579.989021021] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300586.885313227] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300591.535669876] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300595.793267341] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300599.897535039] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [ERROR] [1785300603.437144681] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [WARN] [1785300603.912309238] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [WARN] [1785300607.953175694] [mavros.param]: PR: Failed to get parameter type: NAV_DLL_ACT
+[mavros_node-1] [ERROR] [1785300624.472780381] [mavros.sys]: FCU: EVENT 133277 with args -0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-
+[mavros_node-1] [ERROR] [1785300655.841630181] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [ERROR] [1785300706.187884182] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [ERROR] [1785300758.986035738] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [ERROR] [1785300809.054336435] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [ERROR] [1785300863.959397879] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [ERROR] [1785300914.028859345] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [ERROR] [1785300970.668269027] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [ERROR] [1785301014.625358475] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [ERROR] [1785301068.856439898] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [ERROR] [1785301119.023397634] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [ERROR] [1785301172.430672224] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[mavros_node-1] [ERROR] [1785301223.061114242] [mavros.time]: TM: Time jump detected. Resetting time synchroniser.
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [mavros_node-1]: sending signal 'SIGINT' to process[mavros_node-1]
+[mavros_node-1] [INFO] [1785301264.918024173] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[mavros_node-1] [WARN] [1785301264.922287533] [mavros.mavros]: UAS Executor terminated
+[mavros_node-1] [INFO] [1785301265.113146782] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [mavros_node-1]: process has finished cleanly [pid 47880]

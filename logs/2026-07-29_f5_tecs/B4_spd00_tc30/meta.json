@@ -1,0 +1,164 @@
+{
+  "scenario_id": "B4",
+  "desc": "예각/U턴(135°) — 선회반경 초과 시 거동",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 250.0,0.0,50.0, 100.0,150.0,50.0]",
+    "range_limit_m": "800.0"
+  },
+  "launch_args_scenario": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 250.0,0.0,50.0, 100.0,150.0,50.0]"
+  },
+  "launch_args_cli": [
+    "range_limit_m=800.0"
+  ],
+  "px4_params_cli": [
+    "FW_T_SPDWEIGHT=0.0",
+    "FW_T_ALT_TC=3.0"
+  ],
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 250.0,0.0,50.0, 100.0,150.0,50.0]",
+    "range_limit_m:=800.0"
+  ],
+  "home": null,
+  "timeout_s": 540.0,
+  "inject_spec": [],
+  "started_utc": "2026-07-29T04:21:15.091441+00:00",
+  "run_id": "B4_spd00_tc30",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_dirty": true,
+  "px4_diff_sha256": "f8aeff376e20a4b6",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-28T18:31:12.441221+00:00",
+  "px4_gz_world": null,
+  "px4_gz_worlds_dir": null,
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "bc3229e",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785298887\n    nanosec: 700244559\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: CMODE(50593792)\nsystem_status: 0\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "px4_params": {
+    "FW_T_SPDWEIGHT": {
+      "ok": true,
+      "want": 0.0,
+      "readback": 0.0,
+      "output": "Set parameter successful"
+    },
+    "FW_T_ALT_TC": {
+      "ok": true,
+      "want": 3.0,
+      "readback": 3.0,
+      "output": "Set parameter successful"
+    }
+  },
+  "launch_started_utc": "2026-07-29T04:21:56.194335+00:00",
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 1.2,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785298920.0199988,
+      "t_since_launch_s": 4.01,
+      "t_since_node_alive_s": 2.8,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785298920.5220428,
+      "t_since_launch_s": 4.41,
+      "t_since_node_alive_s": 3.21,
+      "msg": "CommandTOL 이륙 요청 alt=50.1m AMSL (지면 0.1+50.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785298951.119844,
+      "t_since_launch_s": 33.45,
+      "t_since_node_alive_s": 32.25,
+      "msg": "운용 고도 50.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785298963.4195292,
+      "t_since_launch_s": 45.67,
+      "t_since_node_alive_s": 44.47,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785298963.5211835,
+      "t_since_launch_s": 45.87,
+      "t_since_node_alive_s": 44.67,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    },
+    {
+      "state": "TRANSITION_MC",
+      "ros_t": 1785298990.8218417,
+      "t_since_launch_s": 71.51,
+      "t_since_node_alive_s": 70.31,
+      "msg": "경로 추종 완료 -> transition_mc"
+    },
+    {
+      "state": "HOLD",
+      "ros_t": 1785298996.4199743,
+      "t_since_launch_s": 77.12,
+      "t_since_node_alive_s": 75.92,
+      "msg": "MC 전환 완료 -> HOLD (WP1 복귀)"
+    },
+    {
+      "state": "LANDING",
+      "ros_t": 1785299009.219973,
+      "t_since_launch_s": 88.34,
+      "t_since_node_alive_s": 87.14,
+      "msg": "WP1 도달·안정 (dist=0.6m speed=0.0m/s) → LANDING"
+    },
+    {
+      "state": "DONE",
+      "ros_t": 1785299055.8194342,
+      "t_since_launch_s": 132.61,
+      "t_since_node_alive_s": 131.41,
+      "msg": "착륙 완료 (disarmed) -> DONE"
+    }
+  ],
+  "warn_count": 20,
+  "error_count": 0,
+  "range_guard": {
+    "enabled": true,
+    "limit_m": 1500.0,
+    "samples": 24,
+    "max_horiz_m": 211.9,
+    "max_at_local_enu": [
+      46.2,
+      206.8,
+      46.7
+    ],
+    "breach": null
+  },
+  "exit_reason": "done",
+  "exit_code": 0,
+  "ended_utc": "2026-07-29T04:24:22.038603+00:00",
+  "elapsed_s": 177.9,
+  "ulogs": [
+    "04_21_26.ulg"
+  ]
+}

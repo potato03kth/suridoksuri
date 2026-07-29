@@ -1,0 +1,160 @@
+{
+  "scenario_id": "B4",
+  "desc": "예각/U턴(135°) — 선회반경 초과 시 거동",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 250.0,0.0,50.0, 100.0,150.0,50.0]"
+  },
+  "launch_args_scenario": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 250.0,0.0,50.0, 100.0,150.0,50.0]"
+  },
+  "launch_args_cli": [],
+  "px4_params_cli": [
+    "FW_T_SPDWEIGHT=1.0",
+    "FW_T_ALT_TC=5.0"
+  ],
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 250.0,0.0,50.0, 100.0,150.0,50.0]"
+  ],
+  "home": null,
+  "timeout_s": 540.0,
+  "inject_spec": [],
+  "started_utc": "2026-07-29T03:15:27.472566+00:00",
+  "run_id": "B4_base_spd10",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_dirty": true,
+  "px4_diff_sha256": "f8aeff376e20a4b6",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-28T18:31:12.441221+00:00",
+  "px4_gz_world": null,
+  "px4_gz_worlds_dir": null,
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "bc3229e",
+  "mavros_state_snapshot": "header:\n  stamp:\n    sec: 1785294945\n    nanosec: 318761049\n  frame_id: ''\nconnected: true\narmed: false\nguided: true\nmanual_input: false\nmode: CMODE(50593792)\nsystem_status: 0\n---",
+  "preflight_bypass": {
+    "CBRK_SUPPLY_CHK": {
+      "ok": true,
+      "want": 894281,
+      "readback": 894281,
+      "output": ""
+    },
+    "NAV_DLL_ACT": {
+      "ok": true,
+      "want": 0,
+      "readback": 0,
+      "output": ""
+    }
+  },
+  "px4_params": {
+    "FW_T_SPDWEIGHT": {
+      "ok": true,
+      "want": 1.0,
+      "readback": 1.0,
+      "output": ""
+    },
+    "FW_T_ALT_TC": {
+      "ok": true,
+      "want": 5.0,
+      "readback": 5.0,
+      "output": ""
+    }
+  },
+  "launch_started_utc": "2026-07-29T03:16:06.137945+00:00",
+  "boot_timeout_s": 300.0,
+  "planner_blocking_s": 2.41,
+  "state_timeline": [
+    {
+      "state": "ARM_TAKEOFF",
+      "ros_t": 1785294969.5622103,
+      "t_since_launch_s": 3.61,
+      "t_since_node_alive_s": 1.2,
+      "msg": "ARM 요청"
+    },
+    {
+      "state": "CLIMBING",
+      "ros_t": 1785294970.5745034,
+      "t_since_launch_s": 4.62,
+      "t_since_node_alive_s": 2.21,
+      "msg": "CommandTOL 이륙 요청 alt=50.2m AMSL (지면 0.2+50.0) -> CLIMBING"
+    },
+    {
+      "state": "TRANSITION_FW",
+      "ros_t": 1785295000.7613463,
+      "t_since_launch_s": 33.26,
+      "t_since_node_alive_s": 30.85,
+      "msg": "운용 고도 50.0m 도달 → transition_fw"
+    },
+    {
+      "state": "STREAMING",
+      "ros_t": 1785295016.6610124,
+      "t_since_launch_s": 46.28,
+      "t_since_node_alive_s": 43.87,
+      "msg": "FW 전환 완료 -> STREAMING"
+    },
+    {
+      "state": "FOLLOWING",
+      "ros_t": 1785295016.7643979,
+      "t_since_launch_s": 46.28,
+      "t_since_node_alive_s": 43.87,
+      "msg": "OFFBOARD 확인 → FOLLOWING"
+    },
+    {
+      "state": "TRANSITION_MC",
+      "ros_t": 1785295044.1642687,
+      "t_since_launch_s": 72.12,
+      "t_since_node_alive_s": 69.71,
+      "msg": "경로 추종 완료 -> transition_mc"
+    },
+    {
+      "state": "HOLD",
+      "ros_t": 1785295049.863147,
+      "t_since_launch_s": 77.73,
+      "t_since_node_alive_s": 75.32,
+      "msg": "MC 전환 완료 -> HOLD (WP1 복귀)"
+    },
+    {
+      "state": "LANDING",
+      "ros_t": 1785295061.262468,
+      "t_since_launch_s": 89.15,
+      "t_since_node_alive_s": 86.74,
+      "msg": "WP1 도달·안정 (dist=0.5m speed=0.1m/s) → LANDING"
+    },
+    {
+      "state": "DONE",
+      "ros_t": 1785295108.261338,
+      "t_since_launch_s": 134.21,
+      "t_since_node_alive_s": 131.8,
+      "msg": "착륙 완료 (disarmed) -> DONE"
+    }
+  ],
+  "warn_count": 3,
+  "error_count": 0,
+  "range_guard": {
+    "enabled": true,
+    "limit_m": 1500.0,
+    "samples": 24,
+    "max_horiz_m": 218.9,
+    "max_at_local_enu": [
+      33.8,
+      216.2,
+      43.7
+    ],
+    "breach": null
+  },
+  "exit_reason": "done",
+  "exit_code": 0,
+  "ended_utc": "2026-07-29T03:18:36.917989+00:00",
+  "elapsed_s": 177.4,
+  "ulogs": [
+    "03_15_44.ulg"
+  ]
+}

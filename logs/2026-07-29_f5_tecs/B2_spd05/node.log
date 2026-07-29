@@ -1,0 +1,384 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-07-29-13-50-22-864369-DESKTOP-Kilogram-49306
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [telemetry_node-1]: process started with pid [49317]
+[INFO] [offboard_node-2]: process started with pid [49319]
+[offboard_node-2] [INFO] [1785300623.618022114] [offboard_node]: 경로 계획 시작 — planner=eta3 WP 4개 v_cruise=18.0 → 예상 약 180s 블로킹. 이 동안 노드는 응답하지 않는다 — 죽은 것이 아니니 재기동 금지 (재기동하면 중복 인스턴스가 된다).
+[offboard_node-2] [Eta3ClothoidPlannerV3] WARNING: NR pos residual 9.450m is large. affine correction guarantees WP passage but curve may be deformed.
+[offboard_node-2] [INFO] [1785300623.675138155] [offboard_node]: 경로 계획 완료 — 소요 0.1s (예상 180s), 경로점 515개, 전장 513.2m
+[offboard_node-2] [INFO] [1785300623.847543464] [offboard_node]: ARM 요청
+[telemetry_node-1] [INFO] [1785300625.615582909] [telemetry_node]: pos_ned=[-0.0021663   0.01099447  0.14528967]  yaw=1.671  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300627.576204816] [telemetry_node]: pos_ned=[0.03859014 0.00985295 0.15249334]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300629.576289665] [telemetry_node]: pos_ned=[ 0.00704979 -0.01678991  0.14446136]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300631.576336957] [telemetry_node]: pos_ned=[-0.01102486 -0.01024107  0.15251519]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300633.576297954] [telemetry_node]: pos_ned=[ 0.02930977 -0.00438234  0.15886237]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300635.576321298] [telemetry_node]: pos_ned=[ 0.01641087 -0.0126594   0.16535875]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300637.576166054] [telemetry_node]: pos_ned=[ 0.01030604 -0.00427951  0.16961505]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300639.576181745] [telemetry_node]: pos_ned=[ 0.01686445 -0.00408287  0.18425846]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300641.576047408] [telemetry_node]: pos_ned=[ 0.04291191 -0.00099928  0.16680954]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300643.576256145] [telemetry_node]: pos_ned=[ 0.00043202 -0.00457139  0.19428359]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300645.576346954] [telemetry_node]: pos_ned=[ 0.00302774 -0.02804322  0.22168595]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300647.576291850] [telemetry_node]: pos_ned=[ 0.01852269 -0.00140865  0.22670162]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300649.576711597] [telemetry_node]: pos_ned=[-0.00237049 -0.00373642  0.2397145 ]  yaw=1.668  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300651.576204013] [telemetry_node]: pos_ned=[-0.01945617  0.01754879  0.2042143 ]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300653.976555222] [telemetry_node]: pos_ned=[-0.02977429  0.01144828  0.19897261]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300655.576538755] [telemetry_node]: pos_ned=[-0.04261664  0.0003724   0.25008583]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300657.577458395] [telemetry_node]: pos_ned=[-0.02409477 -0.02910523  0.21659341]  yaw=1.668  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300659.576270818] [telemetry_node]: pos_ned=[-0.02359981 -0.00058692  0.18000484]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300661.576216237] [telemetry_node]: pos_ned=[-0.01129829  0.00699312  0.15609492]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300663.576249126] [telemetry_node]: pos_ned=[-0.00396984 -0.00186117  0.11331339]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300665.576405474] [telemetry_node]: pos_ned=[ 0.00598316 -0.0265909   0.06843355]  yaw=1.671  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300667.576342109] [telemetry_node]: pos_ned=[ 0.00500008 -0.02873897  0.03611619]  yaw=1.673  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300669.576300298] [telemetry_node]: pos_ned=[-0.01407885 -0.0080853  -0.01451265]  yaw=1.673  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300671.576048759] [telemetry_node]: pos_ned=[ 0.0384928   0.02396026 -0.0433808 ]  yaw=1.673  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300673.576227447] [telemetry_node]: pos_ned=[ 0.0182194   0.03151207 -0.11089987]  yaw=1.675  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300675.576600601] [telemetry_node]: pos_ned=[ 0.00692382  0.02459553 -0.13310887]  yaw=1.675  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300677.576155776] [telemetry_node]: pos_ned=[ 0.05637234  0.00154975 -0.15536737]  yaw=1.677  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300679.576258273] [telemetry_node]: pos_ned=[ 0.05910232  0.00210523 -0.21117049]  yaw=1.675  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300681.576620483] [telemetry_node]: pos_ned=[ 0.0174668   0.00865651 -0.23863436]  yaw=1.674  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300683.576227952] [telemetry_node]: pos_ned=[ 0.00324821  0.01437819 -0.26524395]  yaw=1.674  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300685.576209961] [telemetry_node]: pos_ned=[ 0.0095734   0.02873534 -0.29541248]  yaw=1.674  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300688.474834808] [telemetry_node]: pos_ned=[ 0.02464093  0.02758796 -0.30050063]  yaw=1.673  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300689.576885474] [telemetry_node]: pos_ned=[ 0.0428906   0.02275165 -0.30510733]  yaw=1.672  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300691.576444910] [telemetry_node]: pos_ned=[ 0.01923386  0.00636782 -0.3395021 ]  yaw=1.671  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300693.576649707] [telemetry_node]: pos_ned=[ 0.02078771 -0.02581091 -0.35908553]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300695.576658855] [telemetry_node]: pos_ned=[ 0.02912869  0.01134883 -0.39436585]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300697.576636181] [telemetry_node]: pos_ned=[ 0.03211593 -0.02698609 -0.38505688]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300699.576234749] [telemetry_node]: pos_ned=[ 0.02980758 -0.01731808 -0.34564766]  yaw=1.672  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300701.576206241] [telemetry_node]: pos_ned=[ 0.04937268 -0.015532   -0.29340094]  yaw=1.673  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300703.576159384] [telemetry_node]: pos_ned=[ 0.02909587 -0.02566679 -0.25014788]  yaw=1.673  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300705.576397540] [telemetry_node]: pos_ned=[ 0.01638356 -0.03425978 -0.21824801]  yaw=1.674  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300707.576487719] [telemetry_node]: pos_ned=[ 0.00164863  0.01563767 -0.20112631]  yaw=1.672  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300709.576596254] [telemetry_node]: pos_ned=[-0.00167703  0.0010056  -0.14392927]  yaw=1.671  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300711.576120211] [telemetry_node]: pos_ned=[-0.00265758  0.00302721 -0.10221281]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300713.576202681] [telemetry_node]: pos_ned=[ 0.01144801 -0.0028028  -0.1289991 ]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300715.576026574] [telemetry_node]: pos_ned=[ 0.02361245 -0.02294833 -0.10617235]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300717.576225740] [telemetry_node]: pos_ned=[ 0.00376199 -0.01004396 -0.09463552]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300719.576319496] [telemetry_node]: pos_ned=[ 0.00283761  0.00736093 -0.08352841]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300723.143406933] [telemetry_node]: pos_ned=[-0.00102581  0.00218318 -0.0791963 ]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300723.576042846] [telemetry_node]: pos_ned=[ 0.00218581  0.00438689 -0.0757401 ]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300725.576208801] [telemetry_node]: pos_ned=[-0.01951152 -0.03562301 -0.07530358]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300727.576276531] [telemetry_node]: pos_ned=[-0.01478043  0.01840563 -0.12900664]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300729.576163824] [telemetry_node]: pos_ned=[ 0.00102907  0.03402697 -0.16171817]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300731.576281074] [telemetry_node]: pos_ned=[-0.00486134  0.01193884 -0.17871748]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300733.576604041] [telemetry_node]: pos_ned=[ 2.44925562e-02 -1.24543891e-04 -1.78422004e-01]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300735.576217142] [telemetry_node]: pos_ned=[ 0.0169983  -0.0011325  -0.22125988]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300737.576131547] [telemetry_node]: pos_ned=[ 0.02148925 -0.00557571 -0.28858578]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300739.576304784] [telemetry_node]: pos_ned=[ 0.00737622 -0.00848029 -0.32734752]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300741.577013809] [telemetry_node]: pos_ned=[ 0.03292403  0.0250851  -0.33499703]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300743.576225267] [telemetry_node]: pos_ned=[ 0.02259643  0.02277407 -0.33058214]  yaw=1.672  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300745.576514745] [telemetry_node]: pos_ned=[ 0.01917623  0.02583679 -0.31616315]  yaw=1.671  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300747.576536125] [telemetry_node]: pos_ned=[-1.94737539e-02 -1.97507776e-04 -3.41088146e-01]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300749.576389153] [telemetry_node]: pos_ned=[ 0.02329763 -0.01766716 -0.32300484]  yaw=1.671  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300751.576526196] [telemetry_node]: pos_ned=[ 0.03409153  0.00440649 -0.30322707]  yaw=1.672  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300753.576432496] [telemetry_node]: pos_ned=[ 0.03556283  0.00570712 -0.28709126]  yaw=1.672  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300757.628235189] [telemetry_node]: pos_ned=[ 0.02293239  0.03424115 -0.2854194 ]  yaw=1.674  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300759.576311891] [telemetry_node]: pos_ned=[-0.00740011  0.01179241 -0.26682797]  yaw=1.675  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300761.576606144] [telemetry_node]: pos_ned=[ 0.01034066 -0.00799664 -0.29070863]  yaw=1.676  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300763.576764009] [telemetry_node]: pos_ned=[ 0.03868873 -0.01519063 -0.27032632]  yaw=1.677  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300765.576597779] [telemetry_node]: pos_ned=[ 0.03371536  0.01745097 -0.29205739]  yaw=1.676  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300767.576752572] [telemetry_node]: pos_ned=[ 0.01557327  0.01083007 -0.30591181]  yaw=1.675  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300769.576706448] [telemetry_node]: pos_ned=[ 0.00660313 -0.0036155  -0.3183234 ]  yaw=1.676  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300771.576300357] [telemetry_node]: pos_ned=[ 0.03026092 -0.00794437 -0.3316288 ]  yaw=1.675  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300773.576258165] [telemetry_node]: pos_ned=[ 0.0049371  -0.00988496 -0.33199748]  yaw=1.674  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300775.576235149] [telemetry_node]: pos_ned=[ 0.01974045 -0.00247691 -0.31932065]  yaw=1.673  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300777.577349650] [telemetry_node]: pos_ned=[ 0.02144431  0.01622544 -0.29047459]  yaw=1.674  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300779.576524141] [telemetry_node]: pos_ned=[ 2.11037972e-04  7.73759792e-03 -2.58899212e-01]  yaw=1.673  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300781.576535002] [telemetry_node]: pos_ned=[ 0.00326111 -0.0218535  -0.22602849]  yaw=1.674  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300783.576936571] [telemetry_node]: pos_ned=[ 0.02344655 -0.01437935 -0.19070604]  yaw=1.674  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300785.576439948] [telemetry_node]: pos_ned=[ 0.01830777  0.00801458 -0.14254376]  yaw=1.673  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300787.576400678] [telemetry_node]: pos_ned=[ 0.01130276  0.00266755 -0.10522251]  yaw=1.671  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300789.576634049] [telemetry_node]: pos_ned=[-0.00642485 -0.0038295  -0.08359894]  yaw=1.671  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300792.075498520] [telemetry_node]: pos_ned=[-0.01061087 -0.00743268 -0.08386625]  yaw=1.671  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300793.576684838] [telemetry_node]: pos_ned=[-0.00062211 -0.00276996 -0.06408364]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300795.576574685] [telemetry_node]: pos_ned=[ 0.01320628  0.00421349 -0.04128172]  yaw=1.668  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300797.576249742] [telemetry_node]: pos_ned=[ 0.0094506   0.0023617  -0.01660019]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300799.576322622] [telemetry_node]: pos_ned=[ 0.0133382  -0.01965777 -0.02035952]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300801.576181016] [telemetry_node]: pos_ned=[ 0.02332945  0.01682179 -0.00241886]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300803.576199191] [telemetry_node]: pos_ned=[0.00221043 0.01015166 0.01779161]  yaw=1.668  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300805.576857614] [telemetry_node]: pos_ned=[ 0.01062028 -0.02041678  0.07255122]  yaw=1.668  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300807.576847826] [telemetry_node]: pos_ned=[-0.00433629  0.01229053  0.09093413]  yaw=1.665  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300809.576714843] [telemetry_node]: pos_ned=[0.00484536 0.00735357 0.11985758]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300811.577699035] [telemetry_node]: pos_ned=[0.01012911 0.02758237 0.1196909 ]  yaw=1.668  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300813.577144520] [telemetry_node]: pos_ned=[0.01826812 0.01213432 0.1354304 ]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300815.577274035] [telemetry_node]: pos_ned=[0.0094225  0.00088026 0.1357841 ]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300817.576568446] [telemetry_node]: pos_ned=[-0.0181757   0.02907533  0.1245725 ]  yaw=1.665  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300819.576167205] [telemetry_node]: pos_ned=[-0.02233938  0.02778164  0.09331961]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300821.576268582] [telemetry_node]: pos_ned=[0.00583851 0.00084956 0.09648611]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300823.576335219] [telemetry_node]: pos_ned=[0.01310997 0.01401714 0.03109832]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300826.548832395] [telemetry_node]: pos_ned=[0.02690143 0.01302095 0.01162826]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300827.576363042] [telemetry_node]: pos_ned=[ 0.04040671  0.01416957 -0.00941402]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300829.576438196] [telemetry_node]: pos_ned=[ 0.0168083  -0.01350674 -0.02705048]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300831.576547788] [telemetry_node]: pos_ned=[-0.00496337 -0.00529658 -0.02540952]  yaw=1.668  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300833.576408345] [telemetry_node]: pos_ned=[ 0.0046775  -0.00362635 -0.03755209]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300835.577124820] [telemetry_node]: pos_ned=[-0.00420008 -0.00097318 -0.08414748]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300837.576515317] [telemetry_node]: pos_ned=[ 0.00876563 -0.00792074 -0.14539549]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300839.576682302] [telemetry_node]: pos_ned=[ 0.02090677 -0.00131997 -0.18431553]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300841.576358176] [telemetry_node]: pos_ned=[ 1.22204041e-02  7.52492633e-05 -1.99185088e-01]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300843.576925113] [telemetry_node]: pos_ned=[ 0.02535582 -0.02727539 -0.19939926]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300845.576513889] [telemetry_node]: pos_ned=[ 0.01323847 -0.00693859 -0.19985825]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300847.576460473] [telemetry_node]: pos_ned=[ 0.02011827 -0.00682471 -0.22353961]  yaw=1.664  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300849.576155760] [telemetry_node]: pos_ned=[ 0.01256089 -0.0290888  -0.20541784]  yaw=1.664  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300851.576326447] [telemetry_node]: pos_ned=[-0.00211563 -0.00409081 -0.20943512]  yaw=1.665  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300853.576149759] [telemetry_node]: pos_ned=[ 0.00238049 -0.00508101 -0.21025166]  yaw=1.665  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300855.576437737] [telemetry_node]: pos_ned=[ 0.01069092 -0.00975483 -0.20568985]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300857.576608133] [telemetry_node]: pos_ned=[ 0.01658718 -0.00216826 -0.1838565 ]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300863.393607660] [telemetry_node]: pos_ned=[ 0.00335665  0.0023686  -0.17012799]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300863.576257521] [telemetry_node]: pos_ned=[ 0.00484778  0.00422542 -0.16881213]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300865.576357506] [telemetry_node]: pos_ned=[ 0.02495207 -0.02487757 -0.15911187]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300867.576805962] [telemetry_node]: pos_ned=[ 0.03100445 -0.02444815 -0.11737983]  yaw=1.666  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300869.576442617] [telemetry_node]: pos_ned=[ 0.01562643  0.00502287 -0.1053005 ]  yaw=1.668  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300871.576517305] [telemetry_node]: pos_ned=[-0.01571677 -0.01700252 -0.06553312]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300873.576563902] [telemetry_node]: pos_ned=[-0.00476618 -0.00102767 -0.01100135]  yaw=1.667  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300875.576642884] [telemetry_node]: pos_ned=[ 0.00447677 -0.000294    0.04013923]  yaw=1.668  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300877.578384711] [telemetry_node]: pos_ned=[-0.00848615 -0.00955509  0.09011586]  yaw=1.668  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300879.576988452] [telemetry_node]: pos_ned=[ 0.0157679  -0.01296893  0.12183203]  yaw=1.669  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300881.576786324] [telemetry_node]: pos_ned=[0.02787132 0.00480734 0.12438698]  yaw=1.670  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300883.576546101] [telemetry_node]: pos_ned=[ 0.0009133  -0.01728524  0.15431777]  yaw=1.671  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300885.576157165] [telemetry_node]: pos_ned=[-0.00640347 -0.02897319  0.14207603]  yaw=1.673  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300887.576114544] [telemetry_node]: pos_ned=[0.01625818 0.00086745 0.10659225]  yaw=1.674  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300889.576214870] [telemetry_node]: pos_ned=[ 0.00199026 -0.01316098  0.07543443]  yaw=1.674  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300891.576477939] [telemetry_node]: pos_ned=[-0.00483954 -0.00602881  0.04584257]  yaw=1.676  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300893.581716970] [telemetry_node]: pos_ned=[ 0.01052516 -0.00428098  0.03924321]  yaw=1.677  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300895.583342775] [telemetry_node]: pos_ned=[ 0.00392022 -0.01985975  0.12431952]  yaw=1.678  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300897.589829106] [telemetry_node]: pos_ned=[ 0.02199091 -0.02734591  0.55200112]  yaw=1.678  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300899.580424982] [telemetry_node]: pos_ned=[ 0.03892094 -0.02942047  0.81142962]  yaw=1.679  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300901.583244686] [telemetry_node]: pos_ned=[ 0.04551125 -0.03927339  0.75827646]  yaw=1.680  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300903.578441634] [telemetry_node]: pos_ned=[-0.00811679 -0.01942119  0.57246697]  yaw=1.680  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300905.577929760] [telemetry_node]: pos_ned=[0.00058398 0.00816682 0.37907481]  yaw=1.680  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300907.576912096] [telemetry_node]: pos_ned=[ 0.00213845 -0.00077731  0.26536822]  yaw=1.680  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300909.576662135] [telemetry_node]: pos_ned=[ 0.00377438 -0.01731951  0.12784746]  yaw=1.680  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300911.576471043] [telemetry_node]: pos_ned=[-0.0145676   0.00087244  0.00953005]  yaw=1.681  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300913.576194348] [telemetry_node]: pos_ned=[-0.00806514  0.00188406 -0.06154863]  yaw=1.683  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300915.576513068] [telemetry_node]: pos_ned=[-0.0243844  -0.00090945 -0.0919773 ]  yaw=1.684  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300917.576437929] [telemetry_node]: pos_ned=[-0.00817459  0.00745962 -0.10590662]  yaw=1.685  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300919.576257877] [telemetry_node]: pos_ned=[ 0.0091322   0.02746456 -0.11064398]  yaw=1.685  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300921.576007032] [telemetry_node]: pos_ned=[ 0.00539497  0.01931146 -0.11081745]  yaw=1.683  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300923.576188713] [telemetry_node]: pos_ned=[-0.0189181   0.01590474 -0.10641156]  yaw=1.683  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300925.576163710] [telemetry_node]: pos_ned=[-0.00084494 -0.03013827 -0.12485452]  yaw=1.684  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300927.576093248] [telemetry_node]: pos_ned=[ 0.03624821 -0.02452549 -0.13858917]  yaw=1.685  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300929.576359954] [telemetry_node]: pos_ned=[-0.01242945 -0.00629765 -0.12192956]  yaw=1.684  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300931.576092590] [telemetry_node]: pos_ned=[-0.01086459 -0.00764164 -0.11734416]  yaw=1.688  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300933.576462959] [telemetry_node]: pos_ned=[ 0.00277979  0.00555784 -0.11465407]  yaw=1.690  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300935.576031242] [telemetry_node]: pos_ned=[ 0.01397274 -0.01605675 -0.11584233]  yaw=1.693  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300937.575930882] [telemetry_node]: pos_ned=[ 0.01393835 -0.02726033 -0.12468717]  yaw=1.697  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300939.576008724] [telemetry_node]: pos_ned=[-0.00977462 -0.02459424 -0.12345754]  yaw=1.702  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300941.576460885] [telemetry_node]: pos_ned=[-0.02229152 -0.01677287 -0.0986073 ]  yaw=1.708  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300943.575991696] [telemetry_node]: pos_ned=[ 0.00661242  0.00100183 -0.08159059]  yaw=1.716  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300945.576019581] [telemetry_node]: pos_ned=[ 0.02723307  0.00192302 -0.09762184]  yaw=1.723  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300947.575982324] [telemetry_node]: pos_ned=[ 0.02520602  0.02842806 -0.11251101]  yaw=1.732  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300949.576044398] [telemetry_node]: pos_ned=[ 0.02903009  0.01093033 -0.12624128]  yaw=1.738  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300951.576031944] [telemetry_node]: pos_ned=[ 0.03980883  0.00969436 -0.13619848]  yaw=1.744  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300953.576225540] [telemetry_node]: pos_ned=[ 0.01595143  0.02720637 -0.12882471]  yaw=1.751  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300955.576551412] [telemetry_node]: pos_ned=[ 0.03770762  0.00031251 -0.11621343]  yaw=1.760  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300957.576120301] [telemetry_node]: pos_ned=[ 0.0197369  -0.02501388 -0.10033847]  yaw=1.761  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300959.576088290] [telemetry_node]: pos_ned=[ 0.0168875   0.00576332 -0.0754652 ]  yaw=1.764  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300968.673149862] [telemetry_node]: pos_ned=[ 0.01832162  0.00452331 -0.07250367]  yaw=1.765  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300969.576342819] [telemetry_node]: pos_ned=[ 0.01890237  0.01668555 -0.07646716]  yaw=1.766  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300971.575969248] [telemetry_node]: pos_ned=[ 0.0192649   0.02019443 -0.08193441]  yaw=1.769  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300973.576080080] [telemetry_node]: pos_ned=[ 0.03979135 -0.02032154 -0.08669513]  yaw=1.771  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300975.576115652] [telemetry_node]: pos_ned=[ 0.00259747 -0.03647155 -0.0929503 ]  yaw=1.773  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300977.576255966] [telemetry_node]: pos_ned=[ 0.00742794 -0.02624833 -0.07222998]  yaw=1.775  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300979.576228359] [telemetry_node]: pos_ned=[ 0.0120672   0.01239428 -0.062754  ]  yaw=1.777  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300981.576334548] [telemetry_node]: pos_ned=[ 0.01005127  0.00111955 -0.06918778]  yaw=1.780  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300983.576128634] [telemetry_node]: pos_ned=[ 0.02775026 -0.0040713  -0.09131666]  yaw=1.782  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300985.575916554] [telemetry_node]: pos_ned=[ 0.01331762 -0.00170973 -0.13266125]  yaw=1.783  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300987.576034762] [telemetry_node]: pos_ned=[ 0.02061012 -0.02146367 -0.18003711]  yaw=1.783  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300989.576154310] [telemetry_node]: pos_ned=[-8.70307628e-03 -8.29076016e-05 -2.06992015e-01]  yaw=1.783  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300991.575982631] [telemetry_node]: pos_ned=[ 0.04268844  0.00857636 -0.23370194]  yaw=1.784  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300993.576339047] [telemetry_node]: pos_ned=[ 0.02216885 -0.001757   -0.25654072]  yaw=1.784  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300995.576083248] [telemetry_node]: pos_ned=[ 0.02882914 -0.02774118 -0.25296396]  yaw=1.785  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300997.576005684] [telemetry_node]: pos_ned=[ 0.04786738 -0.03063039 -0.22855482]  yaw=1.786  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785300999.576291917] [telemetry_node]: pos_ned=[ 0.04614788 -0.01077187 -0.2137447 ]  yaw=1.787  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301001.576181649] [telemetry_node]: pos_ned=[ 0.00549062 -0.0214661  -0.15185735]  yaw=1.787  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301003.576063172] [telemetry_node]: pos_ned=[ 0.00781051 -0.00713141 -0.13127023]  yaw=1.788  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301005.576151676] [telemetry_node]: pos_ned=[ 0.02724062  0.00556099 -0.11863812]  yaw=1.789  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301007.576298441] [telemetry_node]: pos_ned=[ 0.05036004  0.01128354 -0.15005565]  yaw=1.789  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301009.576102514] [telemetry_node]: pos_ned=[ 0.04258824  0.01437536 -0.18080048]  yaw=1.788  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301011.576138309] [telemetry_node]: pos_ned=[ 0.01080529 -0.01293852 -0.1829676 ]  yaw=1.787  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301013.576155147] [telemetry_node]: pos_ned=[-0.01494361 -0.00378197 -0.16837968]  yaw=1.786  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301015.576489080] [telemetry_node]: pos_ned=[-0.03526732 -0.01976272 -0.16239345]  yaw=1.785  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301017.576010044] [telemetry_node]: pos_ned=[-0.01595072 -0.01771725 -0.16010594]  yaw=1.783  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301019.575939353] [telemetry_node]: pos_ned=[ 0.00651076 -0.01289516 -0.13270205]  yaw=1.782  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301021.576298838] [telemetry_node]: pos_ned=[ 0.02386421 -0.00422499 -0.11956245]  yaw=1.781  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301023.576136270] [telemetry_node]: pos_ned=[-0.0169188   0.01274819 -0.12115851]  yaw=1.778  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301025.576172267] [telemetry_node]: pos_ned=[-0.00147492 -0.00575623 -0.13446724]  yaw=1.777  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301027.576150496] [telemetry_node]: pos_ned=[-0.01536706 -0.02324254 -0.15646905]  yaw=1.775  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301033.486066705] [telemetry_node]: pos_ned=[-0.03338908 -0.00103311 -0.15321246]  yaw=1.774  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301033.576719010] [telemetry_node]: pos_ned=[-0.03200721  0.00311312 -0.15211834]  yaw=1.774  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301035.576356530] [telemetry_node]: pos_ned=[-0.00628047  0.01183449 -0.11603651]  yaw=1.773  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301037.576239832] [telemetry_node]: pos_ned=[ 0.01041096  0.00745906 -0.17650029]  yaw=1.772  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301039.576211976] [telemetry_node]: pos_ned=[ 0.01297458 -0.01528382 -0.2075709 ]  yaw=1.770  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301041.576151498] [telemetry_node]: pos_ned=[ 0.04051051 -0.02857521 -0.19000083]  yaw=1.769  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301043.576181725] [telemetry_node]: pos_ned=[ 0.0394205  -0.02836748 -0.19846179]  yaw=1.768  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301045.576911922] [telemetry_node]: pos_ned=[ 0.00410595 -0.02494526 -0.18145493]  yaw=1.766  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301047.576640693] [telemetry_node]: pos_ned=[ 3.56073506e-05 -2.74965130e-02 -1.64006174e-01]  yaw=1.765  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301049.576688237] [telemetry_node]: pos_ned=[ 0.01961189 -0.02129803 -0.13874421]  yaw=1.765  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301051.576554981] [telemetry_node]: pos_ned=[ 0.00894487 -0.02199135 -0.12404327]  yaw=1.766  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301053.576893480] [telemetry_node]: pos_ned=[ 0.00517101 -0.00599588 -0.12783343]  yaw=1.767  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301055.577843676] [telemetry_node]: pos_ned=[ 0.01997321  0.01577799 -0.14039806]  yaw=1.767  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301057.576675474] [telemetry_node]: pos_ned=[ 0.00918792  0.01371734 -0.14359334]  yaw=1.766  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301059.576561415] [telemetry_node]: pos_ned=[ 0.01744885  0.00834642 -0.09626221]  yaw=1.765  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301061.576495521] [telemetry_node]: pos_ned=[ 0.03230446 -0.00279043 -0.05408123]  yaw=1.764  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301063.576822484] [telemetry_node]: pos_ned=[ 0.00701308 -0.01354654 -0.07121389]  yaw=1.763  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301065.577100038] [telemetry_node]: pos_ned=[ 0.00815009  0.00364073 -0.07917657]  yaw=1.762  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301068.152727949] [telemetry_node]: pos_ned=[ 0.01127268  0.00328803 -0.07901888]  yaw=1.762  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301069.576989601] [telemetry_node]: pos_ned=[ 0.03420573 -0.01157131 -0.07435455]  yaw=1.761  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301071.576540755] [telemetry_node]: pos_ned=[ 0.02808568 -0.02943824 -0.0782748 ]  yaw=1.760  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301073.576824685] [telemetry_node]: pos_ned=[ 0.00149067 -0.0450184  -0.08317599]  yaw=1.759  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301075.576635888] [telemetry_node]: pos_ned=[-0.02556134 -0.01370317 -0.07629058]  yaw=1.758  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301077.576742238] [telemetry_node]: pos_ned=[-0.01427757 -0.02346479 -0.07923827]  yaw=1.758  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301079.576815047] [telemetry_node]: pos_ned=[-0.01041833  0.01399681 -0.08386396]  yaw=1.758  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301081.578557038] [telemetry_node]: pos_ned=[ 0.03011777 -0.00637759 -0.08476029]  yaw=1.758  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301083.576237386] [telemetry_node]: pos_ned=[ 0.03767484 -0.01700926 -0.077295  ]  yaw=1.757  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301085.576463132] [telemetry_node]: pos_ned=[-0.00772863 -0.01811425 -0.07478783]  yaw=1.757  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301087.576273126] [telemetry_node]: pos_ned=[ 0.0040916  -0.01578136 -0.05905239]  yaw=1.756  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301089.576191088] [telemetry_node]: pos_ned=[ 0.0195872  -0.00927471 -0.06005511]  yaw=1.756  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301091.576148237] [telemetry_node]: pos_ned=[ 0.03054034 -0.00418002 -0.06120799]  yaw=1.756  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301093.577065048] [telemetry_node]: pos_ned=[ 0.03358462  0.00672257 -0.06316178]  yaw=1.756  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301095.576810884] [telemetry_node]: pos_ned=[ 0.00969128 -0.01228865 -0.06081503]  yaw=1.756  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301097.576957282] [telemetry_node]: pos_ned=[ 0.01744    -0.05094537 -0.08781483]  yaw=1.756  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301099.576958541] [telemetry_node]: pos_ned=[-0.02516264 -0.02790652 -0.07434086]  yaw=1.755  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301102.873975705] [telemetry_node]: pos_ned=[-0.01308789 -0.01165467 -0.09067553]  yaw=1.755  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301103.576592983] [telemetry_node]: pos_ned=[-0.01938835 -0.01695073 -0.11052482]  yaw=1.755  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301105.576244897] [telemetry_node]: pos_ned=[ 0.00492355 -0.00852983 -0.1465918 ]  yaw=1.755  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301107.576647519] [telemetry_node]: pos_ned=[ 0.01290726  0.01359677 -0.16295052]  yaw=1.754  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301109.576663589] [telemetry_node]: pos_ned=[ 0.00675385 -0.012188   -0.20268653]  yaw=1.754  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301111.576185336] [telemetry_node]: pos_ned=[ 0.05875306 -0.03486774 -0.2434313 ]  yaw=1.754  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301113.576214170] [telemetry_node]: pos_ned=[ 0.05336313 -0.00793749 -0.25500619]  yaw=1.753  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301115.576620338] [telemetry_node]: pos_ned=[ 0.01257346  0.00856204 -0.25416583]  yaw=1.753  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301117.576653758] [telemetry_node]: pos_ned=[ 0.01111239 -0.0057852  -0.27386522]  yaw=1.753  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301119.576335712] [telemetry_node]: pos_ned=[ 0.01080549 -0.00494979 -0.28596038]  yaw=1.753  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301121.576295189] [telemetry_node]: pos_ned=[ 0.04120288 -0.00438359 -0.25163966]  yaw=1.752  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301123.576562353] [telemetry_node]: pos_ned=[ 0.03602368  0.00582694 -0.24675253]  yaw=1.751  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301125.576267641] [telemetry_node]: pos_ned=[ 0.04372299 -0.0181419  -0.23877838]  yaw=1.750  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301127.576189814] [telemetry_node]: pos_ned=[ 0.02767556  0.00854634 -0.2348246 ]  yaw=1.750  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301129.576410008] [telemetry_node]: pos_ned=[ 0.00053192  0.01776658 -0.23503575]  yaw=1.749  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301131.576590898] [telemetry_node]: pos_ned=[-0.00773261  0.03121696 -0.22468852]  yaw=1.748  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301133.576324139] [telemetry_node]: pos_ned=[ 0.03870604  0.00611565 -0.20900035]  yaw=1.748  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301137.576672816] [telemetry_node]: pos_ned=[ 0.0257692   0.01278031 -0.20073524]  yaw=1.748  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301139.576476886] [telemetry_node]: pos_ned=[ 0.04362389 -0.0043461  -0.19519427]  yaw=1.747  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301141.576617948] [telemetry_node]: pos_ned=[ 0.05089169  0.005031   -0.19799593]  yaw=1.747  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301143.576723484] [telemetry_node]: pos_ned=[ 0.06733131  0.00060713 -0.21299547]  yaw=1.746  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301145.576351691] [telemetry_node]: pos_ned=[ 0.0339424   0.00247802 -0.22450705]  yaw=1.746  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301147.576195728] [telemetry_node]: pos_ned=[ 0.02799706  0.00674171 -0.18939638]  yaw=1.745  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301149.576087099] [telemetry_node]: pos_ned=[ 0.01924089 -0.00591074 -0.18949983]  yaw=1.745  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301151.576231923] [telemetry_node]: pos_ned=[ 0.01512912  0.00252589 -0.1770187 ]  yaw=1.744  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301153.576221626] [telemetry_node]: pos_ned=[ 0.00178653  0.02126884 -0.14694452]  yaw=1.744  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301155.576867003] [telemetry_node]: pos_ned=[ 0.00708336  0.02443439 -0.11512008]  yaw=1.743  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301157.576210916] [telemetry_node]: pos_ned=[ 0.03543151  0.023494   -0.09618106]  yaw=1.742  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301159.576100969] [telemetry_node]: pos_ned=[ 0.02772612  0.01366324 -0.09316061]  yaw=1.741  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301161.576219430] [telemetry_node]: pos_ned=[ 0.00461158 -0.00850076 -0.13968873]  yaw=1.741  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301163.576360841] [telemetry_node]: pos_ned=[ 0.00702811 -0.00754123 -0.18848071]  yaw=1.741  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301165.576272114] [telemetry_node]: pos_ned=[ 0.00300882 -0.03140935 -0.19920173]  yaw=1.741  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301167.576577438] [telemetry_node]: pos_ned=[ 0.0013273   0.00523913 -0.1798721 ]  yaw=1.741  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301169.576948560] [telemetry_node]: pos_ned=[ 0.00643585  0.01361017 -0.15846981]  yaw=1.740  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301172.305409515] [telemetry_node]: pos_ned=[ 0.00750573  0.01649846 -0.15534097]  yaw=1.740  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301173.576305287] [telemetry_node]: pos_ned=[ 0.00634995  0.02935632 -0.14917433]  yaw=1.740  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301175.576891875] [telemetry_node]: pos_ned=[ 0.02345939  0.01486539 -0.13173795]  yaw=1.740  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301177.576334814] [telemetry_node]: pos_ned=[ 0.0439718   0.00881474 -0.11390592]  yaw=1.740  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301179.576156617] [telemetry_node]: pos_ned=[ 0.02686826  0.00449107 -0.10031179]  yaw=1.739  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301181.576325475] [telemetry_node]: pos_ned=[-0.00275852 -0.00137203 -0.09436768]  yaw=1.739  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301183.576289041] [telemetry_node]: pos_ned=[ 0.00928001 -0.00594185 -0.08030739]  yaw=1.739  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301185.576600719] [telemetry_node]: pos_ned=[ 0.01726702 -0.01963802 -0.09077522]  yaw=1.739  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301187.576311262] [telemetry_node]: pos_ned=[-0.00051959 -0.02043618 -0.10019578]  yaw=1.739  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301189.576270108] [telemetry_node]: pos_ned=[-0.01240631 -0.00777502 -0.07501902]  yaw=1.741  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301191.576584914] [telemetry_node]: pos_ned=[ 0.02053041  0.02412427 -0.06546544]  yaw=1.741  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301193.576216763] [telemetry_node]: pos_ned=[ 0.0327698   0.00964047 -0.03031679]  yaw=1.742  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301195.576218066] [telemetry_node]: pos_ned=[ 0.01617321  0.01990888 -0.0240934 ]  yaw=1.743  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301197.576949540] [telemetry_node]: pos_ned=[ 0.00671852  0.020952   -0.02325541]  yaw=1.743  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301199.576558959] [telemetry_node]: pos_ned=[ 0.04952568 -0.00544701 -0.04184363]  yaw=1.744  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301201.576319950] [telemetry_node]: pos_ned=[ 0.02123223 -0.01401719 -0.05759815]  yaw=1.744  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301203.576157453] [telemetry_node]: pos_ned=[ 0.01621606  0.01281049 -0.07420804]  yaw=1.744  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301206.988659530] [telemetry_node]: pos_ned=[ 0.00075652  0.02527289 -0.08480058]  yaw=1.744  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301207.576395469] [telemetry_node]: pos_ned=[ 0.0133431   0.0240787  -0.08893754]  yaw=1.744  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301209.576730775] [telemetry_node]: pos_ned=[ 0.02427272  0.02226806 -0.08243151]  yaw=1.743  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301211.576696254] [telemetry_node]: pos_ned=[ 0.00579747  0.00528707 -0.08406854]  yaw=1.742  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301213.576177626] [telemetry_node]: pos_ned=[ 0.04602127 -0.00153228 -0.08206692]  yaw=1.741  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301215.576114442] [telemetry_node]: pos_ned=[ 0.04403833 -0.00792745 -0.08200899]  yaw=1.740  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301217.576310057] [telemetry_node]: pos_ned=[ 0.03442241 -0.00347224 -0.11811363]  yaw=1.740  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301219.576708540] [telemetry_node]: pos_ned=[ 0.03426072  0.00314062 -0.15795903]  yaw=1.740  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301221.576416132] [telemetry_node]: pos_ned=[ 0.01392033 -0.02400129 -0.16371581]  yaw=1.739  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301223.576318949] [telemetry_node]: pos_ned=[ 0.01417402  0.00321798 -0.20035471]  yaw=1.739  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301225.576388964] [telemetry_node]: pos_ned=[ 0.02116991 -0.00627217 -0.26196581]  yaw=1.739  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301227.576694836] [telemetry_node]: pos_ned=[ 0.01304504  0.00353535 -0.30908671]  yaw=1.738  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301229.576559202] [telemetry_node]: pos_ned=[ 0.01548664 -0.00056074 -0.34569532]  yaw=1.738  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301231.576480606] [telemetry_node]: pos_ned=[ 0.01375985  0.00782971 -0.38703021]  yaw=1.738  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301233.576406017] [telemetry_node]: pos_ned=[ 0.0270729   0.00163411 -0.40470958]  yaw=1.737  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301235.576620821] [telemetry_node]: pos_ned=[ 0.0189001  -0.01275728 -0.42699084]  yaw=1.737  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301237.576406062] [telemetry_node]: pos_ned=[ 0.01760943 -0.02050392 -0.419247  ]  yaw=1.736  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301241.110077965] [telemetry_node]: pos_ned=[ 0.01557343 -0.02032925 -0.42471871]  yaw=1.736  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301241.576132542] [telemetry_node]: pos_ned=[ 0.01441008 -0.00845656 -0.42045093]  yaw=1.736  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301243.576332432] [telemetry_node]: pos_ned=[ 0.00665645  0.03303241 -0.42326921]  yaw=1.735  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301245.576215353] [telemetry_node]: pos_ned=[-0.01015097  0.01380093 -0.45615545]  yaw=1.733  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301247.576238237] [telemetry_node]: pos_ned=[ 0.01951771 -0.00443035 -0.49377096]  yaw=1.733  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301249.576168355] [telemetry_node]: pos_ned=[ 0.04615084  0.01071877 -0.54647076]  yaw=1.732  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301251.576337032] [telemetry_node]: pos_ned=[ 1.98067483e-02 -4.41650016e-04 -5.43079376e-01]  yaw=1.731  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301253.576968157] [telemetry_node]: pos_ned=[ 0.02443534 -0.03680848 -0.55723667]  yaw=1.730  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301255.576502108] [telemetry_node]: pos_ned=[ 0.03461953 -0.00561832 -0.56037867]  yaw=1.730  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301257.576809794] [telemetry_node]: pos_ned=[ 0.00795329  0.00824583 -0.52824306]  yaw=1.729  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301259.577347675] [telemetry_node]: pos_ned=[ 0.00660101 -0.0008097  -0.48955873]  yaw=1.729  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301261.576629024] [telemetry_node]: pos_ned=[ 0.02767091 -0.01495525 -0.48134273]  yaw=1.729  armed=False  vtol=3  batt=16.20V/100%
+[telemetry_node-1] [INFO] [1785301263.576656439] [telemetry_node]: pos_ned=[ 0.01017008 -0.02266547 -0.49395916]  yaw=1.729  armed=False  vtol=3  batt=16.20V/100%
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [offboard_node-2]: sending signal 'SIGINT' to process[offboard_node-2]
+[INFO] [telemetry_node-1]: sending signal 'SIGINT' to process[telemetry_node-1]
+[offboard_node-2] Traceback (most recent call last):
+[offboard_node-2]   File "/root/ws_f5/install/fc_ros/lib/python3.10/site-packages/fc_ros/nodes/offboard_node.py", line 2320, in main
+[telemetry_node-1] Traceback (most recent call last):
+[telemetry_node-1]   File "/root/ws_f5/install/fc_ros/lib/python3.10/site-packages/fc_ros/nodes/telemetry_node.py", line 109, in main
+[telemetry_node-1]     rclpy.spin(node)
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 229, in spin
+[telemetry_node-1]     executor.spin_once()
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+[telemetry_node-1]     self._spin_once_impl(timeout_sec)
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+[telemetry_node-1]     handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+[telemetry_node-1]     return next(self._cb_iter)
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 677, in _wait_for_ready_callbacks
+[telemetry_node-1]     wait_set.wait(timeout_nsec)
+[telemetry_node-1] KeyboardInterrupt
+[telemetry_node-1] 
+[telemetry_node-1] During handling of the above exception, another exception occurred:
+[telemetry_node-1] 
+[telemetry_node-1] Traceback (most recent call last):
+[telemetry_node-1]   File "/root/ws_f5/install/fc_ros/lib/fc_ros/telemetry_node", line 33, in <module>
+[telemetry_node-1]     sys.exit(load_entry_point('fc-ros==0.1.0', 'console_scripts', 'telemetry_node')())
+[telemetry_node-1]   File "/root/ws_f5/install/fc_ros/lib/python3.10/site-packages/fc_ros/nodes/telemetry_node.py", line 111, in main
+[telemetry_node-1]     node.destroy_node()
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 1691, in destroy_node
+[offboard_node-2]     rclpy.spin(node)
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 229, in spin
+[offboard_node-2]     executor.spin_once()
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+[offboard_node-2]     self._spin_once_impl(timeout_sec)
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+[telemetry_node-1]     self.destroy_service(self._services[0])
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 1615, in destroy_service
+[telemetry_node-1]     service.destroy()
+[telemetry_node-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/service.py", line 93, in destroy
+[telemetry_node-1]     self.__service.destroy_when_not_in_use()
+[telemetry_node-1] KeyboardInterrupt
+[offboard_node-2]     handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+[offboard_node-2]     return next(self._cb_iter)
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 677, in _wait_for_ready_callbacks
+[offboard_node-2]     wait_set.wait(timeout_nsec)
+[offboard_node-2] KeyboardInterrupt
+[offboard_node-2] 
+[offboard_node-2] During handling of the above exception, another exception occurred:
+[offboard_node-2] 
+[offboard_node-2] Traceback (most recent call last):
+[offboard_node-2]   File "/root/ws_f5/install/fc_ros/lib/fc_ros/offboard_node", line 33, in <module>
+[offboard_node-2]     sys.exit(load_entry_point('fc-ros==0.1.0', 'console_scripts', 'offboard_node')())
+[offboard_node-2]   File "/root/ws_f5/install/fc_ros/lib/python3.10/site-packages/fc_ros/nodes/offboard_node.py", line 2322, in main
+[offboard_node-2]     node.destroy_node()
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 1687, in destroy_node
+[offboard_node-2]     self.destroy_subscription(self._subscriptions[0])
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 1583, in destroy_subscription
+[offboard_node-2]     subscription.destroy()
+[offboard_node-2]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/subscription.py", line 80, in destroy
+[offboard_node-2]     self.handle.destroy_when_not_in_use()
+[offboard_node-2] KeyboardInterrupt
+[ERROR] [telemetry_node-1]: process has died [pid 49317, exit code -2, cmd '/root/ws_f5/install/fc_ros/lib/fc_ros/telemetry_node --ros-args -r __node:=telemetry_node'].
+[ERROR] [offboard_node-2]: process has died [pid 49319, exit code -2, cmd '/root/ws_f5/install/fc_ros/lib/fc_ros/offboard_node --ros-args -r __node:=offboard_node --params-file /root/ws_f5/install/fc_ros/share/fc_ros/params/fc_ros_params.yaml --params-file /tmp/launch_params_a9we6hfa'].

@@ -1,0 +1,55 @@
+{
+  "scenario_id": "B4",
+  "desc": "예각/U턴(135°) — 선회반경 초과 시 거동",
+  "model": "gz_standard_vtol",
+  "launch_args": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 250.0,0.0,50.0, 100.0,150.0,50.0]",
+    "range_limit_m": "800.0"
+  },
+  "launch_args_scenario": {
+    "transition_alt": "50.0",
+    "waypoints": "[0.0,0.0,50.0, 250.0,0.0,50.0, 100.0,150.0,50.0]"
+  },
+  "launch_args_cli": [
+    "range_limit_m=800.0"
+  ],
+  "px4_params_cli": [
+    "FW_T_SPDWEIGHT=0.5",
+    "FW_T_ALT_TC=5.0"
+  ],
+  "launch_argv": [
+    "ros2",
+    "launch",
+    "fc_ros",
+    "phase2.launch.py",
+    "transition_alt:=50.0",
+    "waypoints:=[0.0,0.0,50.0, 250.0,0.0,50.0, 100.0,150.0,50.0]",
+    "range_limit_m:=800.0"
+  ],
+  "home": null,
+  "timeout_s": 540.0,
+  "inject_spec": [],
+  "started_utc": "2026-07-29T05:18:30.666840+00:00",
+  "run_id": "B4_spd05_r2",
+  "px4_dir": "/root/PX4-vehicle",
+  "px4_head": "c890d9db0a300795594fd5ba6c045be9ebd71c09",
+  "px4_dirty": true,
+  "px4_diff_sha256": "f8aeff376e20a4b6",
+  "px4_bin": "/root/PX4-vehicle/build/px4_sitl_default/bin/px4",
+  "px4_bin_mtime_utc": "2026-07-28T18:31:12.441221+00:00",
+  "px4_gz_world": null,
+  "px4_gz_worlds_dir": null,
+  "mavros_fcu_url": "udp://:14540@localhost:14580",
+  "host": "DESKTOP-Kilogram",
+  "repo_head": "bc3229e",
+  "mavros_state_snapshot": "(timeout)",
+  "bringup_error": "/mavros/state connected=true 미도달",
+  "exit_reason": "mavros_not_connected",
+  "exit_code": 3,
+  "ended_utc": "2026-07-29T05:20:58.087981+00:00",
+  "elapsed_s": 134.7,
+  "ulogs": [
+    "05_18_44.ulg"
+  ]
+}
