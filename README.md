@@ -1,2 +1,2 @@
 # suridoksuri
-repo for the 24th 로봇항공기경연대회, include pixhawk SW, mavros
+repo for the 24th xxxx(censored), include pixhawk SW, mavros
