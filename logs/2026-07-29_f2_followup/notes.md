@@ -526,31 +526,82 @@ fake_vision `--linkdead-at 25`(= `VISION_SEARCH` 관측 후 25초에 `vision/lin
 
 ---
 
+# `V7b_guidance_lost` — **F2-d ✅ 실증** (오늘 형상)
+
+설정: **오늘 형상** `vision_landing=true transition_alt=25.0
+waypoints=[0,0,25, 60,0,25]`, `range_limit_m` **기본 300**.
+fake_vision `--exit-at 10` = `VISION_SEARCH` 관측 10초 뒤 **프로세스 자체가 죽는다**
+(setpoint 도 status 도 침묵 = shim 사망 모사).
+
+시점은 `S60_short` 실측에서 역산했다 — 래치가 `VISION_SEARCH` 진입 0.6s 뒤에
+서고 인계까지 ~28s 라, `--exit-at 25` 는 인계 3.5s 전이라 놓친다. **10s** 로 잡으면
+PRECISION_LAND 9.4s 지점(AGL ~17m)이라 여유가 크다.
+
+```
+[ 56.07s] VISION_SEARCH   WP1 도달·안정 (dist=0.6m speed=0.2m/s)
+[ 56.67s] PRECISION_LAND  타겟 래치 (연속 3프레임, N=60.0 E=0.0)
+[ 72.69s] LANDING         vision 유도 상실 5s 지속 … → GPS 착륙 폴백
+[ 94.12s] DONE            착륙 완료 (disarmed) -> DONE
+exit=0 done / 126.7s / range_guard.max_horiz_m 106.4 (상한 300 미접촉)
+```
+
+`node.log` + `fake_vision.log` 를 시간축으로 겹친 원문:
+
+```
+[fv 1785308341.96] t=9.8s emitted=44 veto=False hint=False
+정밀착륙 AGL=17.7m 수평오차=0.02m 하강     state=LOCK age=0.32s t=10/60s
+[fv 1785308342.83] exit_at 10.0s 도달 → 프로세스 종료(shim 사망 모사)   ← 여기서 침묵
+정밀착륙 AGL=16.6m 수평오차=0.01m 정렬대기 state=None age=2.32s t=12/60s
+정밀착륙 AGL=16.5m 수평오차=0.02m 정렬대기 state=None age=4.32s t=14/60s
+[WARN] vision 유도 상실 5s 지속 (setpoint age=6.0s status age=6.0s, AGL 16.4m)
+       → GPS 착륙 폴백
+```
+
+**확인 항목 4개에 대한 답:**
+
+1. **`vision_lost_timeout=5.0` 이 실제로 발화한다 ✅.** 이 경로가 **처음으로
+   실행됐다**(종전엔 노드 테스트로만 덮여 있었다).
+2. **실측 5.83초.** shim 사망 `1785308342.83` → 폴백 `1785308348.66`.
+   로그가 스스로 `setpoint age=6.0s` 를 찍는다 = **stale 창 1.0s + 상실 시한
+   5.0s** 가 겹친 값으로, 설계 예측과 일치한다. **다른 시한이 먼저 잡지 않았다**
+   (전체 시한은 `t=16/60s` 로 아직 44초 남아 있었다).
+3. **호버로 안 남는다 ✅.** `LANDING(AUTO.LAND)` 으로 빠져 21.4초 뒤 `DONE`.
+   폴백 직전 2.7초 동안은 **고도를 붙들었다**(17.7 → 16.6 → 16.5 → 16.4m,
+   하강 정지). `정렬대기` 표기와 `descend_allowed(guided=False)` 의
+   "추측 하강 금지" 계약대로다 — 수평오차는 그 동안 0.01~0.02m 로 유지됐다.
+4. **F2-c 와 서로 안 잡아먹는다 ✅.** 이 런의 `node.log` 에 `생산자 사망(link
+   ERROR)` 은 **한 줄도 없다.** status 가 통째로 침묵하니 `link_dead` 가 서지
+   않았고, 그 증거가 같은 줄의 `status age=6.0s` 다 —
+   `vision_target_bridge.py:74-77` 의 **페일세이프 3분법이 설계대로 갈렸다**
+   (생산자 사망 = 침묵 + ERROR 계속 / shim 사망 = 침묵 + status 도 침묵).
+
+> 대조: `V5b_producer_death`(F2-c)는 `t=13/60s` 에 `link ERROR` 로 잡혔고,
+> 여기(F2-d)는 `t=16/60s` 에 `상실 5s` 로 잡혔다. **두 실패 모드가 서로 다른
+> 문구·다른 시한으로 갈라져 나온다** — 현장에서 로그 한 줄로 구분 가능하다.
+
+---
+
 # 이 세션의 미실시 (정직하게)
 
 | 항목 | 상태 |
 |---|---|
-| **F2-d 유도 상실 SITL 실증** | ❌ **미실시.** 재현 인자는 준비돼 있다(아래 ①). `--linkdead-at`(F2-c)과 달리 **`--exit-at`** 를 써야 한다 — `fake_vision.py` 가 통째로 죽으면 `vision/link` ERROR 조차 안 나가서 `link_dead` 가 **서지 않고**(`vision_target_bridge.py:74-77` 3분법), `_pl_lost_elapsed` 시한(`vision_lost_timeout=5.0`)이 잡아야 정상이다. 그 경로는 이번에 **한 번도 실행되지 않았다** |
-| **`vision_landing=false` 종점 완주(HOLD→LANDING)** | ❌ **여전히 미실시.** 앞 세션 `V1`(거리상한 OVERRIDE 종료)·`V1b`(환경 실패)에 이어 이번에도 못 돌렸다 — 짧은 경로 스윕에 밀렸다. **다만 `V6` 가 `vision_landing=true` 로 `_exit_hold` 의 반대 분기를 태우지 않았을 뿐, `HOLD → … → LANDING → DONE` 종점 도달 자체는 이번 세션 6런 중 5런에서 관측됐다** |
+| **`vision_landing=false` 종점 완주(HOLD→LANDING)** | ❌ **여전히 미실시.** 앞 세션 `V1`(거리상한 OVERRIDE 종료)·`V1b`(환경 실패)에 이어 이번에도 못 돌렸다. **다만 `_exit_hold` 의 반대 분기를 안 태웠을 뿐, `HOLD → … → LANDING → DONE` 종점 도달 자체는 이번 세션 7런 중 6런에서 관측됐다** |
 | 편도 80 / 100m | ❌ 미실시. 60m 가 완주했으므로 그 사이는 단조로 안전하다고 **추정**했다(실측 아님) |
 | 편도 20m 이하 | ❌ 미실시. 20m 면 FOLLOWING 진입 시 잔여거리가 `d_end_thresh=10m` 아래라 **FOLLOWING 이 0틱**이 될 수 있다 — 여기가 진짜 벼랑일 가능성이 있으나 확인 못 했다 |
 
 ## 다음 세션이 그대로 이어받을 재현 명령
 
 ```bash
-# ① F2-d 유도 상실 (shim 자체 사망 = setpoint·status 둘 다 침묵)
-bash /mnt/c/sitl7_xfer/f2b_run.sh V7_guidance_lost \
-  "--enu-x 0.0 --enu-y 300.0 --enu-z 0.2 --on-match VISION_SEARCH --exit-at 25" \
-  --launch-arg range_limit_m=1200.0 --launch-arg vision_landing=true
-# 기대: `vision 유도 상실 5s 지속 (setpoint age=…s status age=…s, AGL …m) → GPS 착륙 폴백`
-# (스크립트로도 있다: /mnt/c/sitl7_xfer/f2c_v7.sh)
-
-# ② vision_landing=false 종점 완주
+# ① vision_landing=false 종점 완주
 bash /mnt/c/sitl7_xfer/f2c_v8.sh
 
-# ③ 짧은 경로 추가 스윕 (편도 20m — FOLLOWING 0틱 여부)
+# ② 짧은 경로 추가 스윕 (편도 20m — FOLLOWING 0틱 여부)
 bash /mnt/c/sitl7_xfer/f2c_short.sh 20
 ```
+
+⚠️ `f2c_v7.sh` 는 **앞 세션 형상(300m·`range_limit_m=1200`·`--exit-at 25`)**
+이라 쓰지 마라. 실제로 돌린 것은 오늘 형상판 **`f2c_v7b.sh`** 다
+(60m·`transition_alt=25`·상한 기본·`--exit-at 10`).
 
 이 세션이 새로 만든 헬퍼(전부 `/mnt/c/sitl7_xfer/`):
 `f2c_verify.sh`(진입 위생검사) · `f2c_inspect.sh <RUN_ID>`(산출물 요약) ·
