@@ -39,8 +39,13 @@ last_updated: 2026-07-29
 ssh suri@100.67.27.83
 cd ~/drone_ws/src/suridoksuri
 /home/suri/local-libcamera-src/picam-venv/bin/python3 -m vision.main live \
-  --preset presets/vertiport_fine.yaml --target-sink
+  --preset vision/presets/vertiport_fine.yaml --target-sink
 ```
+
+🔴 **`--preset` 은 `vision/presets/…` 다** (2026-07-29 실기체에서 확인). `main.py` 는
+`Pipeline.from_config(args.preset)` 로 **cwd 기준 상대경로**를 그대로 연다 — 위 `cd` 가
+저장소 루트라 `presets/vertiport_fine.yaml` 는 `FileNotFoundError` 로 즉사한다
+(`vision/main.py` docstring 의 예시는 `vision/` 안에서 실행하는 경우다).
 
 - 포트 **8091** 에 TCP 서버가 뜬다. 이미 점유돼 있으면 **종료코드 3** 으로 즉사한다
   (`ss -ltnp | grep 8091` 로 확인).
