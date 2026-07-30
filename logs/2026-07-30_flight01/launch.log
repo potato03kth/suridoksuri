@@ -1,0 +1,40 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-07-30-01-12-58-097238-doksuri-188
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [telemetry_node-1]: process started with pid [190]
+[INFO] [offboard_node-2]: process started with pid [192]
+[offboard_node-2] [INFO] [1785373979.065056220] [offboard_node]: 경로 계획 시작 — planner=eta3 WP 2개 v_cruise=18.0 → 예상 약 0s 블로킹. 이 동안 노드는 응답하지 않는다 — 죽은 것이 아니니 재기동 금지 (재기동하면 중복 인스턴스가 된다).
+[offboard_node-2] [INFO] [1785373979.073821880] [offboard_node]: 경로 계획 완료 — 소요 0.0s (예상 0s), 경로점 91개, 전장 89.4m
+[offboard_node-2] [WARN] [1785373979.195566181] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373979.295699422] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373979.395480537] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373979.495549112] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373979.595604355] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373979.695701726] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373979.795864764] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373979.895712878] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373979.995637158] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373980.095727142] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373980.195642553] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373980.295697741] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373980.395542523] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373980.495487156] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373980.595701213] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373980.695584957] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373980.795517387] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373980.895644518] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373980.996154406] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[offboard_node-2] [WARN] [1785373981.095634599] [offboard_node]: /mavros/cmd/arming 서비스 없음
+[telemetry_node-1] [INFO] [1785373981.415259875] [telemetry_node]: pos_ned=[-0.3579976   0.69757473 -2.2539444 ]  yaw=0.747  armed=False  vtol=3  batt=16.33V/82%
+[offboard_node-2] [INFO] [1785373981.750796967] [offboard_node]: ARM 요청
+[telemetry_node-1] [INFO] [1785373983.022175868] [telemetry_node]: pos_ned=[-0.347377    0.72163099 -2.2227726 ]  yaw=0.747  armed=True  vtol=3  batt=16.14V/78%
+[telemetry_node-1] [INFO] [1785373985.022091390] [telemetry_node]: pos_ned=[-0.35150591  0.72736275 -2.21230888]  yaw=0.748  armed=True  vtol=3  batt=16.33V/78%
+[offboard_node-2] [INFO] [1785373986.595847822] [offboard_node]: 경로 원점 = 이륙지점 [N=-0.39, E=0.80, h_up=-2.21] 적용 (frame=takeoff) → WP0=[-0.39,0.80] 순항고도 h_up=17.79
+[offboard_node-2] [INFO] [1785373986.596905590] [offboard_node]: 거리 상한 감시 활성 300m (이륙지점 기준 수평, 경로 최원점 89m)
+[offboard_node-2] [INFO] [1785373986.598923534] [offboard_node]: CommandTOL 이륙 요청 alt=37.5m AMSL (지면 17.5+20.0) -> CLIMBING
+[telemetry_node-1] [INFO] [1785373987.021988878] [telemetry_node]: pos_ned=[-0.40976003  0.8402651  -2.20144844]  yaw=0.748  armed=True  vtol=3  batt=16.33V/81%
+[telemetry_node-1] [INFO] [1785373989.022084276] [telemetry_node]: pos_ned=[-0.44907483  0.86494333 -2.1343174 ]  yaw=0.752  armed=True  vtol=3  batt=15.29V/66%
+[telemetry_node-1] [INFO] [1785373991.022043326] [telemetry_node]: pos_ned=[-0.53778648  0.96880984 -2.04067421]  yaw=0.776  armed=True  vtol=3  batt=16.42V/74%
+[telemetry_node-1] [INFO] [1785373993.022064157] [telemetry_node]: pos_ned=[-0.59280378  1.09955895 -1.96281433]  yaw=0.777  armed=True  vtol=3  batt=16.37V/80%
+[telemetry_node-1] [INFO] [1785373995.022161118] [telemetry_node]: pos_ned=[-0.63510239  1.15747333 -1.87090874]  yaw=0.779  armed=False  vtol=3  batt=16.33V/81%
+[telemetry_node-1] [INFO] [1785373997.022171009] [telemetry_node]: pos_ned=[-0.67685395  1.19157815 -1.73629761]  yaw=0.780  armed=False  vtol=3  batt=16.33V/82%
+[telemetry_node-1] [INFO] [1785373999.022129161] [telemetry_node]: pos_ned=[-0.71360844  1.23215759 -1.58019638]  yaw=0.780  armed=False  vtol=3  batt=16.40V/82%

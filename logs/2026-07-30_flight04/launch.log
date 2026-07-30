@@ -1,0 +1,29 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-07-30-02-57-11-045383-doksuri-259
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [telemetry_node-1]: process started with pid [261]
+[INFO] [offboard_node-2]: process started with pid [263]
+[offboard_node-2] [INFO] [1785380231.637076104] [offboard_node]: 경로 계획 시작 — planner=eta3 WP 2개 v_cruise=18.0 → 예상 약 0s 블로킹. 이 동안 노드는 응답하지 않는다 — 죽은 것이 아니니 재기동 금지 (재기동하면 중복 인스턴스가 된다).
+[offboard_node-2] [INFO] [1785380231.642877615] [offboard_node]: 경로 계획 완료 — 소요 0.0s (예상 0s), 경로점 119개, 전장 117.0m
+[offboard_node-2] [INFO] [1785380231.786942330] [offboard_node]: ARM 요청
+[offboard_node-2] [INFO] [1785380232.087291640] [offboard_node]: 경로 원점 = 이륙지점 [N=-2.69, E=4.46, h_up=-4.53] 적용 (frame=takeoff) → WP0=[-2.69,4.46] 순항고도 h_up=15.47
+[offboard_node-2] [INFO] [1785380232.088357230] [offboard_node]: 거리 상한 감시 활성 300m (이륙지점 기준 수평, 경로 최원점 117m)
+[offboard_node-2] [INFO] [1785380232.089664591] [offboard_node]: CommandTOL 이륙 요청 alt=39.2m AMSL (지면 19.2+20.0) -> CLIMBING
+[telemetry_node-1] [INFO] [1785380233.583098843] [telemetry_node]: pos_ned=[-2.72020483  4.39746046 -4.39517021]  yaw=1.260  armed=True  vtol=3  batt=15.82V/68%
+[telemetry_node-1] [INFO] [1785380235.546886171] [telemetry_node]: pos_ned=[-2.70673704  4.38407278 -4.1894455 ]  yaw=1.269  armed=True  vtol=3  batt=15.15V/45%
+[telemetry_node-1] [INFO] [1785380237.546927739] [telemetry_node]: pos_ned=[-2.58085513  3.8262639  -3.65446281]  yaw=1.364  armed=True  vtol=3  batt=13.08V/0%
+[telemetry_node-1] [INFO] [1785380239.546747258] [telemetry_node]: pos_ned=[-2.49193454  3.96936464 -2.10191727]  yaw=1.396  armed=True  vtol=3  batt=12.71V/0%
+[telemetry_node-1] [INFO] [1785380241.546978623] [telemetry_node]: pos_ned=[-2.40566397  4.31092215 -0.07368469]  yaw=1.493  armed=True  vtol=3  batt=12.55V/0%
+[telemetry_node-1] [INFO] [1785380243.546707250] [telemetry_node]: pos_ned=[-2.63935041  4.47292137  2.32236099]  yaw=1.529  armed=True  vtol=3  batt=12.43V/0%
+[telemetry_node-1] [INFO] [1785380245.546790214] [telemetry_node]: pos_ned=[-2.91665196  4.60086679  4.23864937]  yaw=1.330  armed=True  vtol=3  batt=11.81V/0%
+[telemetry_node-1] [INFO] [1785380247.546809675] [telemetry_node]: pos_ned=[-3.07062793  4.76497936  3.43124962]  yaw=0.947  armed=True  vtol=3  batt=11.89V/0%
+[telemetry_node-1] [INFO] [1785380249.546752321] [telemetry_node]: pos_ned=[-3.08649588  4.57891941  0.48826599]  yaw=0.583  armed=True  vtol=3  batt=13.04V/0%
+[telemetry_node-1] [INFO] [1785380251.546674461] [telemetry_node]: pos_ned=[-2.93073964  4.4148941  -2.81020927]  yaw=0.751  armed=True  vtol=3  batt=12.12V/0%
+[telemetry_node-1] [INFO] [1785380253.546934876] [telemetry_node]: pos_ned=[-2.80612445  4.01644039 -3.25833511]  yaw=1.133  armed=True  vtol=3  batt=12.90V/0%
+[telemetry_node-1] [INFO] [1785380255.546799884] [telemetry_node]: pos_ned=[-2.9175961   4.41151571 -3.83829308]  yaw=1.323  armed=True  vtol=3  batt=12.70V/0%
+[telemetry_node-1] [INFO] [1785380257.546671798] [telemetry_node]: pos_ned=[-3.182827    4.58525848 -4.04780006]  yaw=1.533  armed=True  vtol=3  batt=13.91V/0%
+[telemetry_node-1] [INFO] [1785380259.546748412] [telemetry_node]: pos_ned=[-3.13305545  4.60098219 -4.04465485]  yaw=1.555  armed=True  vtol=3  batt=14.29V/0%
+[telemetry_node-1] [INFO] [1785380261.546736205] [telemetry_node]: pos_ned=[-3.13760185  4.52757978 -3.86683083]  yaw=1.534  armed=True  vtol=3  batt=15.04V/16%
+[telemetry_node-1] [INFO] [1785380263.546731537] [telemetry_node]: pos_ned=[-3.15946245  4.47484064 -3.59078407]  yaw=1.531  armed=True  vtol=3  batt=15.53V/41%
+[telemetry_node-1] [INFO] [1785380265.546726615] [telemetry_node]: pos_ned=[-3.10722375  4.4899621  -3.48830986]  yaw=1.528  armed=False  vtol=3  batt=15.72V/48%
+[telemetry_node-1] [INFO] [1785380267.546740532] [telemetry_node]: pos_ned=[-3.06805253  4.47811079 -3.49460983]  yaw=1.527  armed=False  vtol=3  batt=15.65V/50%
+[telemetry_node-1] [INFO] [1785380269.546778843] [telemetry_node]: pos_ned=[-3.04016757  4.45189762 -3.52710152]  yaw=1.526  armed=False  vtol=3  batt=15.72V/50%
