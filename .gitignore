@@ -61,7 +61,11 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
-/.claude
+# .claude 는 로컬 상태(worktrees·settings.local·잡 로그)라 기본 무시하되,
+# commands/ 만은 커밋한다 — /session-log 가 파일로 존재하지 않아 세션 종료 절차가
+# 3일간 조용히 빠진 사고가 있었다(2026-07-31). 이건 다기기 공유돼야 하는 절차다.
+/.claude/*
+!/.claude/commands/
 vtol_sim_checkpoint1/vtol_sim/tests/test_checkpoint1.py
 /vtol_sim_checkpoint1/vtol_sim/tests/__pycache__
 
