@@ -107,13 +107,16 @@ FC 작업 세션 절차 (정형):
   python3 -m pytest fc_bridge/tests fc_ros vtol_sim_checkpoint1_1/vtol_sim/tests tools -q
   ```
 
-  | 경로 | 건수 (2026-07-29) |
+  | 경로 | 건수 (2026-07-31) |
   |---|---|
   | `fc_bridge/tests` | 260 |
   | `fc_ros` | 394 |
   | `vtol_sim_checkpoint1_1/vtol_sim/tests` | 47 |
-  | **`tools`** | **82** ← 자주 누락된다 (SITL 하니스·px4_params 도구) |
-  | **합계** | **783** |
+  | **`tools`** | **111** ← 자주 누락된다 (SITL 하니스·px4_params·flight_logs 도구) |
+  | **합계** | **812** |
+
+  (2026-07-31: `tools` 82 → 111. `tools/flight_logs/test_pitot_zero_temp.py` 29건 추가 —
+  피토 영점 온도회귀의 t 분위수·OLS·CAS 환산. 합계 783 → 812.)
 
   `vision/tests` 는 `cv2` 가 필요해 이 venv 에서 수집 실패한다(별도 picam-venv 소관, 정상).
   `.claude/worktrees/*` 아래 사본은 세지 않는다.
