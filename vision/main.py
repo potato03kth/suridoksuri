@@ -45,11 +45,11 @@ basename 지정.
   python -m vision.main live:1 --live-resolution 1920x1080 --output results/live.mp4
   # 정밀착륙 인터페이스 발행 켜기(기본 꺼짐) — 소비자는 nc 127.0.0.1 8091 로 확인
   python -m vision.main live --preset presets/vertiport_fine.yaml --target-sink
-  # USB 웹캠(UVC) 모드 — CSI 카메라 사망 대응 임시 경로. picamera2/libcamera 불필요(랩탑에서도 돈다)
+  # USB 웹캠(UVC) 모드 — 🟡 예비 경로(발동 안 됨, 기본은 위 live). picamera2/libcamera 불필요
   python -m vision.main uvc --preset presets/distress_fine.yaml --calib <웹캠용 nominal.yaml>
   # 안정 장치경로 권장(/dev/video* 인덱스는 USB 재연결·부팅 순서에 따라 흔들린다)
   python -m vision.main uvc:/dev/v4l/by-id/usb-XXXX-video-index0 --uvc-resolution 1280x720
-  절차 정본: docs/vision_webcam_fallback.md (화각 실측 → nominal.yaml 생성 → 실행)
+  발동 조건·절차: docs/vision_webcam_fallback.md §0 (기본 경로는 위 `live`/CSI 카메라다)
 """
 import argparse
 import signal
@@ -111,9 +111,10 @@ _DEFAULT_CALIB_PATH = str(Path(__file__).parent / "calibration" / "cam109-imx708
 # 라이브 모드(LiveFrameSource 배선) — `input` 위치인자 특수값 접두사. import 자체는 picamera2 없이도
 # 항상 성공한다(LiveFrameSource.open() 내부 지연 import 덕분, vision/CLAUDE.md "frame_source.py" 절).
 _LIVE_INPUT_SPEC = "live"
-# USB 웹캠(UVC) 모드 — `input` 위치인자 특수값 접두사. 2026-07-30 CSI 카메라 하드웨어 사망
-# (docs/vision_report_video.md §1) 대응 임시 경로. `live`와 달리 picamera2/libcamera를 전혀
-# 쓰지 않으므로 랩탑 .venv에서도 그대로 돈다.
+# USB 웹캠(UVC) 모드 — `input` 위치인자 특수값 접두사. 🟡 **예비 경로(발동 안 됨)** — 기본은
+# 위 `live`(CSI 카메라)이고, 이건 CSI를 못 쓰게 될 경우에만 쓴다(발동 조건:
+# docs/vision_webcam_fallback.md §0). opt-in이라 안 쓰면 한 줄도 실행되지 않는다.
+# `live`와 달리 picamera2/libcamera를 전혀 쓰지 않으므로 랩탑 .venv에서도 그대로 돈다.
 #   uvc            → /dev/video0 (인덱스 0)
 #   uvc:2          → /dev/video2
 #   uvc:/dev/v4l/by-id/usb-...-video-index0  → 안정 경로(권장, 인덱스는 재부팅마다 흔들린다)
@@ -1064,8 +1065,9 @@ def _run_uvc(
     report_overlay: bool = False,
     output_fps: Optional[float] = None,
 ) -> None:
-    """USB 웹캠(UVC) 라이브 모드 — 2026-07-30 CSI 카메라 하드웨어 사망 대응 임시 경로.
+    """USB 웹캠(UVC) 라이브 모드 — 🟡 예비 경로(기본은 `_run_live`/CSI 카메라).
 
+    CSI를 못 쓰게 될 경우에만 쓴다(발동 조건: docs/vision_webcam_fallback.md §0).
     프레임 루프는 `_run_live`와 완전히 동일한 `_run_source_loop`를 쓴다(검증된 루프 재사용).
     다른 건 소스 생성과 열린 직후 로깅뿐이다.
     """
@@ -1190,7 +1192,7 @@ def main() -> None:
         "--live-retry-delay", type=float, default=1.0,
         help="라이브 모드 카메라 연결 재시도 간격(초, 기본 1.0)",
     )
-    # USB 웹캠(UVC) 모드 — 2026-07-30 CSI 카메라 하드웨어 사망 대응. `--live-retries`/
+    # USB 웹캠(UVC) 모드 — 🟡 예비 경로(발동 안 됨). `--live-retries`/
     # `--live-retry-delay`는 의미가 같아 웹캠 모드에서도 그대로 재사용한다(같은 노브를 두 벌로
     # 나누면 현장에서 어느 쪽이 먹는지 헷갈린다).
     parser.add_argument(

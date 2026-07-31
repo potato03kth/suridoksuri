@@ -315,10 +315,15 @@ class LiveFrameSource:
 
 
 # ---------------------------------------------------------------------------
-# UVC(USB 웹캠) 프레임 소스 — 2026-07-30 CSI 카메라 하드웨어 사망 대응 임시 경로
+# UVC(USB 웹캠) 프레임 소스 — 🟡 **예비 경로**(2026-07-30 구현, 2026-07-31 현재 발동 안 됨)
 #
-# 2026-07-29 CSI 카메라(IMX708)가 I2C 무응답으로 물리적 사망했다(docs/vision_report_video.md
-# §1). 그 대체로 UVC USB 웹캠을 쓴다. **libcamera/picamera2 스택을 통째로 우회한다** —
+# 🔴 **기본 경로는 CSI 카메라(LiveFrameSource, picamera2)다.** 이 클래스는 2026-07-29 CSI
+# 카메라(IMX708) I2C 무응답(docs/vision_report_video.md §1)에 대비해 미리 만들어 둔 조건부
+# 대안이고, **모듈 교체로 CSI를 복구하는 것이 1순위**다. 발동 조건은
+# docs/vision_webcam_fallback.md §0. 급할 때 코드부터 짜면 늦어서 미리 병합했을 뿐이며,
+# main.py의 `uvc` 입력 스펙이 opt-in이라 안 쓰면 한 줄도 실행되지 않는다.
+#
+# 발동했을 때의 이점: **libcamera/picamera2 스택을 통째로 우회한다** —
 # `ipa_rpi_pisp.so` 소스빌드도, `env.sh` source도, picam-venv 분리도, `/dev/mediaN` 번호가
 # 부팅마다 바뀌는 문제도, 카메라 배타성(`Device or resource busy`)도 전부 해당 없다.
 #

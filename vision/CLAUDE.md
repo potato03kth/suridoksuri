@@ -75,7 +75,7 @@
 | `utils/target_sink.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 1 — 작업 V1)** — `TargetSink` 포트(§7.2가 이름으로만 지정해 뒀던 것) + `NullSink` + `SocketTargetSink`(**localhost TCP 서버**, 호스트 쪽 발행자) + `sample_clocks()` + `_DropOldestQueue`. 컨테이너 안의 Phase 2 shim 노드가 **클라이언트로 접속**해 JSON Lines를 읽어 ROS2 토픽으로 재발행한다. **TCP를 고른 결정적 근거는 `NetworkMode=host`** — 컨테이너가 호스트 네트워크 네임스페이스를 그대로 공유해 `127.0.0.1`이 추가 설정 0으로 통한다. 반면 UDS는 소켓 파일이 컨테이너 마운트 네임스페이스에 보여야 하는데 마운트가 `/home/suri/drone_ws` 하나뿐이라 **컨테이너 실행 설정 변경(=FC 도메인+배포 절차)** 을 요구해 기각(상세는 파일 docstring). 바인드는 **`127.0.0.1` 고정**(`utils/stream.py`의 `0.0.0.0`과 반대 — `NetworkMode=host`라 0.0.0.0이면 비행 중 유도 스트림이 주변 네트워크에 노출된다). **비차단이 최우선 계약** — `publish()`는 bounded queue에 넣기만 하고 소켓 I/O를 한 줄도 안 한다(인코딩·전송·accept 전부 별도 스레드), 가득 차면 drop-oldest(`utils/blackbox.py`/`utils/stream.py` 패턴 재사용), 느린 소비자는 `send_timeout_s`로 끊는다, `start()` 전/`stop()` 후 `publish()`는 조용한 no-op. **SIGTERM 핸들러**(`install_signal_handlers()`)는 `tools/h264_stream.py::_install_sigterm_handler`와 동일 패턴(핸들러는 이벤트만 세팅) — 이 저장소의 원격 프로세스는 SIGINT가 SIG_IGN이라 SIGTERM이 유일한 신호다. ⚠️ **단 `main.py`/`replay.py`는 이 메서드를 부르지 않는다**(신호당 핸들러가 하나뿐이라 라이브 graceful shutdown을 덮어쓴다 — 2026-07-25 실기체 버그). **rclpy를 import하지 않는다**(Phase 2 shim이 유일한 ROS 접점). **[2026-07-28] 관측 접근자** — `client_count`(기존)/`last_seq`(신설) 둘 다 락으로 보호된다: 화면 오버레이(`utils/visualize.py::draw_sink_status`)가 파이프라인 스레드에서 매 프레임 읽는데 클라이언트 목록은 accept/send 스레드가 만지므로 스레드 교차 접근이 상시 일어난다. 기본값 근거는 아래 "target_sink 소켓 기본값" 절 |
 | `ros/shim_core.py` | **신설(2026-07-28, vision↔fc 인터페이스 Phase 2 — 컨테이너 shim)** — JSON Lines 레코드 → **"발행 계획"(ROS 메시지를 서술하는 dataclass)** 순수 변환. `ShimConfig`/`ShimRouter` + `PosePlan`/`StatusPlan`/`LandingTargetPlan`/`ShimOutput` + `validate_record`/`parse_line`/`kv_value`. 🔴 **stdlib만 쓴다 — 취향이 아니라 강제다**: `vision.core.wire`를 import하면 `wire.py → core/target.py → import cv2` 체인 때문에 **fc 컨테이너에서 즉시 죽는다**(cv2 없음, 실측). 그래서 계약 상수(`SCHEMA_VERSION`/`REQUIRED_*_KEYS`)를 **의도적으로 복제**하고, 그 복제가 어긋나는 것은 랩탑 테스트가 `vision.core.wire`와 **직접 대조**해 잡는다(런타임은 격리, 검증은 대조). rclpy도 numpy도 import하지 않아 랩탑에서 그냥 단위테스트된다. **[2026-07-28] `/vision/landing_setpoint` 추가** — `VehiclePose`/`SetpointPlan` + 쿼터니언 순수 수학 4종(`quat_normalize`/`quat_rotate`/`quat_yaw`/`quat_from_yaw`) + `enu_yaw_to_ned_yaw`/`enu_to_pos_ned_n_e_hup` + `build_landing_setpoint()`. 🔴 **절대 좌표를 기억하지 않는다** — 라우터가 들고 있는 상태는 최신 `VehiclePose` 하나뿐이고 목표점은 매 레코드마다 `최신 pose + 그 순간의 상대오차`로 다시 계산된다(EKF 드리프트 상쇄). numpy 금지 제약 때문에 쿼터니언 회전을 수식으로 직접 폈고, 그래서 **로드리게스 공식 독립 재구현과 대조**하는 테스트를 따로 뒀다. 아래 "절대 setpoint" 하위 절 참조 |
 | `ros/shim_node.py` | **신설(2026-07-28, 같은 Phase 2)** — `shim_core`의 얇은 rclpy 어댑터. **저장소에서 rclpy를 import하는 유일한 파일**이고 컨테이너 안에서만 실행된다(`python3 -m vision.ros.shim_node`). 소켓 **클라이언트**(vision이 서버)라 재접속 루프를 이쪽이 갖고, EOF를 받으면 pose를 끊고 status만 ERROR로 낸다. 판단은 한 줄도 없다 — "계획 → msg 필드 대입"과 소켓 수명주기뿐이고, 그 **얇음 자체가 회귀테스트 대상**이다(`test_shim_core.py`가 이 파일을 **AST로 파싱해** msg 프레임 상수 참조·와이어 키 직접 읽기를 금지한다 — 소스 문자열 검색은 docstring 산문까지 잡아 쓸모없어진다). SIGTERM 핸들러는 `tools/h264_stream.py`와 동일 패턴. **[2026-07-28] `/mavros/local_position/pose` 구독 + `/vision/landing_setpoint` 발행 추가** — 구독이 생기면서 **executor 데몬 스레드가 하나 늘었다**("발행만 하니 spin 불필요"였던 전제가 깨짐). 소켓 폴링(`_POLL_S=0.2s`) 안에서 `spin_once`를 부르면 자세가 최대 0.2초 묵어 `attitude_stale_s`(0.25s) 예산의 80%를 까먹기 때문. `--no-landing-setpoint`를 주면 구독도 스레드도 안 만들어 이전 단일스레드 동작으로 정확히 되돌아간다 |
-| `utils/frame_source.py` | `FrameRecord` + `LiveFrameSource`/`DirFrameSource`/`BagFrameSource` 어댑터 + `open_dir_or_bag()` 팩토리 (§7.2/§7.5/§7.9 항목4). Live=실카메라(재시도 후 `ConnectionError`), Dir=녹화폴더(프레임파일+선택적 `telemetry.jsonl`), Bag=단일 비디오파일(+선택적 사이드카 `<basename>.jsonl`). **`LiveFrameSource`는 2026-07-24 카메라 브링업(`docs/vision_camera_bringup.md`) Phase 4에서 picamera2 백엔드로 재구현됨** — 이전 `cv2.VideoCapture` 구현은 V4L2 raw 경로와 비호환임이 실측 확인돼(`docs/vision_status.md` 2026-07-22b) 폐기. 생성자 인자도 `device`(cv2 정수/경로) → `camera_num`(picamera2 카메라 인덱스) + `resolution`(기본 `nominal.yaml`의 `image_size` 4608x2592와 일치, solvePnP 캘리브레이션과 어긋나지 않게)으로 교체. `create_still_configuration(main={"format": "RGB888", ...})` 요청이 실제로는 BGR 바이트순서를 준다는 picamera2 명명 역전(`tools/calib_capture.py`에서 실기체로 이미 확인된 사실)을 재사용해 별도 색공간 변환 없이 BGR 관례를 만족시킨다. picamera2는 이 `.venv`에 없는 RPi 전용 라이브러리라 `open()` 내부 지연 import로 격리(모듈 최상단 import 금지 — 그러면 이 `.venv`의 `DirFrameSource`/`BagFrameSource` 사용처까지 깨짐). 단위테스트는 `sys.modules`에 가짜 `picamera2` 모듈을 주입해 실기 없이 검증하고, 지연 import 격리 자체도 회귀테스트(소스 텍스트에 최상단 import 없음 + `sys.modules["picamera2"]=None`으로 강제 차단해도 모듈 import는 성공) 대상. **[2026-07-28] AF(오토포커스) 제어 추가 + 저장소 AF 단일 출처가 됨** — `af_mode`(기본 `continuous`)/`lens_position` 생성자 인자와 `AF_MODES`/`LENS_POSITION_MIN,MAX`/`validate_af_args`/`validate_lens_position`/`make_af_controls`가 여기 산다(`tools/h264_stream.py`가 여기서 import). 🔴 **실기체 미검증.** 아래 "LiveFrameSource AF 제어" 절 참조. **[2026-07-30] `UvcFrameSource` 추가** — CSI 카메라 물리적 사망 대응 USB 웹캠(UVC) 경로. `cv2.VideoCapture` + V4L2 백엔드라 picamera2/libcamera에 의존하지 않아 **랩탑 `.venv`에서도 그대로 돈다**(지연 import 불필요). `LiveFrameSource`와 같은 계약(재시도 후 `ConnectionError`, 컨텍스트 매니저, `FrameRecord` 이터레이터). 🔴 **핵심 안전장치는 해상도 검증** — 싸구려 웹캠은 지원 안 하는 해상도를 조용히 다른 값으로 바꿔주는데(`cap.set()`은 True 반환) `camera_matrix`가 해상도에 묶여 있어 그대로 두면 거리·pose가 소리 없이 배수로 틀린다. 여는 즉시 되읽어 다르면 **하드 실패**(`allow_resolution_mismatch=True`로만 통과, 그때도 경고). 아래 "UVC(USB 웹캠) 프레임 소스" 절 참조 |
+| `utils/frame_source.py` | `FrameRecord` + `LiveFrameSource`/`DirFrameSource`/`BagFrameSource` 어댑터 + `open_dir_or_bag()` 팩토리 (§7.2/§7.5/§7.9 항목4). Live=실카메라(재시도 후 `ConnectionError`), Dir=녹화폴더(프레임파일+선택적 `telemetry.jsonl`), Bag=단일 비디오파일(+선택적 사이드카 `<basename>.jsonl`). **`LiveFrameSource`는 2026-07-24 카메라 브링업(`docs/vision_camera_bringup.md`) Phase 4에서 picamera2 백엔드로 재구현됨** — 이전 `cv2.VideoCapture` 구현은 V4L2 raw 경로와 비호환임이 실측 확인돼(`docs/vision_status.md` 2026-07-22b) 폐기. 생성자 인자도 `device`(cv2 정수/경로) → `camera_num`(picamera2 카메라 인덱스) + `resolution`(기본 `nominal.yaml`의 `image_size` 4608x2592와 일치, solvePnP 캘리브레이션과 어긋나지 않게)으로 교체. `create_still_configuration(main={"format": "RGB888", ...})` 요청이 실제로는 BGR 바이트순서를 준다는 picamera2 명명 역전(`tools/calib_capture.py`에서 실기체로 이미 확인된 사실)을 재사용해 별도 색공간 변환 없이 BGR 관례를 만족시킨다. picamera2는 이 `.venv`에 없는 RPi 전용 라이브러리라 `open()` 내부 지연 import로 격리(모듈 최상단 import 금지 — 그러면 이 `.venv`의 `DirFrameSource`/`BagFrameSource` 사용처까지 깨짐). 단위테스트는 `sys.modules`에 가짜 `picamera2` 모듈을 주입해 실기 없이 검증하고, 지연 import 격리 자체도 회귀테스트(소스 텍스트에 최상단 import 없음 + `sys.modules["picamera2"]=None`으로 강제 차단해도 모듈 import는 성공) 대상. **[2026-07-28] AF(오토포커스) 제어 추가 + 저장소 AF 단일 출처가 됨** — `af_mode`(기본 `continuous`)/`lens_position` 생성자 인자와 `AF_MODES`/`LENS_POSITION_MIN,MAX`/`validate_af_args`/`validate_lens_position`/`make_af_controls`가 여기 산다(`tools/h264_stream.py`가 여기서 import). 🔴 **실기체 미검증.** 아래 "LiveFrameSource AF 제어" 절 참조. **[2026-07-30] `UvcFrameSource` 추가 — 🟡 예비 경로(2026-07-31 현재 발동 안 됨, 기본은 CSI `LiveFrameSource`다)** USB 웹캠(UVC)용. `cv2.VideoCapture` + V4L2 백엔드라 picamera2/libcamera에 의존하지 않아 **랩탑 `.venv`에서도 그대로 돈다**(지연 import 불필요). `LiveFrameSource`와 같은 계약(재시도 후 `ConnectionError`, 컨텍스트 매니저, `FrameRecord` 이터레이터). 🔴 **핵심 안전장치는 해상도 검증** — 싸구려 웹캠은 지원 안 하는 해상도를 조용히 다른 값으로 바꿔주는데(`cap.set()`은 True 반환) `camera_matrix`가 해상도에 묶여 있어 그대로 두면 거리·pose가 소리 없이 배수로 틀린다. 여는 즉시 되읽어 다르면 **하드 실패**(`allow_resolution_mismatch=True`로만 통과, 그때도 경고). 아래 "UVC(USB 웹캠) 프레임 소스" 절 참조 |
 | `main.py` | CLI 진입점. 이미지/영상 자동 분기. `--log-dir`/`--log-name`으로 이중싱크 로거+JSONL 블랙박스 실행(항상 on). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `--calib`(기본 `calibration/cam109-imx708af75/nominal.yaml`)로 캘리브레이션을 1회 로드해 재사용, 확정 ArUco 검출이 있으면 `solve_target_pose()` 호출 결과를 JSONL `chosen.target_estimate`에 싣는다(아래 "ArUco Phase 4 파이프라인 배선" 절). **§9 6번 상태머신 배선** — 실행 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나를 재사용(`_run_image`/`_run_video`/`_run_live` 전부, 단일 이미지 경로도 관측 1개짜리로 통과)해 매 프레임 `_build_observation()`으로 `Observation`을 만들고 `update()` 결과를 JSONL `state`/`command`에 싣는다(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절. **[2026-07-28] `--target-sink` 배선(인터페이스 Phase 1 마무리, §9 작업 V5)** — `--target-sink`/`--target-sink-host`/`--target-sink-port`로 `SocketTargetSink` opt-in(기본 꺼짐=`NullSink`), 세 실행경로(`_run_image`/`_run_video`/`_run_live`) 전부에서 매 프레임 `target`+`state_hint` 레코드 발행. 아래 "`--target-sink` 파이프라인 배선" 절. **[2026-07-28] bind 하드 페일 + 발행상태 오버레이(사용자 결정)** — 기동 실패 시 강등 없이 **종료코드 3**으로 즉사(stderr에 포트 포함), `--display`가 켜져 있으면 매 프레임 `draw_sink_status()`로 소비자 수/seq/드롭을 화면에 표시(`none`이면 비용 0). 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절. **[2026-07-28] 사전정보 스코어러 배선** — `_build_prior_inputs(calib, telemetry)`로 `Pipeline.run(image, meta=...)`에 캘리브레이션(+있으면 AGL/자세)을 심고, `_detections_to_list()`가 점수를 JSONL `detections[].prior`로 흘려보낸다. 🔴 **라이브에는 AGL/자세 역방향 채널이 아직 없어 항상 비활성으로 degrade**하며, 그때 JSONL은 배선 이전과 한 글자도 다르지 않다(`prior` 키 자체가 안 생김). 아래 "사전정보 기반 후보 스코어링" 절 |
 | `replay.py` | 오프라인 재생 CLI(`python -m vision.replay <녹화폴더\|bag> --preset ...`, §7.9 (a)). `open_dir_or_bag`로 Dir/Bag 자동판별 → 동일 `Pipeline`으로 재생 → 로거+블랙박스 기록. **결정론적**(§7.5). `--display stream`으로 `MjpegStreamer` opt-in(§7.9 항목5). **ArUco 브랜치 Phase 4** — `main.py`와 동일한 `--calib`/`TargetEstimate`→`chosen.target_estimate` 배선(헬퍼는 상호 import 안 함 원칙에 따라 얇게 중복). **§9 6번 상태머신 배선** — `main.py`와 동일 원칙(얇게 중복)으로 재생 루프 전체에 걸쳐 `LandingStateMachine` 인스턴스 하나 재사용, `record.telemetry.get("alt")`가 있으면 `Observation.agl_m`으로 흘려보내고 없으면 None으로 우아하게 degrade(아래 "공통 상태머신 파이프라인 배선" 절). **[2026-07-25] `_build_observation()`이 ② 조난자 fine(흰 박스)까지 확장됨** — 아래 "조난자 fine 파이프라인 배선(체인 잇기)" 절. **[2026-07-28] `--target-sink` 배선 + 발행상태 오버레이** — `main.py`와 문자 그대로 같은 CLI 인자/기본 꺼짐/하드페일(exit 3). 🔴 **재생 경로에만 있는 가치: `telemetry.jsonl`의 AGL이 실려 `state_hint`가 `TERMINAL`까지 진행하는 유일한 경로**(main.py는 AGL 경로 자체가 없음). `_solve_target_chosen()` → `_solve_target_estimate()`로 교체(JSONL `chosen` 무변경). 아래 "bind 하드 페일 + 유도 발행 상태 오버레이" 절. **[2026-07-28] 사전정보 스코어러 배선** — `main.py`와 같은 헬퍼(얇게 중복)지만 🔴 **`telemetry.jsonl`의 `alt`+`attitude`를 실제로 읽어 스코어러를 활성화하는 유일한 경로**다(main.py는 채널이 없다). 종단간 실증 산출물: `vision/results/prior_geometry_demo/`. 아래 "사전정보 기반 후보 스코어링" 절 |
 | `tools/rpi_capture.py` | RPi 헤드리스 캘리브레이션 촬영 — 저해상도 스냅샷 자동갱신(브라우저) + 촬영 트리거(버튼/Enter). **2026-07-22b에 GStreamer `libcamerasrc`(작동 불가였음, libcamera PiSP IPA 결여) 대신 V4L2 RAW 직접 캡처+수동 디베이어로 전면 재작성해 브링업 완료** — media-ctl/v4l2-ctl로 rp1-cfe 파이프라인 직접 구성. 대상 media 디바이스(`/dev/mediaN`)는 부팅마다 번호가 바뀔 수 있어 하드코딩 대신 매 호출 동적 탐색(2026-07-22d, 아래 "media 디바이스 동적 탐색" 절). gray-world 화이트밸런스 보정 포함(아래 절). **수동 초점/노출/게인 제어 + 초점 스윕 도구 포함(2026-07-22e, 아래 "수동 초점/노출/게인 제어" 절)** — libcamera 우회 경로라 연속 AF/AE가 없어 방치돼 있던 것에 대한 대응. 상세 경과는 메모리 `project_rpi5_ubuntu_camera_stack.md` |
@@ -1347,15 +1347,26 @@ nominal.yaml과 같은 보수적 값**을 유지한다 — 합성이라고 해�
 
 ---
 
-## UVC(USB 웹캠) 프레임 소스 (2026-07-30, `utils/frame_source.py` + `main.py`)
+## UVC(USB 웹캠) 프레임 소스 — 🟡 **예비 경로** (2026-07-30 구현, `utils/frame_source.py` + `main.py`)
 
-**배경:** 2026-07-29 CSI 카메라(IMX708)가 I2C 무응답으로 **물리적으로 사망**했다
-(`docs/vision_report_video.md` §1). 2차예선 마감이 임박해 USB 웹캠으로 임시 대체한다.
-**절차 정본은 `docs/vision_webcam_fallback.md`**(구매 체크리스트 → 화각 실측 → `nominal.yaml`
-생성 → 실행). 여기는 설계 판단만 적는다.
+> 🔴 **기본 경로는 라파(CSI) 카메라다.** 2026-07-31 사용자 확인: 웹캠은 *"어쩌면 해야 할지도
+> 모르는"* **조건부 대비책**이고 **아직 발동되지 않았다**(웹캠을 사지도, 실행하지도 않았다).
+> 그 외의 경우엔 기존대로 `LiveFrameSource`(picamera2) 경로로 진행한다.
+> **발동 조건·발동 시 절차·잃는 것 목록은 `docs/vision_webcam_fallback.md` §0.** 여기는 설계
+> 판단만 적는다.
 
-> 중간에 검토했다가 접은 안: 휴대폰 **IP Webcam**(MJPEG over HTTP). 사용자 실측 결과 화질이
-> 부족했고, 무선이라 현장 2.4GHz 링크와 대역을 다투는 문제도 있었다(메모리 항목 19의 RF 손실).
+**병합해 둔 이유(기본 경로 비용 0):** 급할 때 코드부터 짜면 늦는다. 그래도 `uvc`는 `input`
+위치인자의 **opt-in 특수값**이라 안 쓰면 한 줄도 실행되지 않고, `_run_live` 시그니처·동작은
+**무변경**이며, `UvcFrameSource`는 `cv2`만 쓰고 picamera2/libcamera를 건드리지 않는다.
+**쓸 일이 없으면 없는 것과 같다.**
+
+**배경:** 2026-07-29 CSI 카메라(IMX708)가 I2C 무응답을 냈다(`docs/vision_report_video.md` §1).
+리본 재체결·재부팅으로 복구되지 않아 모듈 자체 문제로 판정됐고, **모듈 교체로 기본 경로를
+복구하는 것이 1순위**다. 이 경로는 그게 막혔을 때의 2순위다.
+
+> 🔵 **이미 기각된 대안 — 다시 꺼내지 말 것:** 휴대폰 **IP Webcam**(MJPEG over HTTP). 사용자가
+> 실제로 시험했고 **화질 부족으로 기각**됐다. 무선이라 현장 2.4GHz 링크와 대역을 다투는 문제도
+> 있었다(메모리 `project_rpi5_tailscale_wifi_drops` 항목19의 RF 손실).
 
 ### 이 경로가 CSI보다 단순한 이유
 
@@ -1414,12 +1425,16 @@ on_open, ...)`로 추출하고 `_run_live`/`_run_uvc`가 공유한다. **소스 
 `--uvc-*` 인자는 새로 뒀지만 **`--live-retries`/`--live-retry-delay`는 재사용**한다 — 의미가
 같은 노브를 두 벌로 나누면 현장에서 어느 쪽이 먹는지 헷갈린다.
 
-### 🔴 실물 웹캠 미검증
+### 🔴 실물 웹캠 미검증 — 그리고 발동 전까지는 검증할 방법이 없다
 
-이 작업 시점에 웹캠이 아직 없었다(사용자가 구매하러 간 사이 작성). 가짜 `cv2.VideoCapture`
-주입 단위테스트 22건까지만 했고 **실물 UVC 장치에서 실행된 적이 없다.** 특히 다음 3가지는
-실물로만 확인된다: ① `--list-formats-ext`가 보고하는 조합과 `cap.set()` 실제 동작의 일치
-② 요청 해상도가 실제로 걸리는지(= 하드 실패가 헛발동하지 않는지) ③ 초점 컨트롤 유무.
+**웹캠 자체가 없다**(예비 경로라 구매가 발동 조건부다). 가짜 `cv2.VideoCapture` 주입
+단위테스트 22건까지만 했고 **실물 UVC 장치에서 실행된 적이 없다.** 다음 3가지는 실물로만
+확인된다: ① `--list-formats-ext`가 보고하는 조합과 `cap.set()` 실제 동작의 일치 ② 요청
+해상도가 실제로 걸리는지(= 하드 실패가 헛발동하지 않는지) ③ 초점 컨트롤 유무.
+
+⚠️ **그래서 "발동 = 즉시 사용 가능"이 아니다.** 발동하면 위 3가지 실물 확인 + 화각 실측 +
+`nominal.yaml` 산출이 앞에 붙는다(`docs/vision_webcam_fallback.md` §3~4). 일정을 볼 때 이
+리드타임을 0으로 잡지 말 것.
 
 ---
 
